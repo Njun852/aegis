@@ -1,0 +1,20 @@
+:root{
+/* Font families are loaded with next/font in src/app/layout.tsx, which exposes
+   them as the --font-plus-jakarta / --font-inter / --font-jetbrains-mono vars. */
+--font-display:var(--font-plus-jakarta),"Segoe UI",system-ui,sans-serif;
+--font-body:var(--font-inter),system-ui,-apple-system,sans-serif;
+--font-mono:var(--font-jetbrains-mono),ui-monospace,SFMono-Regular,monospace;
+
+--text-display-size:32px;--text-display-lh:38px;--text-display-weight:700;--text-display-ls:-.02em;
+--text-h1-size:26px;--text-h1-lh:32px;--text-h1-weight:700;--text-h1-ls:-.015em;
+--text-h2-size:20px;--text-h2-lh:26px;--text-h2-weight:700;--text-h2-ls:-.01em;
+--text-h3-size:15px;--text-h3-lh:20px;--text-h3-weight:600;--text-h3-ls:-.005em;
+--text-metric-size:24px;--text-metric-lh:30px;--text-metric-weight:700;--text-metric-ls:-.02em;
+--text-metric-lg-size:34px;--text-metric-lg-lh:40px;
+--text-body-size:14px;--text-body-lh:21px;--text-body-weight:400;
+--text-body-sm-size:13px;--text-body-sm-lh:19px;
+--text-label-size:12px;--text-label-lh:16px;--text-label-weight:500;
+--text-caption-size:11px;--text-caption-lh:15px;--text-caption-weight:400;
+--text-overline-size:10px;--text-overline-lh:14px;--text-overline-weight:600;--text-overline-ls:.08em;
+--numeric-features:"tnum" 1,"cv01" 1;
+}

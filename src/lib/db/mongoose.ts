@@ -6,6 +6,10 @@ if (!uri) {
   throw new Error("Missing MONGODB_URI environment variable");
 }
 
+// Re-bound after the guard: the narrowing on `uri` does not survive into the
+// async function below, so `mongoose.connect` would see `string | undefined`.
+const connectionUri: string = uri;
+
 // Cached on the global object so hot reloads in dev reuse the same
 // connection instead of opening a new one on every module re-evaluation.
 interface MongooseCache {
@@ -26,7 +30,7 @@ export default async function dbConnect(): Promise<Mongoose> {
   }
 
   if (!cache.promise) {
-    cache.promise = mongoose.connect(uri, {
+    cache.promise = mongoose.connect(connectionUri, {
       dbName: process.env.MONGODB_DB_NAME,
     });
   }

@@ -1,0 +1,27 @@
+/* Below 1240px the three panes stack and each gets a workable fixed height;
+   at 1240px and up they become the side-by-side, full-height mail layout. */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--card-gap);
+  min-height: 0;
+}
+
+.panes {
+  display: grid;
+  gap: var(--card-gap);
+  grid-template-rows: 420px 560px 640px;
+  min-height: 0;
+}
+
+@media (min-width: 1240px) {
+  .workspace {
+    height: 100%;
+  }
+
+  .panes {
+    flex: 1;
+    grid-template-columns: 252px 1.05fr 1.45fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
