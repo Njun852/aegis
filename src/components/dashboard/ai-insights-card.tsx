@@ -1,14 +1,12 @@
 "use client";
 
 import { InsightPanel } from "@/components/ui";
-import { DASHBOARD_INSIGHT } from "@/lib/data/dashboard";
+import { useDashboardRange } from "./dashboard-range-provider";
 
 export function AiInsightsCard() {
+  const { data } = useDashboardRange();
+
   return (
-    <InsightPanel
-      title="AI Insights"
-      body={DASHBOARD_INSIGHT}
-      action="View Full Report"
-    />
+    <InsightPanel title="AI Insights" body={data.insight} action="View Full Report" />
   );
 }

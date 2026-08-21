@@ -1,4 +1,5 @@
 import type {
+  ComposeDraftSuggestion,
   MailMessage,
   MailMonitorEntry,
   MailPriority,
@@ -267,4 +268,26 @@ export const MAIL_FOLDERS: { label: string; icon: string }[] = [
   { label: "Sales", icon: "users" },
   { label: "Marketing", icon: "megaphone" },
   { label: "Compliance", icon: "file-text" },
+];
+
+/** "AI Assist" suggestions in the compose modal — replies tied to existing threads. */
+export const COMPOSE_DRAFT_SUGGESTIONS: ComposeDraftSuggestion[] = [
+  {
+    label: "Reply to Harbor renewal",
+    to: "sofia@harborlogistics.com",
+    subject: "Re: Contract renewal — Harbor Logistics",
+    body: "Hi Sofia,\n\nWe are prepared to commit to the 24-month term at the 3% adjustment, provided the fuel surcharge cap carries over unchanged.\n\nSend the paperwork and we will countersign before Friday.\n\nBest,\nAhmed",
+  },
+  {
+    label: "Chase overdue invoice",
+    to: "billing-noreply@paystream.io",
+    subject: "INV-40219 — payment scheduled",
+    body: "Hello,\n\nInvoice INV-40219 is scheduled for payment on June 1, ahead of the June 3 late-fee date. Remittance reference to follow once settled.\n\nRegards,\nAhmed Ben",
+  },
+  {
+    label: "Confirm split delivery",
+    to: "m.webb@brightpath.co",
+    subject: "Re: Fleet expansion quote — 14 units",
+    body: "Hi Marcus,\n\nThe volume discount holds on the staggered schedule: 8 units in Q3 and 6 in Q4. Updated paperwork is attached for countersignature.\n\nThanks,\nAhmed",
+  },
 ];

@@ -41,6 +41,7 @@ export function MailErrorBanner({ onRetry, onDismiss }: MailErrorBannerProps) {
             fontSize: "12px",
             color: "var(--text-secondary)",
             textWrap: "pretty",
+            overflowWrap: "anywhere",
           }}
         >
           Gmail API returned{" "}

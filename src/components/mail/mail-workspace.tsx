@@ -5,6 +5,7 @@ import { useSync } from "@/components/layout/sync-provider";
 import { MESSAGES } from "@/lib/data/mail";
 import { buildFolders, buildPriorityFilters, filterMessages } from "@/lib/mail";
 import type { MailFolderName, MailPriorityFilter } from "@/types";
+import { ComposeModal } from "./compose-modal";
 import { MailErrorBanner } from "./mail-error-banner";
 import { MailFolderRail } from "./mail-folder-rail";
 import { MailHeader } from "./mail-header";
@@ -19,6 +20,7 @@ export function MailWorkspace() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [showError, setShowError] = useState(true);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   const { syncing, sync } = useSync();
 
@@ -66,6 +68,7 @@ export function MailWorkspace() {
           priorities={priorities}
           activePriority={priority}
           onSelectPriority={setPriority}
+          onCompose={() => setComposeOpen(true)}
         />
         <MessageList
           messages={visible}
@@ -76,11 +79,14 @@ export function MailWorkspace() {
           onQueryChange={setQuery}
         />
         <MessageDetail
+          key={active.id}
           message={active}
           draft={draft}
           onDraftChange={setDraft}
         />
       </div>
+
+      <ComposeModal open={composeOpen} onClose={() => setComposeOpen(false)} />
     </div>
   );
 }

@@ -23,7 +23,7 @@ export type { DeltaIndicatorProps } from "./delta-indicator";
 export { DonutChart } from "./donut-chart";
 export type { DonutChartProps, DonutSegment } from "./donut-chart";
 export { Icon } from "./icon";
-export type { IconProps } from "./icon";
+export type { IconName, IconProps } from "./icon";
 export { IconButton } from "./icon-button";
 export type { IconButtonProps } from "./icon-button";
 export { InsightPanel } from "./insight-panel";

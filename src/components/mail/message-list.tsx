@@ -101,6 +101,7 @@ export function MessageList({
                   </span>
                   <span
                     style={{
+                      minWidth: 0,
                       fontSize: "11.5px",
                       color: "var(--text-secondary)",
                       lineHeight: "16px",
@@ -108,6 +109,7 @@ export function MessageList({
                       WebkitLineClamp: 2,
                       WebkitBoxOrient: "vertical",
                       overflow: "hidden",
+                      overflowWrap: "anywhere",
                     }}
                   >
                     {message.aiSummary}

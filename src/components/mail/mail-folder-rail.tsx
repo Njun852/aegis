@@ -16,6 +16,7 @@ export interface MailFolderRailProps {
   priorities: MailPriorityOption[];
   activePriority: MailPriorityFilter;
   onSelectPriority: (priority: MailPriorityFilter) => void;
+  onCompose: () => void;
 }
 
 export function MailFolderRail({
@@ -25,6 +26,7 @@ export function MailFolderRail({
   priorities,
   activePriority,
   onSelectPriority,
+  onCompose,
 }: MailFolderRailProps) {
   return (
     <section
@@ -42,7 +44,7 @@ export function MailFolderRail({
       }}
     >
       <div style={{ marginBottom: "8px" }}>
-        <Button variant="primary" size="md" icon="pen-line" fullWidth>
+        <Button variant="primary" size="md" icon="pen-line" fullWidth onClick={onCompose}>
           Compose
         </Button>
       </div>

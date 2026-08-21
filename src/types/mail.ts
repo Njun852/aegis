@@ -61,3 +61,11 @@ export interface MailMonitorEntry {
   meta: string;
   dot: string;
 }
+
+/** A canned "AI Assist" reply the compose modal can drop into the draft. */
+export interface ComposeDraftSuggestion {
+  label: string;
+  to: string;
+  subject: string;
+  body: string;
+}

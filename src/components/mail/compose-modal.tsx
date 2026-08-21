@@ -1,0 +1,265 @@
+"use client";
+
+import { useState } from "react";
+import { Badge, Button, Icon, IconButton } from "@/components/ui";
+import { COMPOSE_DRAFT_SUGGESTIONS } from "@/lib/data/mail";
+import { ORGANIZATION } from "@/lib/data/workspace";
+
+export interface ComposeModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export function ComposeModal({ open, onClose }: ComposeModalProps) {
+  const [ccOpen, setCcOpen] = useState(false);
+  const [to, setTo] = useState("");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+
+  if (!open) return null;
+
+  const discard = () => {
+    setTo("");
+    setCc("");
+    setSubject("");
+    setBody("");
+    setCcOpen(false);
+    onClose();
+  };
+
+  const savedLabel = body || subject ? "Draft saved" : "No changes yet";
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center p-8">
+      <div
+        onClick={onClose}
+        className="absolute inset-0"
+        style={{ background: "rgba(23,28,37,.28)" }}
+      />
+      <div
+        className="relative flex max-h-full w-full max-w-[720px] flex-col overflow-hidden"
+        style={{
+          background: "var(--surface-card)",
+          border: "1px solid var(--border-default)",
+          borderRadius: "var(--radius-xl)",
+          boxShadow: "var(--shadow-popover)",
+        }}
+      >
+        <div
+          className="flex flex-none items-center gap-3"
+          style={{ padding: "16px 18px", borderBottom: "1px solid var(--border-subtle)" }}
+        >
+          <span
+            style={{
+              width: 30,
+              height: 30,
+              flex: "0 0 auto",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--accent-soft)",
+              color: "var(--accent-primary)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Icon name="pen-line" size={16} />
+          </span>
+          <span className="flex min-w-0 flex-col leading-[1.25]">
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "15px",
+                fontWeight: 700,
+                letterSpacing: "-.015em",
+              }}
+            >
+              New Message
+            </span>
+            <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+              Sending as {ORGANIZATION.mailbox}
+            </span>
+          </span>
+          <span className="ml-auto flex items-center gap-2">
+            <Badge tone="positive" icon="shield-check">
+              Gmail
+            </Badge>
+            <IconButton icon="minus" size={32} label="Minimize" onClick={onClose} />
+            <IconButton icon="x" size={32} label="Close" onClick={onClose} />
+          </span>
+        </div>
+
+        <div className="flex flex-none flex-col">
+          <label
+            className="flex items-center gap-3"
+            style={{ padding: "11px 18px", borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <span style={{ flex: "0 0 52px", fontSize: "12px", color: "var(--text-muted)" }}>
+              To
+            </span>
+            <input
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              placeholder="name@company.com"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: 0,
+                outline: "none",
+                font: "inherit",
+                fontSize: "13.5px",
+                color: "var(--text-primary)",
+                background: "transparent",
+              }}
+            />
+            <span
+              onClick={() => setCcOpen((v) => !v)}
+              style={{
+                flex: "0 0 auto",
+                fontSize: "12px",
+                fontWeight: 600,
+                color: "var(--accent-primary)",
+                cursor: "pointer",
+              }}
+            >
+              Cc / Bcc
+            </span>
+          </label>
+
+          {ccOpen && (
+            <label
+              className="flex items-center gap-3"
+              style={{ padding: "11px 18px", borderBottom: "1px solid var(--border-subtle)" }}
+            >
+              <span style={{ flex: "0 0 52px", fontSize: "12px", color: "var(--text-muted)" }}>
+                Cc
+              </span>
+              <input
+                value={cc}
+                onChange={(event) => setCc(event.target.value)}
+                placeholder="Add recipients"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  border: 0,
+                  outline: "none",
+                  font: "inherit",
+                  fontSize: "13.5px",
+                  color: "var(--text-primary)",
+                  background: "transparent",
+                }}
+              />
+            </label>
+          )}
+
+          <label
+            className="flex items-center gap-3"
+            style={{ padding: "11px 18px", borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <span style={{ flex: "0 0 52px", fontSize: "12px", color: "var(--text-muted)" }}>
+              Subject
+            </span>
+            <input
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder="Add a subject"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: 0,
+                outline: "none",
+                font: "inherit",
+                fontSize: "13.5px",
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                background: "transparent",
+              }}
+            />
+          </label>
+        </div>
+
+        <div
+          className="flex flex-col gap-3.5"
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 18px" }}
+        >
+          <textarea
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            placeholder="Write your message…"
+            style={{
+              width: "100%",
+              minHeight: 190,
+              resize: "vertical",
+              border: "1px solid transparent",
+              borderRadius: "var(--radius-md)",
+              outline: "none",
+              font: "inherit",
+              fontSize: "13.5px",
+              lineHeight: "21px",
+              color: "var(--text-primary)",
+              background: "transparent",
+            }}
+          />
+          <div
+            className="flex flex-col gap-[9px]"
+            style={{
+              padding: "13px 15px",
+              border: "1px solid var(--blue-200)",
+              background: "#F5F9FF",
+              borderRadius: "var(--radius-lg)",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span style={{ color: "var(--accent-primary)", display: "inline-flex" }}>
+                <Icon name="sparkles" size={14} />
+              </span>
+              <span
+                style={{ fontSize: "11.5px", fontWeight: 700, color: "var(--text-accent)" }}
+              >
+                AI Assist
+              </span>
+              <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-secondary)" }}>
+                Drafts from your inbox context
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {COMPOSE_DRAFT_SUGGESTIONS.map((suggestion) => (
+                <Button
+                  key={suggestion.label}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setTo(suggestion.to);
+                    setSubject(suggestion.subject);
+                    setBody(suggestion.body);
+                  }}
+                >
+                  {suggestion.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="flex flex-none items-center gap-2.5"
+          style={{
+            padding: "14px 18px",
+            borderTop: "1px solid var(--border-subtle)",
+            background: "var(--gray-25)",
+          }}
+        >
+          <Button variant="primary" size="md" icon="send" onClick={onClose}>
+            Send
+          </Button>
+          <IconButton icon="paperclip" size={34} label="Attach file" />
+          <IconButton icon="clock" size={34} label="Schedule send" />
+          <span className="ml-auto flex items-center gap-2.5">
+            <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>{savedLabel}</span>
+            <IconButton icon="trash-2" size={34} label="Discard draft" onClick={discard} />
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}

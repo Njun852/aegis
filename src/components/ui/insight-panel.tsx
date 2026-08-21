@@ -56,6 +56,7 @@ export function InsightPanel({
           lineHeight: "20px",
           color: "var(--text-secondary)",
           textWrap: "pretty",
+          overflowWrap: "anywhere",
         }}
       >
         {body}

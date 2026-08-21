@@ -1,11 +1,11 @@
+"use client";
+
 import { Card, DeltaIndicator, LegendItem } from "@/components/ui";
-import {
-  BOOKINGS_DELTA,
-  BOOKINGS_TOTAL,
-  BOOKING_ROWS,
-} from "@/lib/data/dashboard";
+import { useDashboardRange } from "./dashboard-range-provider";
 
 export function BookingsCard() {
+  const { data } = useDashboardRange();
+
   return (
     <Card title="Bookings" padding="16px">
       <div className="flex flex-col gap-3">
@@ -20,12 +20,12 @@ export function BookingsCard() {
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {BOOKINGS_TOTAL}
+            {data.bookingsTotal}
           </div>
-          <DeltaIndicator value={BOOKINGS_DELTA} size={11} />
+          <DeltaIndicator value={data.bookingsDelta} size={11} />
         </div>
         <div className="flex flex-col gap-2.5">
-          {BOOKING_ROWS.map((row) => (
+          {data.bookingRows.map((row) => (
             <LegendItem
               key={row.label}
               color={row.color}

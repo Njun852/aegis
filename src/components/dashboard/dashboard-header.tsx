@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import { Select } from "@/components/ui";
 import { DATE_RANGES } from "@/lib/data/dashboard";
 import { CURRENT_USER } from "@/lib/data/workspace";
+import { useDashboardRange } from "./dashboard-range-provider";
+import type { DateRange } from "@/types";
 
 export function DashboardHeader() {
-  const [range, setRange] = useState(DATE_RANGES[0]);
+  const { range, setRange } = useDashboardRange();
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4">
@@ -38,7 +39,7 @@ export function DashboardHeader() {
         leadingIcon="calendar"
         options={DATE_RANGES}
         value={range}
-        onChange={setRange}
+        onChange={(value) => setRange(value as DateRange)}
       />
     </div>
   );

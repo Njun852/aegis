@@ -42,3 +42,20 @@ export interface AdTile {
   value: string;
   delta: string;
 }
+
+/** The dashboard's date-range picker options, in display order. */
+export type DateRange = "May 01 – May 31, 2026" | "Apr 01 – Apr 30, 2026" | "Q2 2026";
+
+/** Everything on the dashboard that varies with the selected date range. */
+export interface DashboardRangeData {
+  kpis: Kpi[];
+  revenueTotal: string;
+  revenueDelta: string;
+  revenueHighlightMonth: string;
+  revenueMonths: RevenueMonth[];
+  bookingsTotal: string;
+  bookingsDelta: string;
+  bookingRows: BookingRow[];
+  adTiles: AdTile[];
+  insight: string;
+}

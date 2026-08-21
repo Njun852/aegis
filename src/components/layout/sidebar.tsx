@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/components/auth/auth-provider";
 import { Avatar, Button, IconButton, NavItem, UserChip } from "@/components/ui";
 import {
   COMING_SOON_MODULES,
@@ -25,12 +26,15 @@ export function Sidebar({
   unreadCount,
 }: SidebarProps) {
   const pathname = usePathname();
-  const isActive = (href: string) => pathname.startsWith(href);
+  const { signOut } = useAuth();
 
   return (
     <aside
       style={{
         flex: "0 0 auto",
+        // Without this the nav labels' min-content width wins over the
+        // collapsed width and the rail never actually narrows.
+        minWidth: 0,
         width: collapsed
           ? "var(--sidebar-width-collapsed)"
           : "var(--sidebar-width)",
@@ -131,7 +135,7 @@ export function Sidebar({
                 key={item.href}
                 icon={item.icon}
                 label={item.label}
-                active={isActive(item.href)}
+                active={pathname.startsWith(item.href)}
                 badge={item.href === "/mail" && unreadCount > 0}
                 onClick={onNavigate}
               />
@@ -145,7 +149,7 @@ export function Sidebar({
                 href={item.href}
                 icon={item.icon}
                 label={item.label}
-                active={isActive(item.href)}
+                active={pathname.startsWith(item.href)}
                 badge={item.href === "/mail" ? unreadCount : undefined}
                 onClick={onNavigate}
               />
@@ -165,20 +169,33 @@ export function Sidebar({
           <SectionLabel style={{ paddingTop: "20px" }}>Modules</SectionLabel>
         )}
 
-        {COMING_SOON_MODULES.map((module) => (
-          <div
-            key={module.label}
-            title="Coming soon"
-            style={{ opacity: 0.45, pointerEvents: "none" }}
-          >
-            <NavItem
-              icon={module.icon}
-              label={module.label}
-              badge={collapsed ? undefined : module.badge}
-              disabled
-            />
-          </div>
-        ))}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: collapsed ? "6px" : "2px",
+            alignItems: collapsed ? "center" : "stretch",
+          }}
+        >
+          {COMING_SOON_MODULES.map((module) => (
+            <div
+              key={module.label}
+              title="Coming soon"
+              style={{ opacity: 0.45, pointerEvents: "none" }}
+            >
+              {collapsed ? (
+                <IconButton icon={module.icon} label={module.label} disabled />
+              ) : (
+                <NavItem
+                  icon={module.icon}
+                  label={module.label}
+                  badge={module.badge}
+                  disabled
+                />
+              )}
+            </div>
+          ))}
+        </div>
       </nav>
 
       <div
@@ -223,7 +240,7 @@ export function Sidebar({
                 margin: "4px",
               }}
             />
-            <Button variant="danger" size="sm" icon="log-out" fullWidth>
+            <Button variant="danger" size="sm" icon="log-out" fullWidth onClick={signOut}>
               Log out
             </Button>
           </div>

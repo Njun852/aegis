@@ -82,7 +82,13 @@ export function NavItem({
 
   if (href && !disabled) {
     return (
-      <Link href={href} onClick={onClick} style={rootStyle} {...handlers}>
+      <Link
+        href={href}
+        onClick={onClick}
+        aria-current={active ? "page" : undefined}
+        style={rootStyle}
+        {...handlers}
+      >
         {content}
       </Link>
     );

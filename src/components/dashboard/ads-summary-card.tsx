@@ -1,11 +1,15 @@
+"use client";
+
 import { Card, DeltaIndicator } from "@/components/ui";
-import { AD_TILES } from "@/lib/data/dashboard";
+import { useDashboardRange } from "./dashboard-range-provider";
 
 export function AdsSummaryCard() {
+  const { data } = useDashboardRange();
+
   return (
     <Card title="Ads Summary" padding="16px">
       <div className="grid grid-cols-2 gap-2">
-        {AD_TILES.map((tile) => (
+        {data.adTiles.map((tile) => (
           <div
             key={tile.label}
             className="flex flex-col gap-[3px] rounded-[var(--radius-md)] border border-[var(--border-subtle)] px-[11px] py-[9px]"

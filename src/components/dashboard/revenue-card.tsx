@@ -1,12 +1,11 @@
+"use client";
+
 import { BarChart, Card, DeltaIndicator, LegendItem } from "@/components/ui";
-import {
-  REVENUE_DELTA,
-  REVENUE_HIGHLIGHT_MONTH,
-  REVENUE_MONTHS,
-  REVENUE_TOTAL,
-} from "@/lib/data/dashboard";
+import { useDashboardRange } from "./dashboard-range-provider";
 
 export function RevenueCard() {
+  const { data } = useDashboardRange();
+
   return (
     <Card title="Revenue Overview" padding="16px">
       <div className="mb-2.5 flex flex-wrap items-end justify-between gap-4">
@@ -21,9 +20,9 @@ export function RevenueCard() {
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            {REVENUE_TOTAL}
+            {data.revenueTotal}
           </div>
-          <DeltaIndicator value={REVENUE_DELTA} size={11} />
+          <DeltaIndicator value={data.revenueDelta} size={11} />
         </div>
         <div className="flex items-center gap-[18px]">
           <LegendItem color="var(--viz-1)" label="Revenue" />
@@ -31,9 +30,9 @@ export function RevenueCard() {
         </div>
       </div>
       <BarChart
-        data={REVENUE_MONTHS}
+        data={data.revenueMonths}
         height={160}
-        highlight={REVENUE_HIGHLIGHT_MONTH}
+        highlight={data.revenueHighlightMonth}
       />
     </Card>
   );
