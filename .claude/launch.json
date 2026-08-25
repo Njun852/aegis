@@ -4,7 +4,12 @@
     {
       "name": "aegis-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "C:/Users/njunj/web/aegis",
+        "run",
+        "dev"
+      ],
       "port": 3000
     }
   ]

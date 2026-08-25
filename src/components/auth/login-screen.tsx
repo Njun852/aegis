@@ -1,39 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
+import { signInAction } from "@/app/actions/auth";
+import type { SignInState } from "@/app/actions/auth";
 import { Button, Icon, IconButton } from "@/components/ui";
 import { ORGANIZATION } from "@/lib/data/workspace";
-import { useAuth } from "./auth-provider";
 
-const SIGN_IN_DELAY_MS = 700;
+const INITIAL: SignInState = { error: null };
 
-/** Full-screen gate rendered instead of the app shell while signed out. */
+/** Full-screen sign-in, rendered by /login when there is no session. */
 export function LoginScreen() {
-  const auth = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [state, formAction] = useActionState(signInAction, INITIAL);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState(false);
-  const [signingIn, setSigningIn] = useState(false);
-
-  const handleSignIn = () => {
-    if (!email.trim() || !password.trim()) {
-      setError(true);
-      return;
-    }
-    setSigningIn(true);
-    setTimeout(() => {
-      setSigningIn(false);
-      auth.signIn();
-    }, SIGN_IN_DELAY_MS);
-  };
 
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto"
       style={{ background: "var(--bg-app)", padding: "32px 24px" }}
     >
-      <div className="flex w-full max-w-[380px] flex-col gap-4">
+      <form action={formAction} className="flex w-full max-w-[380px] flex-col gap-4">
         <div className="flex items-center justify-center gap-2.5">
           <span
             style={{
@@ -93,7 +79,7 @@ export function LoginScreen() {
             </p>
           </div>
 
-          {error && (
+          {state.error && (
             <div
               role="alert"
               className="flex items-start gap-2.5"
@@ -108,9 +94,14 @@ export function LoginScreen() {
                 <Icon name="circle-alert" size={15} />
               </span>
               <span
-                style={{ fontSize: "12px", color: "#912018", textWrap: "pretty" }}
+                style={{
+                  fontSize: "12px",
+                  color: "#912018",
+                  textWrap: "pretty",
+                  overflowWrap: "anywhere",
+                }}
               >
-                Enter your username and password to continue.
+                {state.error}
               </span>
             </div>
           )}
@@ -129,11 +120,8 @@ export function LoginScreen() {
               }}
             >
               <input
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setError(false);
-                }}
+                name="username"
+                autoComplete="username"
                 placeholder="ahmed.ben"
                 style={{
                   flex: 1,
@@ -177,12 +165,9 @@ export function LoginScreen() {
               }}
             >
               <input
-                value={password}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  setError(false);
-                }}
+                name="password"
                 type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
                 placeholder="••••••••••"
                 style={{
                   flex: 1,
@@ -205,15 +190,7 @@ export function LoginScreen() {
             </span>
           </label>
 
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            disabled={signingIn}
-            onClick={handleSignIn}
-          >
-            {signingIn ? "Signing in…" : "Sign in"}
-          </Button>
+          <SubmitButton />
         </div>
 
         <p
@@ -229,7 +206,18 @@ export function LoginScreen() {
             Contact your workspace admin
           </span>
         </p>
-      </div>
+      </form>
     </div>
+  );
+}
+
+/** Split out so `useFormStatus` can read the parent form's pending state. */
+function SubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <Button variant="primary" size="lg" fullWidth type="submit" disabled={pending}>
+      {pending ? "Signing in…" : "Sign in"}
+    </Button>
   );
 }

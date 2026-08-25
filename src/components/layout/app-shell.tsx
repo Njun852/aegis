@@ -43,6 +43,7 @@ function ShellFrame({ children, unreadCount }: AppShellProps) {
         userMenuOpen={userMenuOpen}
         unreadCount={unreadCount}
         onToggleUserMenu={() => setUserMenuOpen((open) => !open)}
+        onCloseMenus={() => setUserMenuOpen(false)}
         onNavigate={() => setUserMenuOpen(false)}
       />
       <div

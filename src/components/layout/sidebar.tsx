@@ -1,19 +1,23 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useAuth } from "@/components/auth/auth-provider";
+import { usePathname, useRouter } from "next/navigation";
+import { signOutAction } from "@/app/actions/auth";
+import { useBusiness } from "@/components/business/business-provider";
+import { BusinessSwitcher } from "@/components/business/business-switcher";
 import { Avatar, Button, IconButton, NavItem, UserChip } from "@/components/ui";
+import { OPTIONAL_MODULES } from "@/lib/data/businesses";
 import {
-  COMING_SOON_MODULES,
   CURRENT_USER,
-  ORGANIZATION,
+  INTERNAL_NAV,
   WORKSPACE_NAV,
 } from "@/lib/data/workspace";
+import type { OptionalModuleKey } from "@/types";
 
 export interface SidebarProps {
   collapsed: boolean;
   userMenuOpen: boolean;
   onToggleUserMenu: () => void;
+  onCloseMenus: () => void;
   onNavigate: () => void;
   unreadCount: number;
 }
@@ -22,11 +26,18 @@ export function Sidebar({
   collapsed,
   userMenuOpen,
   onToggleUserMenu,
+  onCloseMenus,
   onNavigate,
   unreadCount,
 }: SidebarProps) {
   const pathname = usePathname();
-  const { signOut } = useAuth();
+  const router = useRouter();
+  const { activeBusiness, hasModule, isAdmin } = useBusiness();
+
+  const go = (href: string) => {
+    onNavigate();
+    router.push(href);
+  };
 
   return (
     <aside
@@ -46,67 +57,7 @@ export function Sidebar({
         overflow: "hidden",
       }}
     >
-      <div
-        style={{
-          height: "var(--topbar-height)",
-          flex: "0 0 auto",
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          padding: "0 16px",
-          borderBottom: "1px solid var(--border-subtle)",
-        }}
-      >
-        <span
-          style={{
-            width: 28,
-            height: 28,
-            flex: "0 0 auto",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--grad-primary)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "var(--font-display)",
-            fontWeight: 800,
-            fontSize: "14px",
-            color: "#fff",
-          }}
-        >
-          A
-        </span>
-        {!collapsed && (
-          <span
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              lineHeight: 1.15,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--font-display)",
-                fontWeight: 700,
-                fontSize: "16px",
-                letterSpacing: "-.01em",
-              }}
-            >
-              {ORGANIZATION.product}
-            </span>
-            <span
-              style={{
-                fontSize: "10.5px",
-                letterSpacing: ".09em",
-                textTransform: "uppercase",
-                color: "var(--text-muted)",
-              }}
-            >
-              {ORGANIZATION.name}
-            </span>
-          </span>
-        )}
-      </div>
+      <BusinessSwitcher collapsed={collapsed} onOpen={onCloseMenus} />
 
       <nav
         style={{
@@ -137,7 +88,7 @@ export function Sidebar({
                 label={item.label}
                 active={pathname.startsWith(item.href)}
                 badge={item.href === "/mail" && unreadCount > 0}
-                onClick={onNavigate}
+                onClick={() => go(item.href)}
               />
             ))}
           </div>
@@ -158,13 +109,7 @@ export function Sidebar({
         )}
 
         {collapsed ? (
-          <div
-            style={{
-              height: 1,
-              background: "var(--border-subtle)",
-              margin: "14px 6px",
-            }}
-          />
+          <Divider />
         ) : (
           <SectionLabel style={{ paddingTop: "20px" }}>Modules</SectionLabel>
         )}
@@ -177,25 +122,97 @@ export function Sidebar({
             alignItems: collapsed ? "center" : "stretch",
           }}
         >
-          {COMING_SOON_MODULES.map((module) => (
+          {OPTIONAL_MODULES.map((module) => {
+            const key = module.key as OptionalModuleKey;
+            const enabled = hasModule(key);
+            // Entitled modules go to their own route. The rest land on the
+            // module page, which explains that it is not switched on — the
+            // design keeps them visible rather than hiding them.
+            const href = enabled
+              ? (module.href ?? `/modules/${key}`)
+              : `/modules/${key}`;
+            const hint = enabled
+              ? `${module.name} — enabled for ${activeBusiness.name}`
+              : `${module.name} — not enabled for ${activeBusiness.name}`;
+
+            return (
+              <div
+                key={key}
+                title={hint}
+                style={{
+                  display: "flex",
+                  minWidth: 0,
+                  justifyContent: collapsed ? "center" : "stretch",
+                  opacity: enabled ? 1 : 0.55,
+                }}
+              >
+                {collapsed ? (
+                  <IconButton
+                    icon={module.icon}
+                    label={hint}
+                    active={pathname === href}
+                    onClick={() => go(href)}
+                  />
+                ) : (
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <NavItem
+                      href={href}
+                      icon={module.icon}
+                      label={module.name}
+                      badge={enabled ? undefined : "Off"}
+                      active={pathname === href}
+                      onClick={onNavigate}
+                    />
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {isAdmin && (
+          <>
+            {collapsed ? (
+              <Divider />
+            ) : (
+              <SectionLabel style={{ paddingTop: "20px" }}>
+                Internal
+              </SectionLabel>
+            )}
+
             <div
-              key={module.label}
-              title="Coming soon"
-              style={{ opacity: 0.45, pointerEvents: "none" }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: collapsed ? "6px" : "2px",
+                alignItems: collapsed ? "center" : "stretch",
+              }}
             >
-              {collapsed ? (
-                <IconButton icon={module.icon} label={module.label} disabled />
-              ) : (
-                <NavItem
-                  icon={module.icon}
-                  label={module.label}
-                  badge={module.badge}
-                  disabled
-                />
+              {INTERNAL_NAV.map((item) =>
+                collapsed ? (
+                  <IconButton
+                    key={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    active={pathname.startsWith("/admin")}
+                    onClick={() => go(item.href)}
+                  />
+                ) : (
+                  <span key={item.href} style={{ minWidth: 0 }}>
+                    <NavItem
+                      href={item.href}
+                      icon={item.icon}
+                      label={item.label}
+                      badge="Admin"
+                      active={pathname.startsWith("/admin")}
+                      onClick={onNavigate}
+                    />
+                  </span>
+                ),
               )}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </nav>
 
       <div
@@ -227,10 +244,36 @@ export function Sidebar({
               zIndex: 20,
             }}
           >
-            <Button variant="ghost" size="sm" icon="user" fullWidth>
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="building-2"
+                fullWidth
+                style={{ justifyContent: "flex-start" }}
+                onClick={() => go("/admin/businesses")}
+              >
+                Business Management
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="user"
+              fullWidth
+              style={{ justifyContent: "flex-start" }}
+              onClick={() => go("/modules/profile")}
+            >
               Profile
             </Button>
-            <Button variant="ghost" size="sm" icon="settings" fullWidth>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="settings"
+              fullWidth
+              style={{ justifyContent: "flex-start" }}
+              onClick={() => go("/modules/settings")}
+            >
               Account Settings
             </Button>
             <div
@@ -240,7 +283,13 @@ export function Sidebar({
                 margin: "4px",
               }}
             />
-            <Button variant="danger" size="sm" icon="log-out" fullWidth onClick={signOut}>
+            <Button
+              variant="danger"
+              size="sm"
+              icon="log-out"
+              fullWidth
+              onClick={() => signOutAction()}
+            >
               Log out
             </Button>
           </div>
@@ -259,6 +308,18 @@ export function Sidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+function Divider() {
+  return (
+    <div
+      style={{
+        height: 1,
+        background: "var(--border-subtle)",
+        margin: "14px 6px",
+      }}
+    />
   );
 }
 

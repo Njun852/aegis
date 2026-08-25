@@ -1,8 +1,10 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useBusiness } from "@/components/business/business-provider";
 import { Avatar, IconButton } from "@/components/ui";
-import { CURRENT_USER, WORKSPACE_NAV } from "@/lib/data/workspace";
+import { CURRENT_USER } from "@/lib/data/workspace";
+import { routeTitle } from "@/lib/navigation";
 
 export interface TopbarProps {
   onToggleSidebar: () => void;
@@ -16,7 +18,8 @@ export function Topbar({
   hasNotifications,
 }: TopbarProps) {
   const pathname = usePathname();
-  const current = WORKSPACE_NAV.find((item) => pathname.startsWith(item.href));
+  const { businesses } = useBusiness();
+  const title = routeTitle(pathname, businesses);
 
   return (
     <header
@@ -64,7 +67,7 @@ export function Topbar({
               textOverflow: "ellipsis",
             }}
           >
-            {current?.title ?? "AEGIS AI"}
+            {title}
           </h1>
           <span
             style={{

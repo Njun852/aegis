@@ -1,4 +1,4 @@
-import type { ComingSoonModule, NavLink } from "@/types";
+import type { NavLink } from "@/types";
 
 export const ORGANIZATION = {
   name: "Northwind Group",
@@ -12,7 +12,7 @@ export const CURRENT_USER = {
   role: "Administrator",
 };
 
-/** Modules that are live today. Each one is a real route. */
+/** Core modules — every business has these, so they are never gated. */
 export const WORKSPACE_NAV: NavLink[] = [
   {
     href: "/dashboard",
@@ -21,12 +21,20 @@ export const WORKSPACE_NAV: NavLink[] = [
     title: "Dashboard",
   },
   { href: "/mail", label: "Mail", icon: "mail", title: "Mail" },
+  {
+    href: "/modules/ads",
+    label: "Ads",
+    icon: "megaphone",
+    title: "Ads",
+  },
 ];
 
-/** Sidebar placeholders — no routes behind these yet. */
-export const COMING_SOON_MODULES: ComingSoonModule[] = [
-  { label: "Ads", icon: "megaphone", badge: "Soon" },
-  { label: "CRM", icon: "users", badge: "Soon" },
-  { label: "Inventory", icon: "package", badge: "Soon" },
-  { label: "Fleet", icon: "truck", badge: "Soon" },
+/** AEGIS-internal tooling, not part of any customer's module plan. */
+export const INTERNAL_NAV: NavLink[] = [
+  {
+    href: "/admin/businesses",
+    label: "Business Management",
+    icon: "building-2",
+    title: "Business Management",
+  },
 ];
