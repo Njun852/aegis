@@ -6,7 +6,7 @@ import { Badge, Button, Icon } from "@/components/ui";
 import { findStubPage } from "@/lib/businesses";
 import type { ModuleKey } from "@/types";
 
-/** Business names can end in a period ("BrightPath Co."); don't double it. */
+/** Business names can end in a period ("Calder & Sons Ltd."); don't double it. */
 function sentence(text: string) {
   return text.replace(/\.\.+/g, ".");
 }

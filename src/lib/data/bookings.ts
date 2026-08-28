@@ -1,21 +1,8 @@
 import type {
-  Booking,
   BookingRange,
   BookingStatus,
   BookingStatusStyle,
 } from "@/types";
-
-/** The sample data is dated, so "today" is fixed rather than read off the clock. */
-export const TODAY = "Aug 24";
-export const TODAY_ISO = "2026-08-24";
-
-export const BOOKING_RANGES: BookingRange[] = [
-  "Aug 20 – Aug 27, 2026",
-  "This week",
-  "Next 30 days",
-];
-
-export const DEFAULT_BOOKING_RANGE: BookingRange = BOOKING_RANGES[0];
 
 export const BOOKING_STATUSES: BookingStatus[] = [
   "Confirmed",
@@ -33,38 +20,74 @@ export const BOOKING_STATUS_STYLES: Record<BookingStatus, BookingStatusStyle> = 
   Cancelled: { tone: "negative", dot: "var(--status-negative)" },
 };
 
+export const BOOKING_RANGES: BookingRange[] = [
+  "This week",
+  "Next 30 days",
+  "Past 30 days",
+  "All time",
+];
+
+export const DEFAULT_BOOKING_RANGE: BookingRange = "Next 30 days";
+
+/** How a booking reached us. Offered in the New Booking form. */
+export const BOOKING_CHANNELS = [
+  "Website form",
+  "Phone",
+  "Email",
+  "Referral",
+  "Walk-in",
+  "Internal",
+];
+
 /**
- * DATA SOURCE — stands in for the `bookings` collection. Every row carries the
- * business that owns it; nothing here is ever read without a business filter.
+ * SEED FIXTURE ONLY — `scripts/seed.ts` turns these into real documents on a
+ * fresh database, dated relative to the day it runs so the screen is never
+ * stuck in a past week. No screen imports this.
+ *
+ * `dayOffset` is days from today; `hour`/`minute` are local wall-clock.
  */
-export const BOOKINGS: Booking[] = [
+export interface BookingSeed {
+  customer: string;
+  company: string;
+  email: string;
+  service: string;
+  dayOffset: number;
+  hour: number;
+  minute: number;
+  durationMinutes: number;
+  staff: string;
+  valueCents: number;
+  status: BookingStatus;
+  channel: string;
+  notes: string;
+}
+
+export const BOOKING_SEEDS: BookingSeed[] = [
   {
-    ref: "BK-8241",
-    businessId: "BIZ-1042",
     customer: "Sofia Alvarez",
-    company: "Harbor Logistics",
-    email: "sofia@harborlogistics.com",
-    service: "Freight consultation",
-    duration: "45 min",
-    day: "Aug 24",
-    time: "09:00 – 09:45",
+    company: "Kestrel Haulage",
+    email: "sofia@kestrelhaulage.com",
+    service: "Full service & MOT",
+    dayOffset: 0,
+    hour: 9,
+    minute: 0,
+    durationMinutes: 45,
     staff: "Ahmed Ben",
     valueCents: 24000,
     status: "Confirmed",
     channel: "Website form",
     notes:
-      "Wants to review the 24-month renewal terms before the quarter closes. Bring the current rate card.",
+      "Fleet car due its annual MOT. Customer asked for a quote on rear discs at the same time.",
   },
   {
-    ref: "BK-8242",
-    businessId: "BIZ-1042",
     customer: "Marcus Reed",
-    company: "BrightPath Co.",
-    email: "m.reed@brightpath.co",
+    company: "Calder & Sons",
+    email: "m.reed@caldersons.com",
     service: "Fleet inspection",
-    duration: "2 hrs",
-    day: "Aug 24",
-    time: "11:00 – 13:00",
+    dayOffset: 0,
+    hour: 11,
+    minute: 0,
+    durationMinutes: 120,
     staff: "Dana Whitfield",
     valueCents: 78000,
     status: "In progress",
@@ -73,66 +96,61 @@ export const BOOKINGS: Booking[] = [
       "Annual inspection for six vehicles. Two units flagged for brake wear at the last service.",
   },
   {
-    ref: "BK-8243",
-    businessId: "BIZ-1042",
     customer: "Priya Nair",
-    company: "Vantage Insurance",
-    email: "p.nair@vantage-ins.com",
-    service: "Claims walkthrough",
-    duration: "30 min",
-    day: "Aug 24",
-    time: "15:30 – 16:00",
+    company: "Ardent Cover",
+    email: "p.nair@ardentcover.com",
+    service: "Warranty assessment",
+    dayOffset: 0,
+    hour: 15,
+    minute: 30,
+    durationMinutes: 30,
     staff: "Ahmed Ben",
     valueCents: 0,
     status: "Pending",
     channel: "Email",
     notes:
-      "Requested a walkthrough of the damaged-pallet claim process. No charge — retention call.",
+      "Assessing a gearbox claim under warranty. No charge — goodwill inspection.",
   },
   {
-    ref: "BK-8244",
-    businessId: "BIZ-1042",
     customer: "Tomás Ruiz",
-    company: "Ruiz Fabrication",
-    email: "tomas@ruizfab.com",
-    service: "Warehouse tour",
-    duration: "1 hr",
-    day: "Aug 25",
-    time: "10:00 – 11:00",
+    company: "Salvo Industries",
+    email: "tomas@salvoindustries.com",
+    service: "Diagnostics",
+    dayOffset: 1,
+    hour: 10,
+    minute: 0,
+    durationMinutes: 60,
     staff: "Léa Fontaine",
     valueCents: 15000,
     status: "Confirmed",
     channel: "Website form",
     notes:
-      "Evaluating overflow storage for Q4. Show the north bay and the racking upgrade.",
+      "Intermittent warning light on the dash. Bring the reader for the newer ECU.",
   },
   {
-    ref: "BK-8245",
-    businessId: "BIZ-1042",
     customer: "Hannah Kim",
-    company: "Northwind Group",
-    email: "h.kim@northwindgroup.com",
-    service: "Route planning session",
-    duration: "90 min",
-    day: "Aug 25",
-    time: "13:00 – 14:30",
+    company: "AUTOBLITZ",
+    email: "h.kim@autoblitz.com",
+    service: "Courtesy vehicle handover",
+    dayOffset: 1,
+    hour: 13,
+    minute: 0,
+    durationMinutes: 90,
     staff: "Dana Whitfield",
     valueCents: 42000,
     status: "Confirmed",
     channel: "Internal",
-    notes:
-      "Rework the last-mile loop after the Tuesday storm backlog. Pull the FL-118 route history.",
+    notes: "Handover and walkaround for the replacement courtesy car.",
   },
   {
-    ref: "BK-8246",
-    businessId: "BIZ-1042",
     customer: "Daniel Osei",
     company: "Coastline Foods",
     email: "d.osei@coastlinefoods.com",
-    service: "Cold-chain audit",
-    duration: "3 hrs",
-    day: "Aug 26",
-    time: "08:00 – 11:00",
+    service: "Refrigeration unit service",
+    dayOffset: 2,
+    hour: 8,
+    minute: 0,
+    durationMinutes: 180,
     staff: "Léa Fontaine",
     valueCents: 115000,
     status: "Pending",
@@ -141,120 +159,110 @@ export const BOOKINGS: Booking[] = [
       "Needs the compliance certificate reissued before their retail contract signs.",
   },
   {
-    ref: "BK-8247",
-    businessId: "BIZ-1042",
     customer: "Elena Petrova",
     company: "Meridian Retail",
     email: "elena@meridianretail.com",
-    service: "Freight consultation",
-    duration: "45 min",
-    day: "Aug 26",
-    time: "14:00 – 14:45",
+    service: "Full service & MOT",
+    dayOffset: 2,
+    hour: 14,
+    minute: 0,
+    durationMinutes: 45,
     staff: "Ahmed Ben",
     valueCents: 24000,
     status: "Cancelled",
     channel: "Website form",
     notes:
-      "Cancelled by the customer — rescheduling for September after their peak season.",
+      "Cancelled by the customer — rebooking next month after their peak season.",
   },
   {
-    ref: "BK-8248",
-    businessId: "BIZ-1042",
     customer: "Jonas Weber",
     company: "Alpine Parts",
     email: "j.weber@alpineparts.eu",
     service: "Fleet inspection",
-    duration: "2 hrs",
-    day: "Aug 27",
-    time: "09:30 – 11:30",
+    dayOffset: 3,
+    hour: 9,
+    minute: 30,
+    durationMinutes: 120,
     staff: "Dana Whitfield",
     valueCents: 78000,
     status: "Confirmed",
     channel: "Phone",
     notes:
-      "Two tractor units in for a pre-delivery check ahead of the September haul.",
+      "Two vans in for a pre-delivery check ahead of the September contract start.",
   },
   {
-    ref: "BK-8249",
-    businessId: "BIZ-1042",
-    customer: "Amara Diallo",
-    company: "Lumen Health",
-    email: "a.diallo@lumenhealth.io",
-    service: "Warehouse tour",
-    duration: "1 hr",
-    day: "Aug 21",
-    time: "11:00 – 12:00",
-    staff: "Léa Fontaine",
-    valueCents: 15000,
-    status: "Completed",
-    channel: "Referral",
-    notes:
-      "Toured the cold bay. Quote for 40 pallet positions sent the same afternoon.",
-  },
-  {
-    ref: "BK-8250",
-    businessId: "BIZ-1042",
-    customer: "Victor Salas",
-    company: "Salas Produce",
-    email: "victor@salasproduce.mx",
-    service: "Cold-chain audit",
-    duration: "3 hrs",
-    day: "Aug 20",
-    time: "08:00 – 11:00",
-    staff: "Léa Fontaine",
-    valueCents: 115000,
-    status: "Completed",
-    channel: "Email",
-    notes:
-      "Passed with two minor findings — humidity log gaps on the March shipments.",
-  },
-  {
-    ref: "BK-4417",
-    businessId: "BIZ-1058",
     customer: "Nina Okafor",
     company: "Delta Freight",
     email: "n.okafor@deltafreight.com",
-    service: "Customs clearance review",
-    duration: "1 hr",
-    day: "Aug 24",
-    time: "10:30 – 11:30",
+    service: "Tyres & alignment",
+    dayOffset: 5,
+    hour: 10,
+    minute: 30,
+    durationMinutes: 60,
     staff: "Marco Silva",
     valueCents: 32000,
     status: "Confirmed",
     channel: "Website form",
-    notes:
-      "Three shipments held at the port over an HS-code mismatch. Bring the amended paperwork.",
+    notes: "Four-wheel alignment plus two replacement tyres on the front axle.",
   },
   {
-    ref: "BK-4418",
-    businessId: "BIZ-1058",
     customer: "Peter Lindqvist",
     company: "Nordic Timber",
     email: "p.lindqvist@nordictimber.se",
-    service: "Container booking",
-    duration: "30 min",
-    day: "Aug 25",
-    time: "09:00 – 09:30",
+    service: "Bodywork estimate",
+    dayOffset: 9,
+    hour: 9,
+    minute: 0,
+    durationMinutes: 30,
     staff: "Ivy Chen",
     valueCents: 18000,
     status: "Pending",
     channel: "Email",
-    notes: "Needs two 40ft high-cubes for the September sailing out of Gothenburg.",
+    notes: "Panel damage to the nearside door. Estimate for an insurance claim.",
   },
   {
-    ref: "BK-4419",
-    businessId: "BIZ-1058",
+    customer: "Amara Diallo",
+    company: "Lumen Health",
+    email: "a.diallo@lumenhealth.io",
+    service: "Diagnostics",
+    dayOffset: -3,
+    hour: 11,
+    minute: 0,
+    durationMinutes: 60,
+    staff: "Léa Fontaine",
+    valueCents: 15000,
+    status: "Completed",
+    channel: "Referral",
+    notes: "Traced the fault to a failing sensor. Quote sent the same afternoon.",
+  },
+  {
+    customer: "Victor Salas",
+    company: "Salas Produce",
+    email: "victor@salasproduce.mx",
+    service: "Refrigeration unit service",
+    dayOffset: -4,
+    hour: 8,
+    minute: 0,
+    durationMinutes: 180,
+    staff: "Léa Fontaine",
+    valueCents: 115000,
+    status: "Completed",
+    channel: "Email",
+    notes: "Passed with two minor findings — logged for the next visit.",
+  },
+  {
     customer: "Rosa Marín",
     company: "Puerto Verde",
     email: "rosa@puertoverde.es",
-    service: "Rate negotiation",
-    duration: "45 min",
-    day: "Aug 26",
-    time: "16:00 – 16:45",
+    service: "Full service & MOT",
+    dayOffset: -8,
+    hour: 16,
+    minute: 0,
+    durationMinutes: 45,
     staff: "Marco Silva",
     valueCents: 26000,
     status: "Completed",
     channel: "Referral",
-    notes: "Agreed a 6% reduction on the Valencia lane in exchange for volume commitment.",
+    notes: "Routine service. Advisory on front pads at the next interval.",
   },
 ];

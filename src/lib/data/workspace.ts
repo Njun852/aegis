@@ -1,9 +1,14 @@
 import type { NavLink } from "@/types";
 
+/**
+ * `name` is the pre-auth label only — the sign-in screen renders before there
+ * is a session, so no tenant is known yet. Everywhere inside the app the
+ * business name comes from the database via `useBusiness()`, not from here.
+ */
 export const ORGANIZATION = {
-  name: "Northwind Group",
+  name: "AUTOBLITZ",
   product: "AEGIS AI",
-  mailbox: "ops@northwindgroup.com",
+  mailbox: "ops@autoblitz.com",
 };
 
 export const CURRENT_USER = {

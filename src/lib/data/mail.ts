@@ -46,15 +46,15 @@ export const MESSAGES: MailMessage[] = [
   {
     id: "m1",
     from: "Sofia Alvarez",
-    email: "sofia@harborlogistics.com",
+    email: "sofia@kestrelhaulage.com",
     label: "Suppliers",
-    subject: "Contract renewal — Harbor Logistics, response needed by Friday",
+    subject: "Contract renewal — Kestrel Haulage, response needed by Friday",
     time: "09:42",
     date: "May 31, 2026 · 09:42 AM",
     priority: "Urgent",
     unread: true,
     aiSummary:
-      "Harbor Logistics wants to renew the freight contract at a 6% rate increase effective July 1, with a signed decision needed by Friday. Sofia will hold the increase at 3% for a 24-month commitment.",
+      "Kestrel Haulage wants to renew the freight contract at a 6% rate increase effective July 1, with a signed decision needed by Friday. Sofia will hold the increase at 3% for a 24-month commitment.",
     actionItems: [
       "Decide by Fri May 5",
       "Compare 12 vs 24 month terms",
@@ -62,7 +62,7 @@ export const MESSAGES: MailMessage[] = [
     ],
     body: [
       "Hi Ahmed — following up on our call about the freight agreement expiring at the end of June.",
-      "Our board approved a 6% rate adjustment for 12-month renewals. If Northwind can commit to 24 months, I can hold the increase at 3% and keep the current fuel surcharge cap in place.",
+      "Our board approved a 6% rate adjustment for 12-month renewals. If AUTOBLITZ can commit to 24 months, I can hold the increase at 3% and keep the current fuel surcharge cap in place.",
       "I need a decision by Friday to get it through our contracts team before the quarter closes. Happy to jump on a call if that helps.",
     ],
     replies: [
@@ -98,7 +98,7 @@ export const MESSAGES: MailMessage[] = [
   {
     id: "m3",
     from: "Marcus Webb",
-    email: "m.webb@brightpath.co",
+    email: "m.webb@caldersons.com",
     label: "Sales",
     subject: "Re: Fleet expansion quote — 14 units",
     time: "Yesterday",
@@ -122,7 +122,7 @@ export const MESSAGES: MailMessage[] = [
   {
     id: "m4",
     from: "Priya Raghavan",
-    email: "priya@northwindgroup.com",
+    email: "priya@autoblitz.com",
     label: "Internal",
     subject: "Weekly ops report — week 22",
     time: "Yesterday",
@@ -178,7 +178,7 @@ export const MESSAGES: MailMessage[] = [
     priority: "Normal",
     unread: false,
     aiSummary:
-      "Vantage Insurance needs an updated driver roster and odometer readings for 11 vehicles before the July 15 renewal; returning them by June 20 holds the current premium band.",
+      "Ardent Cover needs an updated driver roster and odometer readings for 11 vehicles before the July 15 renewal; returning them by June 20 holds the current premium band.",
     actionItems: ["Send roster by Jun 20", "Collect odometer readings"],
     body: [
       "Attached are the renewal forms for your fleet policy expiring July 15, 2026.",
@@ -274,8 +274,8 @@ export const MAIL_FOLDERS: { label: string; icon: string }[] = [
 export const COMPOSE_DRAFT_SUGGESTIONS: ComposeDraftSuggestion[] = [
   {
     label: "Reply to Harbor renewal",
-    to: "sofia@harborlogistics.com",
-    subject: "Re: Contract renewal — Harbor Logistics",
+    to: "sofia@kestrelhaulage.com",
+    subject: "Re: Contract renewal — Kestrel Haulage",
     body: "Hi Sofia,\n\nWe are prepared to commit to the 24-month term at the 3% adjustment, provided the fuel surcharge cap carries over unchanged.\n\nSend the paperwork and we will countersign before Friday.\n\nBest,\nAhmed",
   },
   {
@@ -286,7 +286,7 @@ export const COMPOSE_DRAFT_SUGGESTIONS: ComposeDraftSuggestion[] = [
   },
   {
     label: "Confirm split delivery",
-    to: "m.webb@brightpath.co",
+    to: "m.webb@caldersons.com",
     subject: "Re: Fleet expansion quote — 14 units",
     body: "Hi Marcus,\n\nThe volume discount holds on the staggered schedule: 8 units in Q3 and 6 in Q4. Updated paperwork is attached for countersignature.\n\nThanks,\nAhmed",
   },

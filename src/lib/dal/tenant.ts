@@ -1,6 +1,11 @@
 import "server-only";
 
-import type { Document, Filter, OptionalUnlessRequiredId } from "mongodb";
+import type {
+  Document,
+  Filter,
+  OptionalUnlessRequiredId,
+  UpdateOptions,
+} from "mongodb";
 import { getDb } from "./db";
 import { verifySession } from "./session";
 
@@ -41,8 +46,11 @@ export async function tenantScope<
         businessId: activeBusinessId,
       } as unknown as OptionalUnlessRequiredId<T>),
 
-    updateOne: (filter: Filter<T>, update: Document) =>
-      collection.updateOne(scoped(filter), update),
+    // `options` carries upsert. Upserting through the scoped filter is safe:
+    // Mongo seeds the new document from the filter's equality fields, so the
+    // tenant id lands on it without the caller supplying one.
+    updateOne: (filter: Filter<T>, update: Document, options?: UpdateOptions) =>
+      collection.updateOne(scoped(filter), update, options ?? {}),
 
     deleteOne: (filter: Filter<T>) => collection.deleteOne(scoped(filter)),
 

@@ -11,39 +11,11 @@ import type {
  */
 export const BUSINESSES: Business[] = [
   {
-    id: "BIZ-1042",
-    name: "Northwind Group",
-    meta: "Logistics & Fleet · Enterprise",
-    onboarded: "May 12, 2026",
-    modules: ["bookings", "fleet"],
-  },
-  {
-    id: "BIZ-1058",
-    name: "Harbor Logistics",
-    meta: "Freight forwarding · Enterprise",
-    onboarded: "Mar 04, 2026",
-    modules: ["bookings", "inventory", "fleet"],
-  },
-  {
-    id: "BIZ-1071",
-    name: "BrightPath Co.",
-    meta: "Professional services · Growth",
-    onboarded: "Jun 21, 2026",
-    modules: ["crm"],
-  },
-  {
-    id: "BIZ-1089",
-    name: "Vantage Insurance",
-    meta: "Insurance brokerage · Growth",
-    onboarded: "Jul 02, 2026",
-    modules: [],
-  },
-  {
-    id: "BIZ-1104",
-    name: "Ruiz Fabrication",
-    meta: "Manufacturing · Starter",
-    onboarded: "Aug 08, 2026",
-    modules: ["inventory", "crm"],
+    id: "BIZ-1001",
+    name: "AUTOBLITZ",
+    meta: "Automotive services · Enterprise",
+    onboarded: "Aug 01, 2026",
+    modules: ["bookings", "inventory", "crm"],
   },
 ];
 

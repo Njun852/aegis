@@ -1,8 +1,16 @@
 import "server-only";
 
+import { redirect } from "next/navigation";
 import { businessesCollection } from "./db";
 import { allowedBusinessIds, requireAdmin, verifySession } from "./session";
-import type { Business, BusinessDocument, OptionalModuleKey } from "@/types";
+import type {
+  Business,
+  BusinessDocument,
+  ModuleKey,
+  OptionalModuleKey,
+} from "@/types";
+
+const CORE_MODULE_KEYS: ModuleKey[] = ["dashboard", "mail", "ads"];
 
 function toBusiness(doc: BusinessDocument): Business {
   return {
@@ -57,4 +65,28 @@ export async function setModuleGrants(
     { businessId },
     { $set: { modules } },
   );
+}
+
+/** The business the request is scoped to, straight from the session. */
+export async function getActiveBusiness(): Promise<Business | null> {
+  const { activeBusinessId } = await verifySession();
+  const businesses = await businessesCollection();
+  const doc = await businesses.findOne({ businessId: activeBusinessId });
+  return doc ? toBusiness(doc) : null;
+}
+
+/**
+ * Gates a module behind the active business's entitlement. Server Actions call
+ * this before writing — the sidebar dims a locked module and the page renders
+ * an explainer, but neither of those stops a hand-crafted POST.
+ */
+export async function requireModule(key: ModuleKey): Promise<Business> {
+  const business = await getActiveBusiness();
+  if (!business) redirect("/login");
+
+  const core = CORE_MODULE_KEYS.includes(key);
+  if (!core && !business.modules.includes(key as OptionalModuleKey)) {
+    throw new Error(`The ${key} module is not enabled for ${business.name}.`);
+  }
+  return business;
 }

@@ -8,6 +8,8 @@ import { DashboardRangeProvider } from "@/components/dashboard/dashboard-range-p
 import { EmailSummaryCard } from "@/components/dashboard/email-summary-card";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
 import { RevenueCard } from "@/components/dashboard/revenue-card";
+import { buildLedgerRevenue, revenueWindow } from "@/lib/dashboard";
+import { revenueByMonth } from "@/lib/dal/ledger";
 
 export const metadata: Metadata = {
   title: "Dashboard · AEGIS AI",
@@ -15,9 +17,15 @@ export const metadata: Metadata = {
     "Balance, revenue, expenses and net profit, with AI commentary on the month.",
 };
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  // One month-bucketed aggregation over the ledger answers all three ranges,
+  // since every range the picker offers is month-aligned.
+  const today = new Date();
+  const { from, to } = revenueWindow(today);
+  const revenue = buildLedgerRevenue(await revenueByMonth(from, to), today);
+
   return (
-    <DashboardRangeProvider>
+    <DashboardRangeProvider revenue={revenue}>
       <div className="flex flex-col gap-4">
         <DashboardHeader />
         <KpiGrid />

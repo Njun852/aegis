@@ -4,10 +4,11 @@
  *
  *   node --env-file=.env.local scripts/seed.ts
  */
-import { MongoClient } from "mongodb";
+import { MongoClient, type Db } from "mongodb";
 import { randomBytes, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
 import { BUSINESSES } from "../src/lib/data/businesses.ts";
+import { BOOKING_SEEDS } from "../src/lib/data/bookings.ts";
 
 const scrypt = promisify(scryptCb) as (
   password: string,
@@ -84,17 +85,19 @@ async function main() {
       { upsert: true, returnDocument: "after" },
     );
 
-    // A plain member on one business only — this is the account that proves
-    // the switcher and /admin are actually restricted.
+    // A plain member — the account that proves the switcher and /admin are
+    // actually restricted. Scoped to the first seeded business.
+    const memberBusinessId = BUSINESSES[0].id;
+
     const member = await db.collection("users").findOneAndUpdate(
       { username: "rosa.marin" },
       {
         $set: {
           username: "rosa.marin",
-          email: "rosa@harborlogistics.com",
+          email: "rosa@autoblitz.com",
           name: "Rosa Marín",
           role: "member",
-          defaultBusinessId: "BIZ-1058",
+          defaultBusinessId: memberBusinessId,
         },
         $setOnInsert: { passwordHash, createdAt: new Date() },
       },
@@ -103,11 +106,13 @@ async function main() {
 
     if (member?._id) {
       await db.collection("memberships").updateOne(
-        { userId: member._id.toString(), businessId: "BIZ-1058" },
-        { $set: { userId: member._id.toString(), businessId: "BIZ-1058" } },
+        { userId: member._id.toString(), businessId: memberBusinessId },
+        { $set: { userId: member._id.toString(), businessId: memberBusinessId } },
         { upsert: true },
       );
     }
+
+    await seedBookings(db, BUSINESSES[0].id);
 
     console.log("✓ users: ahmed.ben (aegis_admin), rosa.marin (member)");
     console.log(`  password for both: ${DEMO_PASSWORD}`);
@@ -115,6 +120,95 @@ async function main() {
   } finally {
     await client.close();
   }
+}
+
+/**
+ * Bookings are dated relative to the day the seed runs, so the screen is never
+ * stuck showing a week in the past. Refs are stable, so re-running updates the
+ * same documents in place instead of piling up duplicates.
+ */
+async function seedBookings(db: Db, businessId: string) {
+  await db
+    .collection("bookings")
+    .createIndex({ businessId: 1, ref: 1 }, { unique: true });
+  await db.collection("bookings").createIndex({ businessId: 1, startsAt: 1 });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let ref = 8241;
+  for (const seed of BOOKING_SEEDS) {
+    const startsAt = new Date(today);
+    startsAt.setDate(startsAt.getDate() + seed.dayOffset);
+    startsAt.setHours(seed.hour, seed.minute, 0, 0);
+
+    await db.collection("bookings").updateOne(
+      { businessId, ref: `BK-${ref}` },
+      {
+        $set: {
+          businessId,
+          ref: `BK-${ref}`,
+          customer: seed.customer,
+          company: seed.company,
+          email: seed.email,
+          service: seed.service,
+          startsAt,
+          durationMinutes: seed.durationMinutes,
+          staff: seed.staff,
+          valueCents: seed.valueCents,
+          status: seed.status,
+          channel: seed.channel,
+          notes: seed.notes,
+        },
+        $setOnInsert: { createdAt: new Date() },
+      },
+      { upsert: true },
+    );
+    ref += 1;
+  }
+
+  console.log(`✓ ${BOOKING_SEEDS.length} bookings for ${businessId}`);
+  await seedLedger(db, businessId);
+}
+
+/**
+ * Backfills the ledger from the bookings just written. Mirrors
+ * `reconcileBookings` in `src/lib/dal/ledger.ts`, but runs outside a request so
+ * it cannot go through the tenant-scoped DAL.
+ */
+async function seedLedger(db: Db, businessId: string) {
+  await db
+    .collection("transactions")
+    .createIndex({ businessId: 1, source: 1, sourceRef: 1 }, { unique: true });
+  await db
+    .collection("transactions")
+    .createIndex({ businessId: 1, status: 1, occurredAt: 1 });
+
+  const bookings = await db.collection("bookings").find({ businessId }).toArray();
+  const now = new Date();
+
+  for (const booking of bookings) {
+    await db.collection("transactions").updateOne(
+      { businessId, source: "bookings", sourceRef: booking.ref },
+      {
+        $set: {
+          occurredAt: booking.startsAt,
+          amountCents: booking.valueCents,
+          description: `${booking.service} · ${booking.customer}`,
+          status: booking.status === "Cancelled" ? "void" : "recognised",
+          updatedAt: now,
+        },
+        $setOnInsert: { createdAt: now },
+      },
+      { upsert: true },
+    );
+  }
+
+  const recognised = bookings.filter((b) => b.status !== "Cancelled");
+  const total = recognised.reduce((sum, b) => sum + b.valueCents, 0);
+  console.log(
+    `✓ ${bookings.length} ledger entries · recognised $${(total / 100).toLocaleString("en-US")}`,
+  );
 }
 
 main().catch((error) => {

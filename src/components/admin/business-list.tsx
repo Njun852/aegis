@@ -77,8 +77,9 @@ export function BusinessList() {
               textWrap: "pretty",
             }}
           >
-            {businesses.length} businesses provisioned · Dashboard, Mail and Ads
-            are always included
+            {businesses.length}{" "}
+            {businesses.length === 1 ? "business" : "businesses"} provisioned ·
+            Dashboard, Mail and Ads are always included
           </p>
         </div>
         <div className="flex items-center gap-2.5">

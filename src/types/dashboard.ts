@@ -43,8 +43,24 @@ export interface AdTile {
   delta: string;
 }
 
-/** The dashboard's date-range picker options, in display order. */
-export type DateRange = "May 01 – May 31, 2026" | "Apr 01 – Apr 30, 2026" | "Q2 2026";
+/**
+ * The dashboard's date-range options, in display order. Rolling rather than
+ * fixed calendar labels, so the ledger figures always land on real periods.
+ */
+export type DateRange = "This month" | "Last month" | "This quarter";
+
+/** Revenue figures for one range, aggregated from the `transactions` ledger. */
+export interface RevenueFigures {
+  total: string;
+  delta: string;
+  months: RevenueMonth[];
+  highlightMonth: string;
+  /** Monthly totals for the Revenue KPI sparkline. */
+  points: number[];
+}
+
+/** What the server hands the dashboard: real revenue, keyed by range. */
+export type LedgerRevenue = Record<DateRange, RevenueFigures>;
 
 /** Everything on the dashboard that varies with the selected date range. */
 export interface DashboardRangeData {

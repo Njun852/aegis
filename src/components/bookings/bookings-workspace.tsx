@@ -1,65 +1,82 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useBusiness } from "@/components/business/business-provider";
-import { ModulePage } from "@/components/modules/module-page";
 import { Avatar, Badge, Button, Icon, SearchInput, Select } from "@/components/ui";
 import {
   countByStatus,
   countOnDay,
+  filterBookings,
+  formatDay,
   formatMoney,
-  getBooking,
   getStatusStyle,
-  listBookings,
+  rangeBounds,
   recognisedRevenueCents,
 } from "@/lib/bookings";
 import {
   BOOKING_RANGES,
   BOOKING_STATUSES,
   DEFAULT_BOOKING_RANGE,
-  TODAY,
 } from "@/lib/data/bookings";
 import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
-import type { BookingRange, BookingStatusFilter } from "@/types";
+import { NewBookingModal } from "./new-booking-modal";
+import type { Booking, BookingRange, BookingStatusFilter } from "@/types";
 
 /** Columns collapse to the essentials below the 1240px `wide` breakpoint. */
 const GRID =
   "grid gap-3 items-center grid-cols-[minmax(150px,1.7fr)_minmax(0,1.2fr)_112px_112px_20px] wide:grid-cols-[minmax(190px,1.6fr)_minmax(0,1.25fr)_130px_130px_96px_118px_22px]";
 
-export function BookingsWorkspace() {
-  const { activeBusiness, hasModule } = useBusiness();
+export interface BookingsWorkspaceProps {
+  bookings: Booking[];
+  businessName: string;
+  /**
+   * "Now" as the server saw it. Passed in rather than read from the client
+   * clock so the date maths that runs during SSR and after hydration agree.
+   */
+  todayIso: string;
+}
+
+export function BookingsWorkspace({
+  bookings,
+  businessName,
+  todayIso,
+}: BookingsWorkspaceProps) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<BookingStatusFilter>("All");
   const [range, setRange] = useState<BookingRange>(DEFAULT_BOOKING_RANGE);
   const [openRef, setOpenRef] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
 
-  const businessId = activeBusiness.id;
+  const today = useMemo(() => new Date(todayIso), [todayIso]);
 
   // Everything in the current date window, before the status and search
   // filters. The stat tiles and the chip counts both read off this.
   const inWindow = useMemo(
-    () => listBookings({ businessId, range }),
-    [businessId, range],
+    () => filterBookings(bookings, { range, today }),
+    [bookings, range, today],
   );
 
   const visible = useMemo(
-    () => listBookings({ businessId, range, status, search }),
-    [businessId, range, status, search],
+    () => filterBookings(bookings, { range, today, status, search }),
+    [bookings, range, today, status, search],
   );
 
-  const selected = getBooking(businessId, openRef);
+  const selected = bookings.find((booking) => booking.ref === openRef) ?? null;
 
-  // A business without the Bookings module gets the locked explainer instead,
-  // so the route is guarded even when it is reached by URL.
-  if (!hasModule("bookings")) {
-    return <ModulePage moduleKey="bookings" />;
-  }
+  // Null bounds mean "All time", which has no window to name.
+  const bounds = rangeBounds(range, today);
+  const windowLabel = bounds
+    ? `${formatDay(bounds.from)} – ${formatDay(
+        new Date(bounds.to.getTime() - 86_400_000),
+      )}`
+    : null;
 
   const stats = [
     {
-      label: `Today · ${TODAY}`,
-      value: String(countOnDay(inWindow, TODAY)),
+      label: `Today · ${formatDay(today)}`,
+      value: String(countOnDay(inWindow, today)),
       icon: "calendar",
       bg: "var(--accent-soft)",
       fg: "var(--accent-primary)",
@@ -114,8 +131,10 @@ export function BookingsWorkspace() {
                 textWrap: "pretty",
               }}
             >
-              {activeBusiness.name} · {inWindow.length} appointments in this
-              range · times shown in local time
+              {businessName} · {inWindow.length}{" "}
+              {inWindow.length === 1 ? "appointment" : "appointments"}
+              {windowLabel ? ` in ${windowLabel}` : " in total"} · times shown in
+              local time
             </p>
           </div>
           <div className="flex items-center gap-2.5">
@@ -125,7 +144,9 @@ export function BookingsWorkspace() {
               onChange={setSearch}
               width={250}
             />
-            <Button icon="plus">New Booking</Button>
+            <Button icon="plus" onClick={() => setComposing(true)}>
+              New Booking
+            </Button>
           </div>
         </div>
 
@@ -455,7 +476,9 @@ export function BookingsWorkspace() {
                   color: "var(--text-muted)",
                 }}
               >
-                No bookings match this filter.
+                {bookings.length === 0
+                  ? "No bookings yet. Create the first one to get started."
+                  : "No bookings match this filter."}
               </div>
             )}
           </div>
@@ -463,7 +486,23 @@ export function BookingsWorkspace() {
       </div>
 
       {selected && (
-        <BookingDrawer booking={selected} onClose={() => setOpenRef(null)} />
+        <BookingDrawer
+          key={selected.ref}
+          booking={selected}
+          onClose={() => setOpenRef(null)}
+        />
+      )}
+
+      {composing && (
+        <NewBookingModal
+          onClose={() => setComposing(false)}
+          onCreated={(ref) => {
+            setComposing(false);
+            // Pull the newly written row back from the server, then open it.
+            router.refresh();
+            setOpenRef(ref);
+          }}
+        />
       )}
     </>
   );

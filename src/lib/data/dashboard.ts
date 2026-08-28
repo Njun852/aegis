@@ -1,9 +1,9 @@
 import type { DashboardRangeData, DateRange } from "@/types";
 
 export const DATE_RANGES: DateRange[] = [
-  "May 01 – May 31, 2026",
-  "Apr 01 – Apr 30, 2026",
-  "Q2 2026",
+  "This month",
+  "Last month",
+  "This quarter",
 ];
 
 export const DEFAULT_DATE_RANGE: DateRange = DATE_RANGES[0];
@@ -14,8 +14,13 @@ function months(
   return pairs.map(([label, value]) => ({ label, value: value * 1000 }));
 }
 
+/**
+ * SAMPLE FIGURES. Revenue is overridden with real ledger totals by
+ * `DashboardRangeProvider`; everything else here — balance, expenses, net
+ * profit, bookings, ads, alerts — is still invented and has no data source yet.
+ */
 export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
-  "May 01 – May 31, 2026": {
+  "This month": {
     kpis: [
       {
         label: "Total Balance",
@@ -101,7 +106,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       "Spring Fleet Promo drives 61% of conversions at half the cost per lead. Consider shifting budget from Brand Search.",
   },
 
-  "Apr 01 – Apr 30, 2026": {
+  "Last month": {
     kpis: [
       {
         label: "Total Balance",
@@ -187,7 +192,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       "Early results from Spring Fleet Promo show a 22% lower cost per lead than Brand Search. Consider testing a larger budget shift next month.",
   },
 
-  "Q2 2026": {
+  "This quarter": {
     kpis: [
       {
         label: "Total Balance",
