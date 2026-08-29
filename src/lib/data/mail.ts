@@ -1,6 +1,6 @@
 import type {
   ComposeDraftSuggestion,
-  MailMessage,
+  MailMessageSeed,
   MailMonitorEntry,
   MailPriority,
   MailPriorityStyle,
@@ -42,7 +42,7 @@ export const PRIORITY_STYLES: Record<MailPriority, MailPriorityStyle> = {
 };
 
 /** Sample inbox. Replace with the Gmail retrieval once the integration lands. */
-export const MESSAGES: MailMessage[] = [
+export const MESSAGES: MailMessageSeed[] = [
   {
     id: "m1",
     from: "Sofia Alvarez",

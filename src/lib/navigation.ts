@@ -17,6 +17,7 @@ export function routeTitle(pathname: string, businesses: Business[]): string {
   if (internal) return internal.title;
 
   if (pathname.startsWith("/bookings")) return "Bookings";
+  if (pathname.startsWith("/inventory")) return "Inventory";
 
   if (pathname.startsWith("/modules/")) {
     const key = pathname.split("/")[2];

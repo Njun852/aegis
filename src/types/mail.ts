@@ -33,6 +33,8 @@ export interface MailMessage {
   actionItems: string[];
   body: string[];
   replies: string[];
+  /** ISO 8601 once a model has analysed this message; null while sampled. */
+  aiGeneratedAt: string | null;
 }
 
 export interface MailPriorityStyle {
@@ -69,3 +71,41 @@ export interface ComposeDraftSuggestion {
   subject: string;
   body: string;
 }
+
+/**
+ * Stored shape. `businessId` is stamped on by `tenantScope`.
+ *
+ * The AI fields carry the sample copy from the fixtures until a model has
+ * actually read the message. `aiPromptVersion` records which prompt produced
+ * them, and is what stops triage re-running — and re-billing — for a message
+ * that has already been analysed.
+ */
+export interface MailMessageDocument {
+  businessId: string;
+  /** Stable per tenant. Becomes the Gmail message id once that lands. */
+  messageId: string;
+  from: string;
+  email: string;
+  label: MailLabel;
+  subject: string;
+  time: string;
+  date: string;
+  priority: MailPriority;
+  unread: boolean;
+  aiSummary: string;
+  actionItems: string[];
+  body: string[];
+  replies: string[];
+  /** Null while the AI fields are still the seeded samples. */
+  aiGeneratedAt: Date | null;
+  aiPromptVersion: number | null;
+  receivedAt: Date;
+  createdAt: Date;
+}
+
+/**
+ * The sample inbox's shape: a message as it exists before anything has analysed
+ * it. The fixture in `src/lib/data/mail.ts` is a seed, not a loaded message —
+ * `aiGeneratedAt` is set by the database, once a model has actually run.
+ */
+export type MailMessageSeed = Omit<MailMessage, "aiGeneratedAt">;

@@ -1,21 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { draftEmailAction } from "@/app/actions/ai";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { COMPOSE_DRAFT_SUGGESTIONS } from "@/lib/data/mail";
 import { ORGANIZATION } from "@/lib/data/workspace";
 
 export interface ComposeModalProps {
   open: boolean;
+  /** With no key configured the canned suggestions stand in for real drafting. */
+  aiEnabled: boolean;
   onClose: () => void;
 }
 
-export function ComposeModal({ open, onClose }: ComposeModalProps) {
+export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
   const [ccOpen, setCcOpen] = useState(false);
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [intent, setIntent] = useState("");
+  const [draftNote, setDraftNote] = useState<string | null>(null);
+  const [drafting, startDrafting] = useTransition();
 
   if (!open) return null;
 
@@ -24,8 +30,28 @@ export function ComposeModal({ open, onClose }: ComposeModalProps) {
     setCc("");
     setSubject("");
     setBody("");
+    setIntent("");
+    setDraftNote(null);
     setCcOpen(false);
     onClose();
+  };
+
+  /**
+   * One call per press, and the result is cached against the recipient and
+   * intent — so pressing Draft again on an unchanged brief is free.
+   */
+  const handleDraft = () => {
+    setDraftNote(null);
+    startDrafting(async () => {
+      const result = await draftEmailAction(to, intent);
+      if (result.subject && result.body) {
+        setSubject(result.subject);
+        setBody(result.body);
+        setDraftNote("Draft written — edit it before sending.");
+      } else {
+        setDraftNote(result.note);
+      }
+    });
   };
 
   const savedLabel = body || subject ? "Draft saved" : "No changes yet";
@@ -219,25 +245,76 @@ export function ComposeModal({ open, onClose }: ComposeModalProps) {
                 AI Assist
               </span>
               <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-secondary)" }}>
-                Drafts from your inbox context
+                {aiEnabled
+                  ? "Say what it should do and AI writes it"
+                  : "Drafts from your inbox context"}
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {COMPOSE_DRAFT_SUGGESTIONS.map((suggestion) => (
-                <Button
-                  key={suggestion.label}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setTo(suggestion.to);
-                    setSubject(suggestion.subject);
-                    setBody(suggestion.body);
-                  }}
-                >
-                  {suggestion.label}
-                </Button>
-              ))}
-            </div>
+
+            {aiEnabled ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={intent}
+                    onChange={(event) => setIntent(event.target.value)}
+                    placeholder="Accept the 24-month terms, ask them to send paperwork"
+                    aria-label="What should this email do?"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      height: 34,
+                      padding: "0 11px",
+                      font: "inherit",
+                      fontSize: "12.5px",
+                      color: "var(--text-primary)",
+                      background: "var(--surface-card)",
+                      border: "1px solid var(--blue-200)",
+                      borderRadius: "var(--radius-sm)",
+                      outline: "none",
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon="sparkles"
+                    disabled={drafting || !intent.trim()}
+                    onClick={handleDraft}
+                  >
+                    {drafting ? "Drafting…" : "Draft"}
+                  </Button>
+                </div>
+                {draftNote && (
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      textWrap: "pretty",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {draftNote}
+                  </span>
+                )}
+              </>
+            ) : (
+              /* No key configured — the canned drafts stand in, as before. */
+              <div className="flex flex-wrap gap-2">
+                {COMPOSE_DRAFT_SUGGESTIONS.map((suggestion) => (
+                  <Button
+                    key={suggestion.label}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setTo(suggestion.to);
+                      setSubject(suggestion.subject);
+                      setBody(suggestion.body);
+                    }}
+                  >
+                    {suggestion.label}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

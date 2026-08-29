@@ -8,19 +8,12 @@ import {
   setBookingStatus,
 } from "@/lib/dal/bookings";
 import { BOOKING_CHANNELS } from "@/lib/data/bookings";
+import { parseCents } from "@/lib/format";
 import type { BookingStatus } from "@/types";
 
 export interface BookingFormState {
   error: string | null;
   createdRef?: string;
-}
-
-/** Dollars as typed ("240", "240.00", "1,150.50") to integer cents. */
-function toCents(input: string): number | null {
-  const cleaned = input.replace(/[$,\s]/g, "");
-  if (!cleaned) return 0;
-  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
-  return Math.round(Number(cleaned) * 100);
 }
 
 export async function createBookingAction(
@@ -50,7 +43,7 @@ export async function createBookingAction(
     return { error: "Duration must be a positive number of minutes." };
   }
 
-  const valueCents = toCents(text("valueCents"));
+  const valueCents = parseCents(text("valueCents"));
   if (valueCents === null) {
     return { error: "Value must be an amount like 240 or 240.00." };
   }

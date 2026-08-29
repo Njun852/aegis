@@ -52,7 +52,7 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
     name: "Inventory",
     icon: "package",
     desc: "Stock levels, purchase orders and low-stock alerts across every location.",
-    href: "/modules/inventory",
+    href: "/inventory",
   },
   {
     key: "crm",

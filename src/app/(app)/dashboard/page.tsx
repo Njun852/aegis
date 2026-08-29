@@ -8,8 +8,13 @@ import { DashboardRangeProvider } from "@/components/dashboard/dashboard-range-p
 import { EmailSummaryCard } from "@/components/dashboard/email-summary-card";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
 import { RevenueCard } from "@/components/dashboard/revenue-card";
+import { isAiConfigured } from "@/lib/ai/client";
+import { cachedInsight } from "@/lib/ai/insight";
 import { buildLedgerRevenue, revenueWindow } from "@/lib/dashboard";
 import { revenueByMonth } from "@/lib/dal/ledger";
+import { listMessages } from "@/lib/dal/mail";
+import { DATE_RANGES } from "@/lib/data/dashboard";
+import type { DateRange } from "@/types";
 
 export const metadata: Metadata = {
   title: "Dashboard · AEGIS AI",
@@ -22,7 +27,20 @@ export default async function DashboardPage() {
   // since every range the picker offers is month-aligned.
   const today = new Date();
   const { from, to } = revenueWindow(today);
-  const revenue = buildLedgerRevenue(await revenueByMonth(from, to), today);
+  const [buckets, messages] = await Promise.all([
+    revenueByMonth(from, to),
+    listMessages(),
+  ]);
+  const revenue = buildLedgerRevenue(buckets, today);
+
+  // Cache reads only — `cachedInsight` cannot start a billable request, so it
+  // is safe on the render path. Anything missing is fetched by the card, for
+  // the one range the visitor is actually looking at.
+  const cachedInsights: Partial<Record<DateRange, string>> = {};
+  for (const range of DATE_RANGES) {
+    const text = await cachedInsight(range);
+    if (text) cachedInsights[range] = text;
+  }
 
   return (
     <DashboardRangeProvider revenue={revenue}>
@@ -37,10 +55,10 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid items-stretch gap-4 wide:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.95fr)_minmax(0,0.95fr)]">
-          <EmailSummaryCard />
+          <EmailSummaryCard messages={messages} />
           <AlertsCard />
           <AdsSummaryCard />
-          <AiInsightsCard />
+          <AiInsightsCard cached={cachedInsights} aiEnabled={isAiConfigured()} />
         </div>
       </div>
     </DashboardRangeProvider>

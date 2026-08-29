@@ -3,17 +3,21 @@
 import { useRouter } from "next/navigation";
 import { Card, ListRow } from "@/components/ui";
 import { AWAITING_REPLY_COUNT } from "@/lib/data/dashboard";
-import { MESSAGES } from "@/lib/data/mail";
 import { countByPriority, countUnread, getPriorityStyle, recentMessages } from "@/lib/mail";
-import type { MailStat } from "@/types";
+import type { MailMessage, MailStat } from "@/types";
 
-export function EmailSummaryCard() {
+export interface EmailSummaryCardProps {
+  /** The inbox, loaded and tenant-scoped by the dashboard page. */
+  messages: MailMessage[];
+}
+
+export function EmailSummaryCard({ messages }: EmailSummaryCardProps) {
   const router = useRouter();
 
   const stats: MailStat[] = [
-    { label: "Unread", value: countUnread(), color: "var(--text-primary)" },
+    { label: "Unread", value: countUnread(messages), color: "var(--text-primary)" },
     // Deepened semantic hues: the token reds sit too light on a white tile.
-    { label: "Urgent", value: countByPriority("Urgent"), color: "#B42318" },
+    { label: "Urgent", value: countByPriority(messages, "Urgent"), color: "#B42318" },
     { label: "Awaiting reply", value: AWAITING_REPLY_COUNT, color: "#B25E09" },
   ];
 
@@ -48,7 +52,7 @@ export function EmailSummaryCard() {
         ))}
       </div>
       <div className="flex flex-col overflow-hidden">
-        {recentMessages(3, MESSAGES).map((message) => {
+        {recentMessages(messages, 3).map((message) => {
           const priority = getPriorityStyle(message.priority);
           return (
             <ListRow

@@ -1,4 +1,5 @@
 import { BOOKING_STATUS_STYLES } from "@/lib/data/bookings";
+import { formatDay } from "./format";
 import type {
   Booking,
   BookingRange,
@@ -16,18 +17,8 @@ export function getStatusStyle(status: BookingStatus) {
   return BOOKING_STATUS_STYLES[status];
 }
 
-/** "$ 1,150.00" — the design puts a space after the currency symbol. */
-export function formatMoney(cents: number, withCents = true) {
-  const amount = (cents / 100).toLocaleString("en-US", {
-    minimumFractionDigits: withCents ? 2 : 0,
-    maximumFractionDigits: withCents ? 2 : 0,
-  });
-  return `$ ${amount}`;
-}
-
-export function formatDay(date: Date) {
-  return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
-}
+/** Both formatters moved to `src/lib/format.ts` once Inventory needed them too. */
+export { formatDay, formatMoney } from "./format";
 
 export function formatDuration(minutes: number) {
   if (minutes < 60) return `${minutes} min`;
