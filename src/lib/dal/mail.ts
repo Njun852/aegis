@@ -23,7 +23,7 @@ function toMessage(doc: MailMessageDocument): MailMessage {
     id: doc.messageId,
     from: doc.from,
     email: doc.email,
-    label: doc.label,
+    category: doc.category,
     subject: doc.subject,
     time: doc.time,
     date: doc.date,
@@ -33,6 +33,9 @@ function toMessage(doc: MailMessageDocument): MailMessage {
     actionItems: doc.actionItems,
     body: doc.body,
     replies: doc.replies,
+    deadline: doc.deadline,
+    needsApproval: doc.needsApproval,
+    approvalReason: doc.approvalReason,
     aiGeneratedAt: doc.aiGeneratedAt ? doc.aiGeneratedAt.toISOString() : null,
   };
 }
@@ -88,9 +91,13 @@ export async function applyTriage(
       {
         $set: {
           priority: result.priority,
+          category: result.category,
           aiSummary: result.summary,
           actionItems: result.actionItems,
           replies: result.replies,
+          deadline: result.deadline,
+          needsApproval: result.needsApproval,
+          approvalReason: result.approvalReason,
           aiGeneratedAt: now,
           aiPromptVersion: promptVersion,
         },

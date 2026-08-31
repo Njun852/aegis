@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { draftEmailAction } from "@/app/actions/ai";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import { COMPOSE_DRAFT_SUGGESTIONS } from "@/lib/data/mail";
 import { ORGANIZATION } from "@/lib/data/workspace";
 
@@ -22,6 +23,18 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
   const [intent, setIntent] = useState("");
   const [draftNote, setDraftNote] = useState<string | null>(null);
   const [drafting, startDrafting] = useTransition();
+  /** A generated body being typed into the textarea. Null once someone edits. */
+  const [incoming, setIncoming] = useState<string | null>(null);
+
+  const { shown } = useTypewriter(incoming);
+
+  /**
+   * While a draft is arriving the textarea shows the reveal; the moment anyone
+   * types, the revealed text becomes ordinary `body` state and the animation is
+   * abandoned. Deriving it this way means no effect has to copy one piece of
+   * state into another.
+   */
+  const shownBody = incoming === null ? body : shown;
 
   if (!open) return null;
 
@@ -32,6 +45,7 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
     setBody("");
     setIntent("");
     setDraftNote(null);
+    setIncoming(null);
     setCcOpen(false);
     onClose();
   };
@@ -46,7 +60,9 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
       const result = await draftEmailAction(to, intent);
       if (result.subject && result.body) {
         setSubject(result.subject);
-        setBody(result.body);
+        // The body lands through the typewriter below rather than all at once,
+        // so it reads as being written into the message.
+        setIncoming(result.body);
         setDraftNote("Draft written — edit it before sending.");
       } else {
         setDraftNote(result.note);
@@ -54,7 +70,7 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
     });
   };
 
-  const savedLabel = body || subject ? "Draft saved" : "No changes yet";
+  const savedLabel = shownBody || subject ? "Draft saved" : "No changes yet";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center p-8">
@@ -209,8 +225,13 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
           style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 18px" }}
         >
           <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
+            value={shownBody}
+            onChange={(event) => {
+              // Typing takes ownership: keep what has been revealed so far and
+              // stop the animation from overwriting it.
+              setIncoming(null);
+              setBody(event.target.value);
+            }}
             placeholder="Write your message…"
             style={{
               width: "100%",

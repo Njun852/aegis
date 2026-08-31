@@ -36,17 +36,6 @@ export function cacheKeyFor(value: unknown): string {
   return createHash("sha256").update(stableStringify(value)).digest("hex").slice(0, 32);
 }
 
-/**
- * Caps how much text reaches the model. Input tokens are the bulk of the bill
- * on a triage workload, and the tail of a long email rarely changes the
- * summary — so every caller clips before sending rather than trusting the
- * source to be short.
- */
-export function clip(text: string, maxChars: number): string {
-  const trimmed = text.trim();
-  return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars)}…`;
-}
-
 function classify(error: unknown): AiFailure {
   const status = (error as { status?: number })?.status;
   if (status === 429) return "rate-limited";

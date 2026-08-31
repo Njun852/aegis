@@ -7,6 +7,7 @@ import {
   setBookingStatusAction,
 } from "@/app/actions/bookings";
 import { Badge, Avatar, Button, Icon, IconButton } from "@/components/ui";
+import { useToast } from "@/components/layout/toast-provider";
 import { bookingTimeline, formatMoney, getStatusStyle } from "@/lib/bookings";
 import type { Booking, BookingStatus } from "@/types";
 
@@ -27,6 +28,7 @@ export interface BookingDrawerProps {
 /** The right-hand detail panel for one booking. */
 export function BookingDrawer({ booking, onClose }: BookingDrawerProps) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [rescheduling, setRescheduling] = useState(false);
   const [startsAt, setStartsAt] = useState(() => toLocalInput(booking.startsAt));
@@ -35,32 +37,56 @@ export function BookingDrawer({ booking, onClose }: BookingDrawerProps) {
 
   const status = getStatusStyle(booking.status);
 
-  const run = (work: () => Promise<void>) => {
+  /**
+   * `inline` keeps the message beside the reschedule fields it belongs to;
+   * everything else reports through a toast, because the drawer may well be
+   * closed by the time the write lands.
+   */
+  const run = (
+    work: () => Promise<void>,
+    { done, inline = false }: { done: string; inline?: boolean },
+  ) => {
     setError(null);
     startTransition(async () => {
       try {
         await work();
         router.refresh();
+        toast({ tone: "success", title: done, key: `booking-${booking.ref}` });
       } catch (cause) {
-        setError(
-          cause instanceof Error ? cause.message : "That change did not save.",
-        );
+        const message =
+          cause instanceof Error ? cause.message : "That change did not save.";
+        if (inline) setError(message);
+        else
+          toast({
+            tone: "error",
+            title: `${booking.ref} did not update`,
+            description: message,
+            key: `booking-${booking.ref}`,
+          });
       }
     });
   };
 
   const move = (next: BookingStatus) =>
-    run(() => setBookingStatusAction(booking.ref, next));
+    run(() => setBookingStatusAction(booking.ref, next), {
+      done:
+        next === "Cancelled"
+          ? `${booking.ref} cancelled`
+          : `${booking.ref} moved to ${next}`,
+    });
 
   const saveReschedule = () =>
-    run(async () => {
-      await rescheduleBookingAction(
-        booking.ref,
-        new Date(startsAt).toISOString(),
-        Number(minutes),
-      );
-      setRescheduling(false);
-    });
+    run(
+      async () => {
+        await rescheduleBookingAction(
+          booking.ref,
+          new Date(startsAt).toISOString(),
+          Number(minutes),
+        );
+        setRescheduling(false);
+      },
+      { done: `${booking.ref} rescheduled`, inline: true },
+    );
 
   // A cancelled or completed booking is done; only reopening makes sense.
   const closed =

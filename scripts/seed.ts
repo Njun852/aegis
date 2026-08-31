@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 import { BUSINESSES } from "../src/lib/data/businesses.ts";
 import { BOOKING_SEEDS } from "../src/lib/data/bookings.ts";
 import { MESSAGES } from "../src/lib/data/mail.ts";
+import { AD_ROW_SEEDS } from "../src/lib/data/ads.ts";
 import {
   INVENTORY_SEEDS,
   MOVE_REASONS,
@@ -121,6 +122,7 @@ async function main() {
     await seedBookings(db, BUSINESSES[0].id);
     await seedInventory(db, BUSINESSES[0].id);
     await seedMail(db, BUSINESSES[0].id);
+    await seedAds(db, BUSINESSES[0].id);
 
     console.log("✓ users: ahmed.ben (aegis_admin), rosa.marin (member)");
     console.log(`  password for both: ${DEMO_PASSWORD}`);
@@ -363,6 +365,37 @@ async function seedMail(db: Db, businessId: string) {
     .createIndex({ businessId: 1, kind: 1, cacheKey: 1 }, { unique: true });
   await db.collection("aiUsage").createIndex({ businessId: 1, period: 1 });
 
+  // One-time repair for documents written before categories, deadlines and the
+  // approval flag existed. It only touches messages no model has analysed, so
+  // it can never overwrite generated content that was paid for.
+  const legacy = await db
+    .collection("messages")
+    .countDocuments({ businessId, category: { $exists: false } });
+
+  if (legacy > 0) {
+    for (const message of MESSAGES) {
+      await db.collection("messages").updateOne(
+        { businessId, messageId: message.id, category: { $exists: false } },
+        {
+          $set: {
+            category: message.category,
+            priority: message.priority,
+            aiSummary: message.aiSummary,
+            actionItems: message.actionItems,
+            replies: message.replies,
+            deadline: message.deadline,
+            needsApproval: message.needsApproval,
+            approvalReason: message.approvalReason,
+            aiGeneratedAt: null,
+            aiPromptVersion: null,
+          },
+          $unset: { label: "" },
+        },
+      );
+    }
+    console.log(`  repaired ${legacy} message(s) predating the category change`);
+  }
+
   const now = Date.now();
   let index = 0;
 
@@ -380,7 +413,7 @@ async function seedMail(db: Db, businessId: string) {
           messageId: message.id,
           from: message.from,
           email: message.email,
-          label: message.label,
+
           subject: message.subject,
           time: message.time,
           date: message.date,
@@ -389,10 +422,16 @@ async function seedMail(db: Db, businessId: string) {
           receivedAt,
         },
         $setOnInsert: {
+          // Everything a model assigns goes in on insert only, so re-running
+          // the seed never overwrites an analysis already paid for.
+          category: message.category,
           priority: message.priority,
           aiSummary: message.aiSummary,
           actionItems: message.actionItems,
           replies: message.replies,
+          deadline: message.deadline,
+          needsApproval: message.needsApproval,
+          approvalReason: message.approvalReason,
           aiGeneratedAt: null,
           aiPromptVersion: null,
           createdAt: new Date(),
@@ -409,6 +448,43 @@ async function seedMail(db: Db, businessId: string) {
 
   console.log(
     `✓ ${MESSAGES.length} messages for ${businessId} · ${analysed} already analysed, ${MESSAGES.length - analysed} awaiting triage`,
+  );
+}
+
+/**
+ * Loads the Meta ad account into `adRows`. Nothing authenticates against Meta
+ * yet, so this is the account's shape rather than a live pull.
+ *
+ * `enabled` goes in through `$setOnInsert`: it is the one field a person can
+ * actually change on this screen, and re-running the seed must not silently
+ * switch their campaigns back on.
+ */
+async function seedAds(db: Db, businessId: string) {
+  await db
+    .collection("adRows")
+    .createIndex({ businessId: 1, id: 1 }, { unique: true });
+  await db.collection("adRows").createIndex({ businessId: 1, level: 1 });
+
+  const now = new Date();
+
+  for (const seed of AD_ROW_SEEDS) {
+    const { enabled, ...rest } = seed;
+    await db.collection("adRows").updateOne(
+      { businessId, id: seed.id },
+      {
+        $set: { businessId, ...rest, updatedAt: now },
+        $setOnInsert: { enabled, createdAt: now },
+      },
+      { upsert: true },
+    );
+  }
+
+  const live = await db
+    .collection("adRows")
+    .countDocuments({ businessId, level: "campaigns", enabled: true });
+
+  console.log(
+    `✓ ${AD_ROW_SEEDS.length} ad rows for ${businessId} · ${live} campaigns switched on`,
   );
 }
 

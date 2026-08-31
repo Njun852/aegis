@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Sidebar } from "./sidebar";
 import { SyncProvider, useSync } from "./sync-provider";
+import { ToastProvider } from "./toast-provider";
 import { Topbar } from "./topbar";
 
 export interface AppShellProps {
@@ -18,7 +19,9 @@ export interface AppShellProps {
 export function AppShell({ children, unreadCount }: AppShellProps) {
   return (
     <SyncProvider>
-      <ShellFrame unreadCount={unreadCount}>{children}</ShellFrame>
+      <ToastProvider>
+        <ShellFrame unreadCount={unreadCount}>{children}</ShellFrame>
+      </ToastProvider>
     </SyncProvider>
   );
 }

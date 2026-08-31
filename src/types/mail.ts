@@ -5,23 +5,37 @@ export type MailPriority = "Urgent" | "High" | "Normal" | "Low";
 /** Every priority filter, plus the "All" pseudo-filter shown in the rail. */
 export type MailPriorityFilter = MailPriority | "All";
 
-export type MailLabel =
-  | "Suppliers"
-  | "Finance"
-  | "Sales"
-  | "Internal"
+/**
+ * The categories the acceptance checklist specifies. Assigned by the model at
+ * triage rather than carried on the message, so a newly arrived email is
+ * classified rather than filed by whatever the sending system called it.
+ */
+export type MailCategory =
+  | "Customer"
+  | "Fleet"
+  | "Insurance"
+  | "Supplier"
+  | "Billing"
+  | "Employee"
+  | "Government"
   | "Marketing"
-  | "Compliance"
-  | "Updates";
+  | "Spam"
+  | "Other";
 
-/** "Inbox" means every thread, regardless of label. */
-export type MailFolderName = "Inbox" | MailLabel;
+/** "Inbox" means every thread, regardless of category. */
+export type MailFolderName = "Inbox" | MailCategory;
+
+/**
+ * The two cross-cutting views the checklist asks for alongside priority: work
+ * that still needs doing, and mail nobody has opened.
+ */
+export type MailFlagFilter = "All" | "Needs Action" | "Unread";
 
 export interface MailMessage {
   id: string;
   from: string;
   email: string;
-  label: MailLabel;
+  category: MailCategory;
   subject: string;
   /** Short form shown in the list ("09:42", "Yesterday", "Mon"). */
   time: string;
@@ -33,6 +47,19 @@ export interface MailMessage {
   actionItems: string[];
   body: string[];
   replies: string[];
+  /**
+   * An explicit deadline stated in the email, in the words the email used.
+   * `null` renders as "None mentioned" — the model never infers one.
+   */
+  deadline: string | null;
+  /**
+   * True when the email asks the business to commit to something a person must
+   * authorise: a charge, a contract, a discount, an approval. The suggested
+   * replies must not accept on the business's behalf.
+   */
+  needsApproval: boolean;
+  /** Why approval is required, in one short phrase. Empty when it is not. */
+  approvalReason: string;
   /** ISO 8601 once a model has analysed this message; null while sampled. */
   aiGeneratedAt: string | null;
 }
@@ -86,7 +113,7 @@ export interface MailMessageDocument {
   messageId: string;
   from: string;
   email: string;
-  label: MailLabel;
+  category: MailCategory;
   subject: string;
   time: string;
   date: string;
@@ -96,6 +123,9 @@ export interface MailMessageDocument {
   actionItems: string[];
   body: string[];
   replies: string[];
+  deadline: string | null;
+  needsApproval: boolean;
+  approvalReason: string;
   /** Null while the AI fields are still the seeded samples. */
   aiGeneratedAt: Date | null;
   aiPromptVersion: number | null;

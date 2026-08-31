@@ -80,3 +80,56 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Placeholder for content a model is still producing. A travelling gradient
+   rather than a pulse: the insight card already has a breathing orb, and two
+   things pulsing out of step reads as a glitch. */
+@keyframes aegis-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.aegis-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--gray-100) 25%,
+    var(--gray-150) 37%,
+    var(--gray-100) 63%
+  );
+  background-size: 200% 100%;
+  animation: aegis-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aegis-skeleton {
+    animation: none;
+    background: var(--gray-100);
+  }
+}
+
+/* Toasts arrive from below the fold, so the eye catches the movement without
+   anything shifting on the page itself. */
+@keyframes aegis-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.aegis-toast {
+  animation: aegis-toast-in var(--dur-normal) var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aegis-toast {
+    animation: none;
+  }
+}

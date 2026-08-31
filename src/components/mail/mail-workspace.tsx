@@ -4,9 +4,19 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { syncInboxAction } from "@/app/actions/ai";
 import { useSync } from "@/components/layout/sync-provider";
-import { Icon } from "@/components/ui";
-import { buildFolders, buildPriorityFilters, filterMessages } from "@/lib/mail";
-import type { MailFolderName, MailMessage, MailPriorityFilter } from "@/types";
+import { useToast } from "@/components/layout/toast-provider";
+import {
+  buildFolders,
+  buildPriorityFilters,
+  countByFlag,
+  filterMessages,
+} from "@/lib/mail";
+import type {
+  MailFlagFilter,
+  MailFolderName,
+  MailMessage,
+  MailPriorityFilter,
+} from "@/types";
 import { ComposeModal } from "./compose-modal";
 import { MailErrorBanner } from "./mail-error-banner";
 import { MailFolderRail } from "./mail-folder-rail";
@@ -23,14 +33,15 @@ export interface MailWorkspaceProps {
 
 export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
   const router = useRouter();
+  const toast = useToast();
   const [folder, setFolder] = useState<MailFolderName>("Inbox");
   const [priority, setPriority] = useState<MailPriorityFilter>("All");
+  const [flag, setFlag] = useState<MailFlagFilter>("All");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [showError, setShowError] = useState(true);
   const [composeOpen, setComposeOpen] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
   const [analysing, startAnalysing] = useTransition();
 
   const { syncing, sync } = useSync();
@@ -38,8 +49,19 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
   const folders = useMemo(() => buildFolders(messages), [messages]);
   const priorities = useMemo(() => buildPriorityFilters(messages), [messages]);
 
+  const flags = useMemo(
+    () =>
+      (["All", "Needs Action", "Unread"] as MailFlagFilter[]).map((label) => ({
+        label,
+        icon:
+          label === "Unread" ? "mail" : label === "All" ? "inbox" : "check",
+        count: countByFlag(messages, label),
+      })),
+    [messages],
+  );
+
   const visible = useMemo(() => {
-    const byFilter = filterMessages(messages, folder, priority);
+    const byFilter = filterMessages(messages, folder, priority, flag);
     const term = query.trim().toLowerCase();
     if (!term) return byFilter;
     return byFilter.filter((message) =>
@@ -47,7 +69,7 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
         field.toLowerCase().includes(term),
       ),
     );
-  }, [messages, folder, priority, query]);
+  }, [messages, folder, priority, flag, query]);
 
   const active =
     messages.find((message) => message.id === activeId) ?? messages[0] ?? null;
@@ -64,20 +86,35 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
    */
   const handleSync = () => {
     sync();
-    setNote(null);
     if (!aiEnabled) return;
 
     startAnalysing(async () => {
       const result = await syncInboxAction();
+
+      // One key for the whole operation, so pressing Sync repeatedly replaces
+      // the last result rather than stacking identical notices.
       if (result.note) {
-        setNote(result.note);
+        toast({
+          tone: "error",
+          title: "Inbox not fully analysed",
+          description: result.note,
+          key: "mail-sync",
+        });
       } else if (result.analysed > 0) {
-        setNote(
-          `Analysed ${result.analysed} ${result.analysed === 1 ? "message" : "messages"}.`,
-        );
+        toast({
+          tone: "info",
+          title: `Analysed ${result.analysed} ${result.analysed === 1 ? "message" : "messages"}`,
+          description: "Priorities, summaries and suggested replies updated.",
+          key: "mail-sync",
+        });
         router.refresh();
       } else {
-        setNote("Every message is already analysed.");
+        toast({
+          tone: "info",
+          title: "Inbox is already up to date",
+          description: "Every message has been analysed — nothing was spent.",
+          key: "mail-sync",
+        });
       }
     });
   };
@@ -96,49 +133,6 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
         />
       )}
 
-      {note && (
-        <div
-          className="flex items-center gap-2"
-          style={{
-            padding: "9px 13px",
-            border: "1px solid var(--blue-200)",
-            background: "var(--accent-soft)",
-            borderRadius: "var(--radius-md)",
-          }}
-        >
-          <span
-            style={{ color: "var(--accent-primary)", display: "inline-flex" }}
-          >
-            <Icon name="sparkles" size={14} />
-          </span>
-          <span
-            style={{
-              flex: 1,
-              fontSize: "12px",
-              color: "var(--text-accent)",
-              textWrap: "pretty",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {note}
-          </span>
-          <button
-            type="button"
-            onClick={() => setNote(null)}
-            aria-label="Dismiss"
-            style={{
-              border: "none",
-              background: "transparent",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              display: "inline-flex",
-            }}
-          >
-            <Icon name="x" size={14} />
-          </button>
-        </div>
-      )}
-
       <div className={styles.panes}>
         <MailFolderRail
           folders={folders}
@@ -147,13 +141,20 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
           priorities={priorities}
           activePriority={priority}
           onSelectPriority={setPriority}
+          flags={flags}
+          activeFlag={flag}
+          onSelectFlag={setFlag}
           onCompose={() => setComposeOpen(true)}
         />
         <MessageList
           messages={visible}
           activeId={active?.id ?? ""}
           onSelect={selectMessage}
-          filterLabel={folder + (priority === "All" ? "" : ` · ${priority}`)}
+          filterLabel={
+            folder +
+            (priority === "All" ? "" : ` · ${priority}`) +
+            (flag === "All" ? "" : ` · ${flag}`)
+          }
           query={query}
           onQueryChange={setQuery}
         />

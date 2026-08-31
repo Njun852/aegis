@@ -2,6 +2,7 @@ import { MAIL_FOLDERS, PRIORITY_STYLES } from "@/lib/data/mail";
 import type {
   MailFolder,
   MailFolderName,
+  MailFlagFilter,
   MailMessage,
   MailPriority,
   MailPriorityFilter,
@@ -41,20 +42,32 @@ export function countByPriority(
   return messages.filter((message) => message.priority === priority).length;
 }
 
-export function countByLabel(messages: MailMessage[], label: string) {
-  return messages.filter((message) => message.label === label).length;
+export function countByCategory(messages: MailMessage[], category: string) {
+  return messages.filter((message) => message.category === category).length;
 }
 
-/** "Inbox" shows everything; every other folder filters on the message label. */
+/**
+ * A message needs action when the model listed something to do on it, or when
+ * it asks the business to commit to something a person must approve.
+ */
+export function needsAction(message: MailMessage) {
+  return message.actionItems.length > 0 || message.needsApproval;
+}
+
+/** "Inbox" shows everything; every other folder filters on the category. */
 export function filterMessages(
   messages: MailMessage[],
   folder: MailFolderName,
   priority: MailPriorityFilter,
+  flag: MailFlagFilter = "All",
 ) {
   return messages.filter((message) => {
-    const inFolder = folder === "Inbox" || message.label === folder;
+    const inFolder = folder === "Inbox" || message.category === folder;
     const matchesPriority = priority === "All" || message.priority === priority;
-    return inFolder && matchesPriority;
+    const matchesFlag =
+      flag === "All" ||
+      (flag === "Unread" ? message.unread : needsAction(message));
+    return inFolder && matchesPriority && matchesFlag;
   });
 }
 
@@ -62,7 +75,8 @@ export function buildFolders(messages: MailMessage[]): MailFolder[] {
   return MAIL_FOLDERS.map(({ label, icon }) => ({
     label: label as MailFolderName,
     icon,
-    count: label === "Inbox" ? messages.length : countByLabel(messages, label),
+    count:
+      label === "Inbox" ? messages.length : countByCategory(messages, label),
   }));
 }
 
@@ -87,4 +101,11 @@ export function recentMessages(messages: MailMessage[], count = 3) {
 /** How many messages a model has actually analysed, for the "AI sorted" note. */
 export function countAnalysed(messages: MailMessage[]) {
   return messages.filter((message) => message.aiGeneratedAt !== null).length;
+}
+
+/** Counts for the Needs Action and Unread chips in the rail. */
+export function countByFlag(messages: MailMessage[], flag: MailFlagFilter) {
+  if (flag === "All") return messages.length;
+  if (flag === "Unread") return messages.filter((m) => m.unread).length;
+  return messages.filter(needsAction).length;
 }

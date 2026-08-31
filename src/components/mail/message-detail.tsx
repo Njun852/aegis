@@ -133,7 +133,73 @@ export function MessageDetail({
           gap: "16px",
         }}
       >
+        {/* Checklist item 15: a message that would commit the business is
+            escalated rather than answered, and says so before the summary. */}
+        {message.needsApproval && (
+          <div
+            role="alert"
+            className="flex items-start gap-2.5"
+            style={{
+              padding: "12px 14px",
+              border: "1px solid var(--amber-400)",
+              background: "var(--status-warning-soft)",
+              borderRadius: "var(--radius-md)",
+            }}
+          >
+            <span
+              style={{
+                color: "var(--status-warning)",
+                flex: "0 0 auto",
+                marginTop: 1,
+              }}
+            >
+              <Icon name="alert-triangle" size={15} />
+            </span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span
+                style={{
+                  fontSize: "12.5px",
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                }}
+              >
+                Management approval required
+              </span>
+              <span
+                style={{
+                  fontSize: "12px",
+                  lineHeight: "17px",
+                  color: "var(--text-secondary)",
+                  textWrap: "pretty",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {message.approvalReason} — the suggested replies below will not
+                accept on the company&rsquo;s behalf.
+              </span>
+            </span>
+          </div>
+        )}
+
         <InsightPanel title="AI Summary" body={message.aiSummary} />
+
+        {/* Checklist item 13: a deadline is shown only when the email states
+            one, and says so plainly when it does not. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge
+            tone={message.deadline ? "warning" : "neutral"}
+            pill={false}
+            icon="clock"
+          >
+            {message.deadline
+              ? `Deadline: ${message.deadline}`
+              : "Deadline: None mentioned"}
+          </Badge>
+          <Badge tone="neutral" pill={false} icon="inbox">
+            {message.category}
+          </Badge>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           {message.actionItems.map((item) => (
             <Badge key={item} tone="info" pill={false} icon="check">

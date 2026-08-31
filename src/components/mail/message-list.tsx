@@ -118,7 +118,7 @@ export function MessageList({
                 <span className="flex flex-wrap items-center gap-1.5">
                   <Badge tone={priority.tone}>{message.priority}</Badge>
                   <Badge tone="neutral" pill={false}>
-                    {message.label}
+                    {message.category}
                   </Badge>
                 </span>
               </div>

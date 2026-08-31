@@ -40,3 +40,14 @@ export function parseCents(input: string): number | null {
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
   return Math.round(Number(cleaned) * 100);
 }
+
+/**
+ * Caps how much text is sent to a language model. Input tokens are the bulk of
+ * the bill on a triage workload, and the tail of a long email rarely changes
+ * the summary — so callers clip before sending rather than trusting the source
+ * to be short.
+ */
+export function clip(text: string, maxChars: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars)}…`;
+}

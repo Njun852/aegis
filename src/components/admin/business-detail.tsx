@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { useToast } from "@/components/layout/toast-provider";
 import { useBusiness } from "@/components/business/business-provider";
 import { Badge, Button, Icon } from "@/components/ui";
 import { saveModuleGrantsAction } from "@/app/actions/business";
@@ -20,6 +21,7 @@ export interface BusinessDetailProps {
 export function BusinessDetail({ businessId }: BusinessDetailProps) {
   const router = useRouter();
   const { businesses, switchBusiness } = useBusiness();
+  const toast = useToast();
   const [saving, startTransition] = useTransition();
 
   const business = businesses.find((entry) => entry.id === businessId);
@@ -56,7 +58,24 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
 
   const commit = () => {
     startTransition(async () => {
-      await saveModuleGrantsAction(businessId, draft);
+      try {
+        await saveModuleGrantsAction(businessId, draft);
+        toast({
+          tone: "success",
+          title: `Module access saved${business ? ` for ${business.name}` : ""}`,
+          description: "Takes effect for those users at their next sign-in.",
+          key: `grants-${businessId}`,
+        });
+      } catch (cause) {
+        toast({
+          tone: "error",
+          title: "Module access did not save",
+          description:
+            cause instanceof Error ? cause.message : "Please try again.",
+          key: `grants-${businessId}`,
+        });
+        return;
+      }
       setSavedAt(
         new Date().toLocaleTimeString("en-US", {
           hour: "numeric",

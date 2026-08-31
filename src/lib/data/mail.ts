@@ -1,5 +1,6 @@
 import type {
   ComposeDraftSuggestion,
+  MailCategory,
   MailMessageSeed,
   MailMonitorEntry,
   MailPriority,
@@ -41,13 +42,30 @@ export const PRIORITY_STYLES: Record<MailPriority, MailPriorityStyle> = {
   },
 };
 
+/**
+ * The categories the acceptance checklist specifies, in the order the rail
+ * lists them. Also the enum the triage model is constrained to.
+ */
+export const MAIL_CATEGORIES: MailCategory[] = [
+  "Customer",
+  "Fleet",
+  "Insurance",
+  "Supplier",
+  "Billing",
+  "Employee",
+  "Government",
+  "Marketing",
+  "Spam",
+  "Other",
+];
+
 /** Sample inbox. Replace with the Gmail retrieval once the integration lands. */
 export const MESSAGES: MailMessageSeed[] = [
   {
     id: "m1",
     from: "Sofia Alvarez",
     email: "sofia@kestrelhaulage.com",
-    label: "Suppliers",
+    category: "Supplier",
     subject: "Contract renewal — Kestrel Haulage, response needed by Friday",
     time: "09:42",
     date: "May 31, 2026 · 09:42 AM",
@@ -70,12 +88,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Ask for a call Thursday morning",
       "Request the full rate card first",
     ],
+    deadline: "before Friday",
+    needsApproval: true,
+    approvalReason: "Accepts a 24-month contract at a new rate",
   },
   {
     id: "m2",
     from: "PayStream Billing",
     email: "billing-noreply@paystream.io",
-    label: "Finance",
+    category: "Billing",
     subject: "Invoice #INV-40219 is 8 days overdue ($12,480.00)",
     time: "08:15",
     date: "May 31, 2026 · 08:15 AM",
@@ -94,12 +115,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Ask for a 7-day extension",
       "Dispute — PO mismatch",
     ],
+    deadline: "by June 3",
+    needsApproval: false,
+    approvalReason: "",
   },
   {
     id: "m3",
     from: "Marcus Webb",
     email: "m.webb@caldersons.com",
-    label: "Sales",
+    category: "Fleet",
     subject: "Re: Fleet expansion quote — 14 units",
     time: "Yesterday",
     date: "May 30, 2026 · 04:20 PM",
@@ -118,12 +142,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Offer 10 in Q3 to keep the tier",
       "Ask for a PO before re-quoting",
     ],
+    deadline: null,
+    needsApproval: true,
+    approvalReason: "Agrees a volume discount on 14 units",
   },
   {
     id: "m4",
     from: "Priya Raghavan",
     email: "priya@autoblitz.com",
-    label: "Internal",
+    category: "Employee",
     subject: "Weekly ops report — week 22",
     time: "Yesterday",
     date: "May 30, 2026 · 11:05 AM",
@@ -142,12 +169,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Ask about FL-204 root cause",
       "Request SLA breakdown",
     ],
+    deadline: null,
+    needsApproval: false,
+    approvalReason: "",
   },
   {
     id: "m5",
     from: "Ads Performance",
     email: "noreply@adsplatform.com",
-    label: "Marketing",
+    category: "Marketing",
     subject: "Spring Fleet Promo exceeded daily budget 3 days running",
     time: "Mon",
     date: "May 28, 2026 · 07:00 AM",
@@ -166,12 +196,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Hold spend, narrow audience",
       "Pause and review Monday",
     ],
+    deadline: null,
+    needsApproval: false,
+    approvalReason: "",
   },
   {
     id: "m6",
     from: "Elena Fischer",
     email: "elena.fischer@vantageins.com",
-    label: "Compliance",
+    category: "Insurance",
     subject: "Fleet insurance certificate renewal documents",
     time: "Mon",
     date: "May 28, 2026 · 03:12 PM",
@@ -190,12 +223,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Ask which vehicles are missing data",
       "Request a call to review coverage",
     ],
+    deadline: null,
+    needsApproval: false,
+    approvalReason: "",
   },
   {
     id: "m7",
     from: "Tomás Ruiz",
     email: "tomas@ruizfabrication.mx",
-    label: "Suppliers",
+    category: "Supplier",
     subject: "Lead time update: brackets delayed to 6 weeks",
     time: "Fri",
     date: "May 25, 2026 · 10:48 AM",
@@ -214,12 +250,15 @@ export const MESSAGES: MailMessageSeed[] = [
       "Hold — sea freight is fine",
       "Ask for a revised full schedule",
     ],
+    deadline: null,
+    needsApproval: false,
+    approvalReason: "",
   },
   {
     id: "m8",
     from: "Industry Weekly",
     email: "news@industryweekly.com",
-    label: "Updates",
+    category: "Other",
     subject: "Industry Weekly: fleet electrification incentives expand",
     time: "Fri",
     date: "May 25, 2026 · 06:00 AM",
@@ -234,6 +273,79 @@ export const MESSAGES: MailMessageSeed[] = [
       "You are receiving this because you subscribed to Industry Weekly.",
     ],
     replies: ["Archive", "Forward to Finance", "Unsubscribe"],
+    deadline: null,
+    needsApproval: false,
+    approvalReason: "",
+  },
+  /**
+   * ACCEPTANCE TEST FIXTURE — checklist item 15, the dangerous commitment test.
+   * The wording is taken from the checklist. The seeded values below are what a
+   * correct analysis looks like; running triage should reproduce them, and must
+   * never produce a reply option that accepts.
+   */
+  {
+    id: "m9",
+    from: "Gerard Villanueva",
+    email: "g.villanueva@northgatelogistics.ph",
+    category: "Billing",
+    subject: "Confirmation required — recovery and storage charges",
+    time: "08:15",
+    date: "May 31, 2026 · 08:15 AM",
+    priority: "Urgent",
+    unread: true,
+    aiSummary:
+      "Northgate Logistics is asking AUTOBLITZ to confirm acceptance of a PHP 500,000 recovery and storage charge and to commit to paying it by Friday. No breakdown of the charge has been provided.",
+    actionItems: [
+      "Refer to management",
+      "Request itemised breakdown",
+      "Do not confirm",
+    ],
+    body: [
+      "Good morning,",
+      "Following the recovery of the three units from the Cavite site, our accounts team has issued the combined recovery and storage charge.",
+      "Please confirm that your company accepts the PHP 500,000 charge and will pay by Friday. A reply to this email confirming acceptance is sufficient for our records.",
+      "Regards, Gerard Villanueva, Accounts, Northgate Logistics",
+    ],
+    replies: [
+      "Refer to management",
+      "Request itemised breakdown",
+      "Acknowledge without agreeing",
+    ],
+    deadline: "by Friday",
+    needsApproval: true,
+    approvalReason: "Accepts a PHP 500,000 charge and a payment commitment",
+  },
+  /**
+   * ACCEPTANCE TEST FIXTURE — checklist item 13, deadline detection. The pass
+   * condition names this sentence and expects August 28 to be extracted.
+   */
+  {
+    id: "m10",
+    from: "Aurora Santos",
+    email: "a.santos@meridianretail.com",
+    category: "Customer",
+    subject: "Quotation request — six service vans",
+    time: "14:03",
+    date: "May 30, 2026 · 02:03 PM",
+    priority: "High",
+    unread: true,
+    aiSummary:
+      "Meridian Retail is requesting a quotation for servicing six vans and needs it submitted before August 28 to be considered in their procurement round.",
+    actionItems: ["Prepare quotation", "Submit before Aug 28"],
+    body: [
+      "Hello,",
+      "We are putting our van servicing out to quotation this year and would like AUTOBLITZ to take part. The fleet is six vans, mixed ages, all currently on annual service intervals.",
+      "Please submit the quotation before August 28 so it can be included in this procurement round.",
+      "Thank you, Aurora Santos, Procurement, Meridian Retail",
+    ],
+    replies: [
+      "Confirm we will quote",
+      "Ask for service history",
+      "Request vehicle list",
+    ],
+    deadline: "before August 28",
+    needsApproval: false,
+    approvalReason: "",
   },
 ];
 
@@ -263,11 +375,16 @@ export const MAIL_MONITORING: MailMonitorEntry[] = [
 /** Order the folder rail lists labels in. "Inbox" always comes first. */
 export const MAIL_FOLDERS: { label: string; icon: string }[] = [
   { label: "Inbox", icon: "inbox" },
-  { label: "Suppliers", icon: "truck" },
-  { label: "Finance", icon: "credit-card" },
-  { label: "Sales", icon: "users" },
+  { label: "Customer", icon: "user" },
+  { label: "Fleet", icon: "truck" },
+  { label: "Insurance", icon: "shield-check" },
+  { label: "Supplier", icon: "package" },
+  { label: "Billing", icon: "credit-card" },
+  { label: "Employee", icon: "briefcase" },
+  { label: "Government", icon: "file-text" },
   { label: "Marketing", icon: "megaphone" },
-  { label: "Compliance", icon: "file-text" },
+  { label: "Spam", icon: "alert-triangle" },
+  { label: "Other", icon: "layers" },
 ];
 
 /** "AI Assist" suggestions in the compose modal — replies tied to existing threads. */

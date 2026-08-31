@@ -3,10 +3,17 @@
 import type { CSSProperties } from "react";
 import { Button } from "./button";
 import { Icon } from "./icon";
+import { SkeletonText } from "./skeleton";
 
 export interface InsightPanelProps {
   title?: string;
   body: string;
+  /**
+   * True while a model is producing the body. The panel keeps its shape and
+   * shows a skeleton where the text will go, so nothing jumps when the real
+   * sentences land.
+   */
+  loading?: boolean;
   action?: string;
   onAction?: () => void;
   className?: string;
@@ -16,6 +23,7 @@ export interface InsightPanelProps {
 export function InsightPanel({
   title = "AI Insight",
   body,
+  loading = false,
   action,
   onAction,
   className,
@@ -49,18 +57,27 @@ export function InsightPanel({
           {title}
         </h3>
       </div>
-      <p
-        style={{
-          margin: 0,
-          fontSize: "13px",
-          lineHeight: "20px",
-          color: "var(--text-secondary)",
-          textWrap: "pretty",
-          overflowWrap: "anywhere",
-        }}
-      >
-        {body}
-      </p>
+      {loading ? (
+        <div style={{ padding: "2px 0" }}>
+          <SkeletonText lines={3} lineHeight={11} gap={9} />
+        </div>
+      ) : (
+        <p
+          // Announced politely so a screen reader hears the sentences once they
+          // finish arriving, rather than on every character of the reveal.
+          aria-live="polite"
+          style={{
+            margin: 0,
+            fontSize: "13px",
+            lineHeight: "20px",
+            color: "var(--text-secondary)",
+            textWrap: "pretty",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {body}
+        </p>
+      )}
       <div
         style={{
           flex: 1,

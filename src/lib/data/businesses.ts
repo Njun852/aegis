@@ -34,7 +34,7 @@ export const CORE_MODULES: ModuleDefinition[] = [
     name: "Ads",
     icon: "megaphone",
     desc: "Campaign performance",
-    href: "/modules/ads",
+    href: "/ads",
   },
 ];
 

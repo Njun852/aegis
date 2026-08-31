@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "node --env-file=.env.local scripts/seed.ts",
-    "reconcile": "node --env-file=.env.local scripts/reconcile.ts"
+    "reconcile": "node --env-file=.env.local scripts/reconcile.ts",
+    "triage:check": "node --env-file=.env.local --experimental-strip-types --import ./scripts/register-alias.mjs scripts/triage-check.ts"
   },
   "dependencies": {
     "lucide-react": "^1.32.0",

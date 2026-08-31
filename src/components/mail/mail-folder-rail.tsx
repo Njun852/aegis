@@ -1,8 +1,9 @@
 "use client";
 
-import { Button, NavItem } from "@/components/ui";
+import { Button, Icon, NavItem } from "@/components/ui";
 import { MAIL_MONITORING } from "@/lib/data/mail";
 import type {
+  MailFlagFilter,
   MailFolder,
   MailFolderName,
   MailPriorityFilter,
@@ -16,6 +17,10 @@ export interface MailFolderRailProps {
   priorities: MailPriorityOption[];
   activePriority: MailPriorityFilter;
   onSelectPriority: (priority: MailPriorityFilter) => void;
+  /** Needs Action / Unread — the two cross-cutting views the checklist asks for. */
+  flags: { label: MailFlagFilter; icon: string; count: number }[];
+  activeFlag: MailFlagFilter;
+  onSelectFlag: (flag: MailFlagFilter) => void;
   onCompose: () => void;
 }
 
@@ -26,6 +31,9 @@ export function MailFolderRail({
   priorities,
   activePriority,
   onSelectPriority,
+  flags,
+  activeFlag,
+  onSelectFlag,
   onCompose,
 }: MailFolderRailProps) {
   return (
@@ -59,6 +67,48 @@ export function MailFolderRail({
           onClick={() => onSelectFolder(folder.label)}
         />
       ))}
+
+      <Divider />
+      <RailLabel>Show</RailLabel>
+
+      {flags.map((flag) => {
+        const active = flag.label === activeFlag;
+        return (
+          <button
+            key={flag.label}
+            type="button"
+            onClick={() => onSelectFlag(flag.label)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "9px",
+              padding: "8px 10px",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "12.5px",
+              cursor: "pointer",
+              textAlign: "left",
+              background: active ? "#EAF1FE" : "transparent",
+              color: active ? "var(--text-accent)" : "var(--text-primary)",
+              fontWeight: active ? 700 : 500,
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            <Icon name={flag.icon} size={14} />
+            <span>{flag.label}</span>
+            <span
+              style={{
+                marginLeft: "auto",
+                fontSize: "11px",
+                color: "var(--text-muted)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {flag.count}
+            </span>
+          </button>
+        );
+      })}
 
       <Divider />
       <RailLabel>AI Priority</RailLabel>

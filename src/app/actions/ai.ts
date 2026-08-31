@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { generateAdsInsight } from "@/lib/ai/ads-insight";
 import { draftEmail } from "@/lib/ai/compose";
 import { generateInsight } from "@/lib/ai/insight";
 import { triageInbox } from "@/lib/ai/mail-triage";
@@ -101,4 +102,15 @@ export async function draftEmailAction(
   return result.ok
     ? { subject: result.data.subject, body: result.data.body, note: null }
     : { subject: null, body: null, note: explainFailure(result.reason) };
+}
+
+export async function generateAdsInsightAction(): Promise<InsightState> {
+  await requireModule("ads");
+
+  if (!isAiConfigured()) return { text: null, note: null };
+
+  const result = await generateAdsInsight();
+  return result.ok
+    ? { text: result.data, note: null }
+    : { text: null, note: explainFailure(result.reason) };
 }

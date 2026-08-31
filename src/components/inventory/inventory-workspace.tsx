@@ -10,6 +10,7 @@ import {
   SearchInput,
   Select,
 } from "@/components/ui";
+import { useToast } from "@/components/layout/toast-provider";
 import { formatDay, formatMoney } from "@/lib/format";
 import {
   belowReorder,
@@ -60,6 +61,7 @@ export function InventoryWorkspace({
   todayIso,
 }: InventoryWorkspaceProps) {
   const router = useRouter();
+  const toast = useToast();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<InventoryStatusFilter>("All");
   const [period, setPeriod] = useState<InventoryPeriod>(
@@ -545,7 +547,12 @@ export function InventoryWorkspace({
           moves={moves}
           startSku={move.sku}
           onClose={() => setMove(null)}
-          onRecorded={(sku) => {
+          onRecorded={(sku, summary) => {
+            toast({
+              tone: "success",
+              title: "Stock movement recorded",
+              description: summary,
+            });
             setMove(null);
             // Pull the new level and the new movement back from the server,
             // then show the item it landed on.

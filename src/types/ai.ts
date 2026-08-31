@@ -1,10 +1,14 @@
-import type { MailPriority } from "./mail";
+import type { MailCategory, MailPriority } from "./mail";
 
 /**
  * Which surface a generation belongs to. Also partitions the cache and the
  * usage log, so cost is attributable per feature as well as per business.
  */
-export type AiKind = "dashboard-insight" | "mail-triage" | "compose-draft";
+export type AiKind =
+  | "dashboard-insight"
+  | "ads-insight"
+  | "mail-triage"
+  | "compose-draft";
 
 /**
  * Why a generation did not produce text. Every one of these is a normal
@@ -60,7 +64,12 @@ export interface AiUsageDocument {
 export interface MailTriageResult {
   id: string;
   priority: MailPriority;
+  category: MailCategory;
   summary: string;
   actionItems: string[];
   replies: string[];
+  /** A deadline stated in the email, as written. `null` when none is stated. */
+  deadline: string | null;
+  needsApproval: boolean;
+  approvalReason: string;
 }

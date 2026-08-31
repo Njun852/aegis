@@ -1,4 +1,5 @@
 export type * from "./account";
+export type * from "./ads";
 export type * from "./ai";
 export type * from "./bookings";
 export type * from "./business";

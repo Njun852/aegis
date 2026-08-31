@@ -27,7 +27,7 @@ export const WORKSPACE_NAV: NavLink[] = [
   },
   { href: "/mail", label: "Mail", icon: "mail", title: "Mail" },
   {
-    href: "/modules/ads",
+    href: "/ads",
     label: "Ads",
     icon: "megaphone",
     title: "Ads",

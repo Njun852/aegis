@@ -18,6 +18,7 @@ import {
   BOOKING_STATUSES,
   DEFAULT_BOOKING_RANGE,
 } from "@/lib/data/bookings";
+import { useToast } from "@/components/layout/toast-provider";
 import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
 import { NewBookingModal } from "./new-booking-modal";
@@ -43,6 +44,7 @@ export function BookingsWorkspace({
   todayIso,
 }: BookingsWorkspaceProps) {
   const router = useRouter();
+  const toast = useToast();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<BookingStatusFilter>("All");
   const [range, setRange] = useState<BookingRange>(DEFAULT_BOOKING_RANGE);
@@ -497,6 +499,11 @@ export function BookingsWorkspace({
         <NewBookingModal
           onClose={() => setComposing(false)}
           onCreated={(ref) => {
+            toast({
+              tone: "success",
+              title: `Booking ${ref} created`,
+              description: "Saved as Pending — confirm it from the booking.",
+            });
             setComposing(false);
             // Pull the newly written row back from the server, then open it.
             router.refresh();

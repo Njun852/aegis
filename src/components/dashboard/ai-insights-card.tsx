@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { generateInsightAction } from "@/app/actions/ai";
 import { InsightPanel } from "@/components/ui";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import type { DateRange } from "@/types";
 import { useDashboardRange } from "./dashboard-range-provider";
 
@@ -27,13 +28,16 @@ export interface AiInsightsCardProps {
  *   someone actually looked at. The answer is keyed on the figures, so it is
  *   reused until the numbers themselves move.
  *
- * The card never blocks the dashboard: the sample copy is on screen from the
- * first paint and is replaced in place when the real one arrives.
+ * While a request is in flight the panel shows a skeleton rather than the
+ * sample copy, so nobody reads a sentence that is about to be replaced. A
+ * freshly generated insight is then revealed progressively; a cached one
+ * appears whole, because it was not written in front of anyone.
  */
 export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
   const { range, data } = useDashboardRange();
   const [generated, setGenerated] =
     useState<Partial<Record<DateRange, string>>>(cached);
+  const [pending, setPending] = useState<DateRange | null>(null);
 
   // Ranges already asked about on this mount, so switching back and forth
   // cannot fire a second request for the same one.
@@ -45,18 +49,20 @@ export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
     if (!aiEnabled || generated[range] || requested.current.has(range)) return;
 
     requested.current.add(range);
+    setPending(range);
     let live = true;
 
     generateInsightAction(range)
       .then((result) => {
+        if (!live) return;
         const text = result.text;
-        if (live && text) {
-          setGenerated((current) => ({ ...current, [range]: text }));
-        }
+        if (text) setGenerated((current) => ({ ...current, [range]: text }));
+        setPending(null);
       })
       .catch(() => {
-        // A failed generation leaves the sample copy in place; the reason is
+        // A failed generation falls back to the sample copy; the reason is
         // already in the usage log.
+        if (live) setPending(null);
       });
 
     return () => {
@@ -64,10 +70,16 @@ export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
     };
   }, [aiEnabled, generated, range]);
 
+  const text = generated[range] ?? null;
+  const { shown } = useTypewriter(text, {
+    animate: text !== null && text !== cached[range],
+  });
+
   return (
     <InsightPanel
       title="AI Insights"
-      body={generated[range] ?? data.insight}
+      body={shown || data.insight}
+      loading={pending === range}
       action="View Full Report"
     />
   );

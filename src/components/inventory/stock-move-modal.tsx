@@ -35,7 +35,7 @@ export interface StockMoveModalProps {
   startSku?: string;
   onClose: () => void;
   /** Fired once the server confirms the write, with the SKU that moved. */
-  onRecorded: (sku: string) => void;
+  onRecorded: (sku: string, summary: string) => void;
 }
 
 /**
@@ -72,12 +72,6 @@ export function StockMoveModal({
    */
   const [amountDraft, setAmountDraft] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (state.createdRef && state.sku) onRecorded(state.sku);
-    // `onRecorded` is stable enough here; re-running on every render would loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.createdRef]);
-
   const meta = MOVE_REASONS[reason];
   const typed = name.trim();
   const match = findItem(items, name);
@@ -96,6 +90,21 @@ export function StockMoveModal({
   const unit = match?.unit ?? "units";
   const after = kind === "out" ? onHand - quantityNumber : onHand + quantityNumber;
   const lineTotalCents = quantityNumber * unitAmountCents;
+
+  useEffect(() => {
+    if (state.createdRef && state.sku) {
+      const moved = `${quantityNumber} ${match?.unit ?? "units"}`;
+      onRecorded(
+        state.sku,
+        kind === "out"
+          ? `${moved} of ${typed} stocked out`
+          : `${moved} of ${typed} stocked in`,
+      );
+    }
+    // `onRecorded` is stable enough here; re-running on every render would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.createdRef]);
+
 
   const invalid =
     !typed ||

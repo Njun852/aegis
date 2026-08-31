@@ -2,7 +2,8 @@ import "server-only";
 
 import { CURRENT_USER, ORGANIZATION } from "@/lib/data/workspace";
 import { AI_MODELS } from "./client";
-import { cacheKeyFor, clip, generate } from "./generate";
+import { clip } from "@/lib/format";
+import { cacheKeyFor, generate } from "./generate";
 import type { AiResult } from "@/types";
 
 /**
