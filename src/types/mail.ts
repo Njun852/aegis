@@ -1,3 +1,4 @@
+import type { FreshnessTone } from "@/lib/freshness";
 import type { BadgeTone } from "@/components/ui";
 
 export type MailPriority = "Urgent" | "High" | "Normal" | "Low";
@@ -62,6 +63,12 @@ export interface MailMessage {
   approvalReason: string;
   /** ISO 8601 once a model has analysed this message; null while sampled. */
   aiGeneratedAt: string | null;
+  /**
+   * The full draft reply shown as the Suggested Reply field. Null until one has
+   * been written, and stays null for categories `replyPolicy` says not to reply
+   * to — the screen shows that policy's reason instead.
+   */
+  suggestedReply: string | null;
 }
 
 export interface MailPriorityStyle {
@@ -129,6 +136,13 @@ export interface MailMessageDocument {
   /** Null while the AI fields are still the seeded samples. */
   aiGeneratedAt: Date | null;
   aiPromptVersion: number | null;
+  /** The stored full draft reply, or null if none has been written. */
+  suggestedReply: string | null;
+  /**
+   * Which reply prompt produced it. This is what stops the sweep re-drafting —
+   * and re-billing for — a message that already has a current draft.
+   */
+  replyPromptVersion: number | null;
   receivedAt: Date;
   createdAt: Date;
 }
@@ -138,4 +152,23 @@ export interface MailMessageDocument {
  * it. The fixture in `src/lib/data/mail.ts` is a seed, not a loaded message —
  * `aiGeneratedAt` is set by the database, once a model has actually run.
  */
-export type MailMessageSeed = Omit<MailMessage, "aiGeneratedAt">;
+export type MailMessageSeed = Omit<
+  MailMessage,
+  "aiGeneratedAt" | "suggestedReply"
+>;
+
+/**
+ * What the shell is told about mail freshness at render time.
+ *
+ * `label` and `tone` are computed on the server and reused as the client's
+ * first values, so hydration cannot mismatch on a clock that moved between the
+ * two renders.
+ */
+export interface MailFreshnessState {
+  /** ISO of the newest message held, or null when nothing has ever arrived. */
+  newestReceivedAt: string | null;
+  /** False until a real mailbox is connected. */
+  connected: boolean;
+  label: string;
+  tone: FreshnessTone;
+}

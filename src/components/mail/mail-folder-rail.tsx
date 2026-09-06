@@ -6,17 +6,12 @@ import type {
   MailFlagFilter,
   MailFolder,
   MailFolderName,
-  MailPriorityFilter,
-  MailPriorityOption,
 } from "@/types";
 
 export interface MailFolderRailProps {
   folders: MailFolder[];
   activeFolder: MailFolderName;
   onSelectFolder: (folder: MailFolderName) => void;
-  priorities: MailPriorityOption[];
-  activePriority: MailPriorityFilter;
-  onSelectPriority: (priority: MailPriorityFilter) => void;
   /** Needs Action / Unread — the two cross-cutting views the checklist asks for. */
   flags: { label: MailFlagFilter; icon: string; count: number }[];
   activeFlag: MailFlagFilter;
@@ -28,9 +23,6 @@ export function MailFolderRail({
   folders,
   activeFolder,
   onSelectFolder,
-  priorities,
-  activePriority,
-  onSelectPriority,
   flags,
   activeFlag,
   onSelectFlag,
@@ -105,55 +97,6 @@ export function MailFolderRail({
               }}
             >
               {flag.count}
-            </span>
-          </button>
-        );
-      })}
-
-      <Divider />
-      <RailLabel>AI Priority</RailLabel>
-
-      {priorities.map((priority) => {
-        const active = priority.label === activePriority;
-        return (
-          <button
-            key={priority.label}
-            type="button"
-            onClick={() => onSelectPriority(priority.label)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "9px",
-              padding: "8px 10px",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              fontSize: "12.5px",
-              cursor: "pointer",
-              textAlign: "left",
-              background: active ? "#EAF1FE" : "transparent",
-              color: active ? "var(--text-accent)" : "var(--text-primary)",
-              fontWeight: active ? 700 : 500,
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "var(--radius-pill)",
-                background: priority.dot,
-              }}
-            />
-            <span>{priority.label}</span>
-            <span
-              style={{
-                marginLeft: "auto",
-                fontSize: "11px",
-                color: "var(--text-muted)",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {priority.count}
             </span>
           </button>
         );

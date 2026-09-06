@@ -79,3 +79,9 @@ export async function setAdEnabled(
   );
   return result.matchedCount > 0;
 }
+
+/** How many campaigns, ad sets and ads are stored. Used by the status screen. */
+export async function adRowCount(): Promise<number> {
+  const collection = await rows();
+  return collection.countDocuments();
+}

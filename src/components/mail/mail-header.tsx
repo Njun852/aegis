@@ -6,9 +6,21 @@ import { ORGANIZATION } from "@/lib/data/workspace";
 export interface MailHeaderProps {
   syncing: boolean;
   onSync: () => void;
+  /** False until a real mailbox is connected. */
+  mailboxConnected: boolean;
+  /** The connected address, when there is one. */
+  mailbox: string | null;
+  /** How long ago the newest held message arrived. */
+  dataAge: string;
 }
 
-export function MailHeader({ syncing, onSync }: MailHeaderProps) {
+export function MailHeader({
+  syncing,
+  onSync,
+  mailboxConnected,
+  mailbox,
+  dataAge,
+}: MailHeaderProps) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -30,13 +42,24 @@ export function MailHeader({ syncing, onSync }: MailHeaderProps) {
             color: "var(--text-secondary)",
           }}
         >
-          Gmail-connected inbox with AI prioritization, summaries and suggested
-          replies.
+          {mailboxConnected
+            ? "Gmail-connected inbox with AI prioritization, summaries and suggested replies."
+            : "AI prioritization, summaries and suggested replies, running on the seeded sample inbox until a mailbox is connected."}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2.5">
-        <Badge tone="positive" icon="shield-check">
-          Gmail connected · {ORGANIZATION.mailbox}
+        {/*
+          This badge used to read "Gmail connected" unconditionally, over an
+          inbox nothing was connected to. It now states what is actually true,
+          and matches what the system-status screen reports.
+        */}
+        <Badge
+          tone={mailboxConnected ? "positive" : "warning"}
+          icon={mailboxConnected ? "shield-check" : "circle-alert"}
+        >
+          {mailboxConnected
+            ? `Gmail connected · ${mailbox ?? ORGANIZATION.mailbox}`
+            : `No mailbox connected · sample inbox, updated ${dataAge}`}
         </Badge>
         <Button
           variant="primary"

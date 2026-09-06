@@ -129,3 +129,56 @@ export async function spendThisMonth(
     calls: (result?.calls as number | undefined) ?? 0,
   };
 }
+
+export interface AiFailureRecord {
+  at: Date;
+  kind: AiKind;
+  outcome: string;
+}
+
+export interface AiHealth {
+  /** When a model call last actually succeeded, or null if none ever has. */
+  lastOkAt: Date | null;
+  /** Most recent failures, newest first. */
+  failures: AiFailureRecord[];
+  /** How many calls failed in the current billing period. */
+  failuresThisPeriod: number;
+}
+
+/**
+ * What the usage log says about the health of the OpenAI integration.
+ *
+ * Every call has been written here with its outcome since the integration was
+ * built, so this is a read of existing evidence rather than new instrumentation
+ * — which is the whole reason the status screen can be honest about AI on the
+ * day it ships.
+ */
+export async function readAiHealth(
+  limit = 5,
+  now = new Date(),
+): Promise<AiHealth> {
+  const collection = await usage();
+
+  const [lastOk, failures, failuresThisPeriod] = await Promise.all([
+    collection.find({ outcome: "ok" }).sort({ createdAt: -1 }).limit(1).next(),
+    collection
+      .find({ outcome: { $ne: "ok" } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray(),
+    collection.countDocuments({
+      period: currentPeriod(now),
+      outcome: { $ne: "ok" },
+    }),
+  ]);
+
+  return {
+    lastOkAt: lastOk ? lastOk.createdAt : null,
+    failures: failures.map((entry) => ({
+      at: entry.createdAt,
+      kind: entry.kind,
+      outcome: entry.outcome,
+    })),
+    failuresThisPeriod,
+  };
+}

@@ -41,3 +41,37 @@ export const businessesCollection = () =>
   collection<BusinessDocument>(COLLECTIONS.businesses);
 export const membershipsCollection = () =>
   collection<Membership>(COLLECTIONS.memberships);
+
+export interface DatabasePing {
+  ok: boolean;
+  latencyMs: number;
+  /** The driver's own message when the ping failed. */
+  error: string | null;
+  /** Database actually in use, so dev and production are distinguishable. */
+  name: string;
+}
+
+/**
+ * Round-trips a `ping` to MongoDB.
+ *
+ * The status screen must not infer that the database is up from a page having
+ * rendered — a cached render proves nothing. This asks the server directly and
+ * reports what it says, including how long it took to say it.
+ */
+export async function pingDatabase(): Promise<DatabasePing> {
+  const started = Date.now();
+  const name = process.env.MONGODB_DB_NAME ?? "(unset)";
+
+  try {
+    const db = await getDb();
+    await db.command({ ping: 1 });
+    return { ok: true, latencyMs: Date.now() - started, error: null, name };
+  } catch (cause) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - started,
+      error: cause instanceof Error ? cause.message : String(cause),
+      name,
+    };
+  }
+}

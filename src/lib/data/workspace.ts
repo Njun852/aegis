@@ -42,4 +42,10 @@ export const INTERNAL_NAV: NavLink[] = [
     icon: "building-2",
     title: "Business Management",
   },
+  {
+    href: "/status",
+    label: "System Status",
+    icon: "shield-check",
+    title: "System Status",
+  },
 ];

@@ -1,9 +1,9 @@
-import { Card, ListRow } from "@/components/ui";
+import { Card, DemoBadge, ListRow } from "@/components/ui";
 import { ALERT_ROWS } from "@/lib/data/dashboard";
 
 export function AlertsCard() {
   return (
-    <Card title="Alerts" padding="16px">
+    <Card title="Alerts" padding="16px" action={<DemoBadge />}>
       <div className="flex flex-col overflow-hidden">
         {ALERT_ROWS.map((alert) => (
           <ListRow

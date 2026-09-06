@@ -25,6 +25,7 @@ export function KpiGrid() {
           delta={kpi.delta}
           deltaCaption={DELTA_CAPTION[range]}
           points={kpi.points}
+          demo={kpi.demo}
         />
       ))}
     </div>

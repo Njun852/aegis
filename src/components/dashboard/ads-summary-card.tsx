@@ -1,13 +1,13 @@
 "use client";
 
-import { Card, DeltaIndicator } from "@/components/ui";
+import { Card, DeltaIndicator, DemoBadge } from "@/components/ui";
 import { useDashboardRange } from "./dashboard-range-provider";
 
 export function AdsSummaryCard() {
   const { data } = useDashboardRange();
 
   return (
-    <Card title="Ads Summary" padding="16px">
+    <Card title="Ads Summary" padding="16px" action={<DemoBadge />}>
       <div className="grid grid-cols-2 gap-2">
         {data.adTiles.map((tile) => (
           <div

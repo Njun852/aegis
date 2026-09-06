@@ -194,7 +194,7 @@ export function Sidebar({
                     key={item.href}
                     icon={item.icon}
                     label={item.label}
-                    active={pathname.startsWith("/admin")}
+                    active={pathname.startsWith(item.href)}
                     onClick={() => go(item.href)}
                   />
                 ) : (
@@ -204,7 +204,7 @@ export function Sidebar({
                       icon={item.icon}
                       label={item.label}
                       badge="Admin"
-                      active={pathname.startsWith("/admin")}
+                      active={pathname.startsWith(item.href)}
                       onClick={onNavigate}
                     />
                   </span>
@@ -272,7 +272,7 @@ export function Sidebar({
               icon="settings"
               fullWidth
               style={{ justifyContent: "flex-start" }}
-              onClick={() => go("/modules/settings")}
+              onClick={() => go("/account")}
             >
               Account Settings
             </Button>

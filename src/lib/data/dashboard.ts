@@ -24,6 +24,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
     kpis: [
       {
         label: "Total Balance",
+        demo: true,
         value: "$ 128,430.50",
         icon: "wallet",
         tone: "accent",
@@ -32,6 +33,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Revenue",
+        demo: true,
         value: "$ 86,240.00",
         icon: "trending-up",
         tone: "positive",
@@ -40,6 +42,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Expenses",
+        demo: true,
         value: "$ 41,905.20",
         icon: "credit-card",
         tone: "negative",
@@ -48,6 +51,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Net Profit",
+        demo: true,
         value: "$ 44,334.80",
         icon: "bar-chart-2",
         tone: "accent",
@@ -110,6 +114,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
     kpis: [
       {
         label: "Total Balance",
+        demo: true,
         value: "$ 118,650.00",
         icon: "wallet",
         tone: "accent",
@@ -118,6 +123,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Revenue",
+        demo: true,
         value: "$ 76,240.00",
         icon: "trending-up",
         tone: "positive",
@@ -126,6 +132,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Expenses",
+        demo: true,
         value: "$ 40,120.00",
         icon: "credit-card",
         tone: "negative",
@@ -134,6 +141,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Net Profit",
+        demo: true,
         value: "$ 36,120.00",
         icon: "bar-chart-2",
         tone: "accent",
@@ -196,6 +204,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
     kpis: [
       {
         label: "Total Balance",
+        demo: true,
         value: "$ 128,430.50",
         icon: "wallet",
         tone: "accent",
@@ -204,6 +213,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Revenue",
+        demo: true,
         value: "$ 254,240.00",
         icon: "trending-up",
         tone: "positive",
@@ -212,6 +222,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Expenses",
+        demo: true,
         value: "$ 118,940.00",
         icon: "credit-card",
         tone: "negative",
@@ -220,6 +231,7 @@ export const DASHBOARD_RANGES: Record<DateRange, DashboardRangeData> = {
       },
       {
         label: "Net Profit",
+        demo: true,
         value: "$ 135,300.00",
         icon: "bar-chart-2",
         tone: "accent",

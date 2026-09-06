@@ -4,23 +4,32 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Sidebar } from "./sidebar";
 import { SyncProvider, useSync } from "./sync-provider";
+import type { MailFreshnessState } from "@/types";
 import { ToastProvider } from "./toast-provider";
 import { Topbar } from "./topbar";
 
 export interface AppShellProps {
   children: ReactNode;
   unreadCount: number;
+  /** Real mail freshness, read on the server. Never a timer. */
+  mailFreshness: MailFreshnessState;
 }
 
 /**
  * The persistent chrome every signed-in route renders inside: a collapsible
  * sidebar, the top bar, and a scrolling main region.
  */
-export function AppShell({ children, unreadCount }: AppShellProps) {
+export function AppShell({
+  children,
+  unreadCount,
+  mailFreshness,
+}: AppShellProps) {
   return (
-    <SyncProvider>
+    <SyncProvider initial={mailFreshness}>
       <ToastProvider>
-        <ShellFrame unreadCount={unreadCount}>{children}</ShellFrame>
+        <ShellFrame unreadCount={unreadCount} mailFreshness={mailFreshness}>
+          {children}
+        </ShellFrame>
       </ToastProvider>
     </SyncProvider>
   );
@@ -29,7 +38,7 @@ export function AppShell({ children, unreadCount }: AppShellProps) {
 function ShellFrame({ children, unreadCount }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const { label: lastSync } = useSync();
+  const { label: lastSync, tone: syncTone, connected } = useSync();
 
   return (
     <div
@@ -59,6 +68,8 @@ function ShellFrame({ children, unreadCount }: AppShellProps) {
       >
         <Topbar
           lastSync={lastSync}
+          syncTone={syncTone}
+          mailboxConnected={connected}
           hasNotifications={unreadCount > 0}
           onToggleSidebar={() => setCollapsed((isCollapsed) => !isCollapsed)}
         />

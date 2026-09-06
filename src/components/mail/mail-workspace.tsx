@@ -18,7 +18,6 @@ import type {
   MailPriorityFilter,
 } from "@/types";
 import { ComposeModal } from "./compose-modal";
-import { MailErrorBanner } from "./mail-error-banner";
 import { MailFolderRail } from "./mail-folder-rail";
 import { MailHeader } from "./mail-header";
 import { MessageDetail } from "./message-detail";
@@ -29,9 +28,15 @@ export interface MailWorkspaceProps {
   messages: MailMessage[];
   /** Whether this install has an OpenAI key, so "Sync now" can offer triage. */
   aiEnabled: boolean;
+  /** The connected mailbox address, or null when none is connected. */
+  mailbox: string | null;
 }
 
-export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
+export function MailWorkspace({
+  messages,
+  aiEnabled,
+  mailbox,
+}: MailWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
   const [folder, setFolder] = useState<MailFolderName>("Inbox");
@@ -39,26 +44,37 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
   const [flag, setFlag] = useState<MailFlagFilter>("All");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState("");
-  const [showError, setShowError] = useState(true);
   const [composeOpen, setComposeOpen] = useState(false);
   const [analysing, startAnalysing] = useTransition();
 
-  const { syncing, sync } = useSync();
+  const { syncing, sync, connected, label: dataAge } = useSync();
 
   const folders = useMemo(() => buildFolders(messages), [messages]);
-  const priorities = useMemo(() => buildPriorityFilters(messages), [messages]);
 
-  const flags = useMemo(
-    () =>
-      (["All", "Needs Action", "Unread"] as MailFlagFilter[]).map((label) => ({
-        label,
-        icon:
-          label === "Unread" ? "mail" : label === "All" ? "inbox" : "check",
-        count: countByFlag(messages, label),
-      })),
-    [messages],
+  /**
+   * Each filter counts within the others, not across the whole inbox.
+   *
+   * Priority counts used to be taken over every message, so opening Customer
+   * still offered "Urgent 2" when the two urgent messages were in Fleet —
+   * picking it emptied the list. A facet's counts now describe what choosing it
+   * would actually leave, which is the only reading of the number that is any
+   * use. Folder counts stay whole-inbox totals, the way a mailbox reports them.
+   */
+  const priorities = useMemo(
+    () => buildPriorityFilters(filterMessages(messages, folder, "All", flag)),
+    [messages, folder, flag],
   );
+
+  const flags = useMemo(() => {
+    const scoped = filterMessages(messages, folder, priority, "All");
+    return (["All", "Needs Action", "Unread"] as MailFlagFilter[]).map(
+      (label) => ({
+        label,
+        icon: label === "Unread" ? "mail" : label === "All" ? "inbox" : "check",
+        count: countByFlag(scoped, label),
+      }),
+    );
+  }, [messages, folder, priority]);
 
   const visible = useMemo(() => {
     const byFilter = filterMessages(messages, folder, priority, flag);
@@ -71,12 +87,24 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
     );
   }, [messages, folder, priority, flag, query]);
 
-  const active =
-    messages.find((message) => message.id === activeId) ?? messages[0] ?? null;
+  // No fallback to the first message: with one main pane, a default selection
+  // would mean the list could never be the thing you are looking at.
+  const active = activeId
+    ? (messages.find((message) => message.id === activeId) ?? null)
+    : null;
 
   const selectMessage = (id: string) => {
     setActiveId(id);
-    setDraft("");
+  };
+
+  /**
+   * Changing what you are filtering by returns you to the list. Leaving an open
+   * message on screen while the folder behind it changes would show a message
+   * the current filter may not even include.
+   */
+  const refilter = <T,>(apply: (value: T) => void) => (value: T) => {
+    setActiveId(null);
+    apply(value);
   };
 
   /**
@@ -85,7 +113,21 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
    * server, so pressing this on an already-analysed inbox costs nothing.
    */
   const handleSync = () => {
-    sync();
+    // Re-reads real freshness. With no mailbox connected there is nothing to
+    // retrieve, and saying so is the point — the old version played a
+    // retrieval animation over an inbox nothing was feeding.
+    void sync().then((connected) => {
+      if (!connected) {
+        toast({
+          tone: "info",
+          title: "No mailbox connected",
+          description:
+            "Mail is showing the seeded sample inbox. Connect a company mailbox to retrieve new messages.",
+          key: "mail-connection",
+        });
+      }
+    });
+
     if (!aiEnabled) return;
 
     startAnalysing(async () => {
@@ -100,11 +142,26 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
           description: result.note,
           key: "mail-sync",
         });
-      } else if (result.analysed > 0) {
+      } else if (result.analysed > 0 || result.drafted > 0) {
+        const parts: string[] = [];
+        if (result.analysed > 0) {
+          parts.push(
+            `analysed ${result.analysed} ${result.analysed === 1 ? "message" : "messages"}`,
+          );
+        }
+        if (result.drafted > 0) {
+          parts.push(
+            `wrote ${result.drafted} suggested ${result.drafted === 1 ? "reply" : "replies"}`,
+          );
+        }
+
         toast({
           tone: "info",
-          title: `Analysed ${result.analysed} ${result.analysed === 1 ? "message" : "messages"}`,
-          description: "Priorities, summaries and suggested replies updated.",
+          title: `Inbox updated — ${parts.join(", ")}`,
+          description:
+            result.draftsPending > 0
+              ? `${result.draftsPending} still to draft; press Sync again to continue.`
+              : "Priorities, summaries, deadlines and suggested replies are current.",
           key: "mail-sync",
         });
         router.refresh();
@@ -121,68 +178,46 @@ export function MailWorkspace({ messages, aiEnabled }: MailWorkspaceProps) {
 
   return (
     <div className={styles.workspace}>
-      <MailHeader syncing={syncing || analysing} onSync={handleSync} />
-
-      {showError && (
-        <MailErrorBanner
-          onRetry={() => {
-            setShowError(false);
-            handleSync();
-          }}
-          onDismiss={() => setShowError(false)}
-        />
-      )}
+      <MailHeader
+        syncing={syncing || analysing}
+        onSync={handleSync}
+        mailboxConnected={connected}
+        mailbox={mailbox}
+        dataAge={dataAge}
+      />
 
       <div className={styles.panes}>
         <MailFolderRail
           folders={folders}
           activeFolder={folder}
-          onSelectFolder={setFolder}
-          priorities={priorities}
-          activePriority={priority}
-          onSelectPriority={setPriority}
+          onSelectFolder={refilter(setFolder)}
           flags={flags}
           activeFlag={flag}
-          onSelectFlag={setFlag}
+          onSelectFlag={refilter(setFlag)}
           onCompose={() => setComposeOpen(true)}
-        />
-        <MessageList
-          messages={visible}
-          activeId={active?.id ?? ""}
-          onSelect={selectMessage}
-          filterLabel={
-            folder +
-            (priority === "All" ? "" : ` · ${priority}`) +
-            (flag === "All" ? "" : ` · ${flag}`)
-          }
-          query={query}
-          onQueryChange={setQuery}
         />
         {active ? (
           <MessageDetail
             key={active.id}
             message={active}
-            draft={draft}
-            onDraftChange={setDraft}
+            onBack={() => setActiveId(null)}
           />
         ) : (
-          <section
-            style={{
-              background: "var(--surface-card)",
-              border: "1px solid var(--border-default)",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "var(--shadow-card)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "24px",
-              fontSize: "13px",
-              color: "var(--text-muted)",
-              textAlign: "center",
-            }}
-          >
-            No messages in this mailbox yet.
-          </section>
+          <MessageList
+            messages={visible}
+            activeId=""
+            onSelect={selectMessage}
+            filterLabel={
+              folder +
+              (priority === "All" ? "" : ` · ${priority}`) +
+              (flag === "All" ? "" : ` · ${flag}`)
+            }
+            query={query}
+            onQueryChange={setQuery}
+            priorities={priorities}
+            activePriority={priority}
+            onSelectPriority={refilter(setPriority)}
+          />
         )}
       </div>
 

@@ -434,6 +434,8 @@ async function seedMail(db: Db, businessId: string) {
           approvalReason: message.approvalReason,
           aiGeneratedAt: null,
           aiPromptVersion: null,
+          suggestedReply: null,
+          replyPromptVersion: null,
           createdAt: new Date(),
         },
       },

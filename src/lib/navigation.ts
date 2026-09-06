@@ -16,6 +16,7 @@ export function routeTitle(pathname: string, businesses: Business[]): string {
   const internal = INTERNAL_NAV.find((item) => pathname.startsWith(item.href));
   if (internal) return internal.title;
 
+  if (pathname.startsWith("/account")) return "Account Settings";
   if (pathname.startsWith("/bookings")) return "Bookings";
   if (pathname.startsWith("/inventory")) return "Inventory";
   if (pathname.startsWith("/ads")) return "Ads";

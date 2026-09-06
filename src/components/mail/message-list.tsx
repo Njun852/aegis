@@ -2,7 +2,11 @@
 
 import { Badge, Icon, ListRow, SearchInput } from "@/components/ui";
 import { getPriorityStyle } from "@/lib/mail";
-import type { MailMessage } from "@/types";
+import type {
+  MailMessage,
+  MailPriorityFilter,
+  MailPriorityOption,
+} from "@/types";
 
 export interface MessageListProps {
   messages: MailMessage[];
@@ -11,6 +15,10 @@ export interface MessageListProps {
   filterLabel: string;
   query: string;
   onQueryChange: (query: string) => void;
+  /** Counted within the folder and flag already applied, never the whole inbox. */
+  priorities: MailPriorityOption[];
+  activePriority: MailPriorityFilter;
+  onSelectPriority: (priority: MailPriorityFilter) => void;
 }
 
 export function MessageList({
@@ -20,6 +28,9 @@ export function MessageList({
   filterLabel,
   query,
   onQueryChange,
+  priorities,
+  activePriority,
+  onSelectPriority,
 }: MessageListProps) {
   return (
     <section
@@ -50,6 +61,63 @@ export function MessageList({
           value={query}
           onChange={onQueryChange}
         />
+
+        {/*
+          AI Priority sits with the list it filters rather than in the folder
+          rail. Beside the search box it reads as one control over the same set,
+          and its counts are of the folder you are actually in.
+        */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {priorities.map((option) => {
+            const active = option.label === activePriority;
+            const empty = option.count === 0 && !active;
+
+            return (
+              <button
+                key={option.label}
+                type="button"
+                onClick={() => onSelectPriority(option.label)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "4px 9px",
+                  borderRadius: "var(--radius-pill)",
+                  border: `1px solid ${active ? "var(--accent-primary)" : "var(--border-default)"}`,
+                  background: active ? "var(--accent-soft)" : "var(--surface-card)",
+                  color: active ? "var(--text-accent)" : "var(--text-secondary)",
+                  fontWeight: active ? 700 : 500,
+                  fontFamily: "var(--font-body)",
+                  fontSize: "11.5px",
+                  lineHeight: "16px",
+                  cursor: "pointer",
+                  // Dimmed, not hidden: a priority with nothing in this folder
+                  // is worth knowing about before it is clicked.
+                  opacity: empty ? 0.45 : 1,
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "var(--radius-pill)",
+                    background: option.dot,
+                    flex: "0 0 auto",
+                  }}
+                />
+                {option.label}
+                <span
+                  style={{
+                    fontVariantNumeric: "tabular-nums",
+                    color: active ? "var(--text-accent)" : "var(--text-muted)",
+                  }}
+                >
+                  {option.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <div className="flex items-center justify-between gap-2.5">
           <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
             <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>

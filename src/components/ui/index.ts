@@ -18,6 +18,8 @@ export { Card } from "./card";
 export type { CardProps } from "./card";
 export { ChartTooltip } from "./chart-tooltip";
 export type { ChartTooltipProps } from "./chart-tooltip";
+export { DemoBadge } from "./demo-badge";
+export type { DemoBadgeProps } from "./demo-badge";
 export { DeltaIndicator } from "./delta-indicator";
 export type { DeltaIndicatorProps } from "./delta-indicator";
 export { DonutChart } from "./donut-chart";

@@ -54,6 +54,9 @@ export function DashboardRangeProvider({
                 value: real.total,
                 delta: real.delta,
                 points: real.points,
+                // Real ledger aggregation, so this one sheds the marker every
+                // other KPI in the fixture carries.
+                demo: false,
               }
             : kpi,
         ),

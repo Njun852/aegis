@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { DeltaIndicator } from "./delta-indicator";
+import { DemoBadge } from "./demo-badge";
 import { Icon } from "./icon";
 import { Sparkline } from "./sparkline";
 
@@ -21,6 +22,8 @@ export interface StatCardProps {
   delta?: string;
   deltaCaption?: string;
   points?: number[];
+  /** Marks the value as a sample figure with no data source behind it. */
+  demo?: boolean;
   style?: CSSProperties;
 }
 
@@ -32,6 +35,7 @@ export function StatCard({
   delta,
   deltaCaption,
   points,
+  demo,
   style,
 }: StatCardProps) {
   const color = TONES[tone] ?? TONES.accent;
@@ -61,12 +65,18 @@ export function StatCard({
       >
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            flexWrap: "wrap",
+            minWidth: 0,
             fontSize: "12px",
             color: "var(--text-secondary)",
             fontWeight: 500,
           }}
         >
           {label}
+          {demo && <DemoBadge compact />}
         </div>
         {icon && (
           <span

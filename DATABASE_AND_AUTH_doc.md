@@ -4,11 +4,14 @@ Reference for the control plane: how accounts, sessions, tenants, and module
 entitlements are stored and enforced. Written after Phase 1 of the backend
 integration.
 
-**Status:** auth, users, businesses, entitlements, **bookings** and the
-**revenue ledger** are real and persisted, and dashboard revenue aggregates over
-the ledger. Everything else on the dashboard (balance, expenses, net profit,
-bookings mix, ads, alerts) and all of Mail still run on static fixtures in
-`src/lib/data/*.ts`.
+**Status:** auth, users, businesses, entitlements, **bookings**, the **revenue
+ledger**, **inventory**, **mail** and **ads** are real and persisted, and
+dashboard revenue aggregates over the ledger. Mail and ads hold real database
+records seeded from sample content rather than fetched from Gmail and Meta;
+connecting those integrations replaces the seeding step without changing a
+screen. What remains static fixture in `src/lib/data/*.ts` is the rest of the
+dashboard — balance, expenses, net profit, bookings mix and alerts — because no
+module produces expense entries yet.
 
 ---
 
@@ -48,8 +51,10 @@ Section 5 describes the mitigation.
 
 ### Collections
 
-All three below are **control plane** — they span tenants and carry no
-`businessId`.
+Eleven in all. The first three — `users`, `businesses` and `memberships` — are
+**control plane**: they span tenants and carry no `businessId`. Every collection
+after them is **tenant-owned**, carries `businessId`, and is reached only
+through `tenantScope()` (§5).
 
 #### `users`
 
@@ -177,6 +182,330 @@ deleted**, so the record stays auditable.
 Unlike `npm run seed`, this never writes to the bookings collection, so it is
 safe on real data. `reconcileBookings()` in `src/lib/dal/ledger.ts` does the
 same repair from inside a request.
+
+#### `messages` — tenant-owned
+
+The inbox. One document per email, holding both the message as it arrived and
+the model's reading of it, so a screen renders from a single read.
+
+```
+_id              ObjectId
+businessId       string       stamped on by tenantScope
+messageId        string       stable per tenant; becomes the Gmail message id
+from             string       sender display name
+email            string       sender address
+category         string       one of the ten checklist categories, model-assigned
+subject          string
+time             string       short list form — "09:42", "Yesterday", "Mon"
+date             string       long detail form — "May 31, 2026 · 09:42 AM"
+priority         "Urgent" | "High" | "Normal" | "Low"
+unread           boolean
+aiSummary        string       one or two sentences
+actionItems      string[]     at most three, each under six words
+body             string[]     one entry per paragraph of the original
+replies          string[]     suggested reply options
+deadline         string|null  as the email worded it; null renders "None mentioned"
+needsApproval    boolean      the message asks the business to commit to something
+approvalReason   string       one short phrase; empty when needsApproval is false
+aiGeneratedAt    Date|null    null while the AI fields are still seeded samples
+aiPromptVersion  number|null  which prompt produced them
+receivedAt       Date
+createdAt        Date
+```
+
+Indexes: `{ businessId: 1, messageId: 1 }` unique — the idempotency key that
+stops a re-poll of the mailbox inserting the same email twice — and
+`{ businessId: 1, receivedAt: -1 }` for the newest-first list.
+
+`aiPromptVersion` is a cost control rather than bookkeeping. Triage skips any
+message already analysed at the current `PROMPT_VERSION`, so re-running never
+re-bills for work already done. Bumping that version in
+`src/lib/ai/mail-triage-prompt.ts` re-triages every message in every tenant, and
+is the most expensive single action available in this system.
+
+`deadline` is `null` unless the email states one in its own words; nothing in
+the pipeline infers, calculates or rounds a date. `needsApproval` is what routes
+a commitment — a charge, a price, a contract, a payment confirmation — to a
+person, and when it is true the suggested replies may not accept on the
+business's behalf.
+
+#### `aiOutputs` — tenant-owned
+
+Every generation the model has already produced, keyed by a hash of its exact
+inputs. A hit here means no request, no tokens and no latency.
+
+```
+_id            ObjectId
+businessId     string   stamped on by tenantScope
+kind           "dashboard-insight" | "ads-insight" | "mail-triage"
+               | "compose-draft" | "mail-reply"
+cacheKey       string   hash of the exact model inputs
+promptVersion  number   invalidates the whole partition when a prompt is rewritten
+payload        object   the validated result, as stored
+model          string
+createdAt      Date
+```
+
+Index: `{ businessId: 1, kind: 1, cacheKey: 1 }` unique.
+
+This collection holds summaries of a tenant's mail, so it is read through
+`tenantScope()` like any other tenant-owned data — one business must never read
+another's cached output.
+
+#### `aiUsage` — tenant-owned
+
+One row per billable call, written whatever the outcome. A call that failed
+after the model had already produced tokens still cost money, and a spend
+investigation that only sees successes is worse than useless.
+
+```
+_id           ObjectId
+businessId    string   stamped on by tenantScope
+kind          same four values as aiOutputs.kind
+model         string
+inputTokens   number
+outputTokens  number
+totalTokens   number
+latencyMs     number
+outcome       "ok" | "not-configured" | "over-budget" | "timeout"
+                   | "rate-limited" | "unusable" | "error"
+period        string   "2026-08" — makes the monthly cap one indexed equality match
+createdAt     Date
+```
+
+Index: `{ businessId: 1, period: 1 }`.
+
+`period` exists so the monthly token cap
+(`OPENAI_MONTHLY_TOKEN_BUDGET`, default 200,000, in `src/lib/ai/client.ts`) is a
+single indexed lookup rather than a scan. Once the cap is reached the outcome
+`over-budget` is recorded and no request is sent. This collection is also the
+data behind the OpenAI row of the system-status screen: every call already
+carries its outcome, latency and token count.
+
+#### `inventoryItems` — tenant-owned
+
+```
+_id            ObjectId
+businessId     string   stamped on by tenantScope
+sku            string   unique per business
+name           string
+category       string
+icon           string
+onHand         number   derived from stockMoves, stored for read speed
+target         number
+reorder        number   the level at which the item reads as low stock
+unit           string
+location       string
+supplier       string
+unitCostCents  number
+createdAt      Date
+updatedAt      Date
+```
+
+Index: `{ businessId: 1, sku: 1 }` unique.
+
+`onHand` is a cached total, not the source of truth. The movement history in
+`stockMoves` is, and the two are reconciled the same way bookings and the ledger
+are.
+
+#### `stockMoves` — tenant-owned
+
+The audit trail behind `onHand`. Nothing edits a quantity directly; stock
+changes by recording a move.
+
+```
+_id              ObjectId
+businessId       string   stamped on by tenantScope
+ref              string   "SM-1043", unique per business
+sku              string
+kind             "in" | "out"
+quantity         number   always positive; kind carries the direction
+reason           string   "Goods received", "Picked for booking", …
+documentRef      string   delivery note or booking reference, as typed
+party            string   supplier or customer; empty on internal moves
+unitAmountCents  number
+amountCents      number
+createdItem      boolean  true when this move brought the item into existence
+occurredAt       Date
+createdAt        Date
+```
+
+Indexes: `{ businessId: 1, ref: 1 }` unique, and
+`{ businessId: 1, sku: 1, occurredAt: -1 }` for an item's history.
+
+Only outward moves that are sales post to the revenue ledger, through
+`postEntry()` in `src/lib/dal/ledger.ts`. Goods received are a cost, and there is
+no cost ledger yet, so posting them would inflate revenue — see §7.
+
+#### `adRows` — tenant-owned
+
+Campaigns, ad sets and ads in one collection. The table and the drawer render
+all three tiers identically, so one shape serves them; `level` and `parent`
+place a row in the hierarchy.
+
+```
+_id           ObjectId
+businessId    string   stamped on by tenantScope
+id            string   unique per business
+level         "campaigns" | "adsets" | "ads"
+name          string
+parent        string   name of the row one tier up; empty for campaigns
+objective     string
+state         "Active" | "Learning" | "In review" | "Paused" | "Rejected" | "Completed"
+enabled       boolean  the row's own switch; off shows as Paused whatever state says
+budgetType    "Daily" | "Lifetime" | ""   empty at the ad tier, budget is inherited
+budgetCents   number
+spendCents    number
+results       number
+resultLabel   string   what a result means here — "leads", "purchases", "link clicks"
+roas          number
+reach         number
+impressions   number
+audience      string
+placements    string
+schedule      string
+learning      string   the delivery note — learning phase, rejection reason
+optimization  string
+format        string
+primary       string   creative body text
+headline      string
+cta           string
+createdAt     Date
+updatedAt     Date
+```
+
+Indexes: `{ businessId: 1, id: 1 }` unique, and `{ businessId: 1, level: 1 }`
+for the tier tabs.
+
+These are real records read from the database, seeded from the design rather
+than fetched from Meta. The Meta integration replaces the seeding step; no
+screen changes.
+
+### Index summary
+
+Every index the system relies on, all created by `npm run seed`
+(`scripts/seed.ts`) so a fresh environment is correctly indexed by setup rather
+than by hand:
+
+```
+users           { username: 1 }                              unique
+businesses      { businessId: 1 }                            unique
+memberships     { userId: 1, businessId: 1 }                 unique
+bookings        { businessId: 1, ref: 1 }                    unique
+bookings        { businessId: 1, startsAt: 1 }
+transactions    { businessId: 1, source: 1, sourceRef: 1 }   unique
+transactions    { businessId: 1, status: 1, occurredAt: 1 }
+inventoryItems  { businessId: 1, sku: 1 }                    unique
+stockMoves      { businessId: 1, ref: 1 }                    unique
+stockMoves      { businessId: 1, sku: 1, occurredAt: -1 }
+messages        { businessId: 1, messageId: 1 }              unique
+messages        { businessId: 1, receivedAt: -1 }
+aiOutputs       { businessId: 1, kind: 1, cacheKey: 1 }      unique
+aiUsage         { businessId: 1, period: 1 }
+adRows          { businessId: 1, id: 1 }                     unique
+adRows          { businessId: 1, level: 1 }
+```
+
+Two things to read out of that list. Every tenant-owned index is compound on
+`businessId` first, so the isolation filter is served by the index rather than
+applied after a scan. And every unique index is scoped to one business, so two
+tenants may hold the same `ref`, `sku` or `messageId` without colliding — the
+uniqueness is what makes each write idempotent within its own tenant.
+
+### Validation
+
+Shape is enforced in two places. TypeScript defines every stored document in
+`src/types/*.ts` (`MailMessageDocument`, `AdRowDocument`, `AiUsageDocument` and
+the rest), and no write reaches the driver except through
+`src/lib/dal/*.ts`, which is typed against those shapes. Model output is
+validated separately and more suspiciously — `parseBatch()` in
+`src/lib/ai/mail-triage-prompt.ts` discards anything malformed rather than
+storing it, on the principle that a structured-output schema guarantees the
+shape but not the sense.
+
+Database-level `$jsonSchema` validators are **not** in place. Application-level
+typing covers every path that exists today because nothing writes outside the
+DAL, but a validator would also cover a mistake made in a shell against
+production. Worth adding with the deployment.
+
+### Consistency and transaction strategy
+
+Consistency matters in exactly two places: a booking and its ledger entry, and a
+stock move and the item total it changes. Both follow the same rule.
+
+The local MongoDB is a **standalone**, which means no multi-document
+transactions, so the two writes cannot be made atomic today. Rather than pretend
+otherwise, the design makes the second write **idempotent and repairable**:
+
+- One side is the system of record — the booking, or the stock move. It is
+  written first.
+- The derived side is upserted on a unique key: `(source, sourceRef)` for the
+  ledger, the SKU for the item total. Re-running produces the same result rather
+  than a duplicate.
+- Drift is detectable and repairable rather than silent. `npm run reconcile`
+  reports; `npm run reconcile -- --fix` repairs. Orphaned entries are **voided,
+  not deleted**, so the record stays auditable.
+
+Production runs MongoDB as a **single-node replica set**, which is what enables
+`withTransaction()`. At that point the ledger post moves inside a transaction
+with the booking write, and reconcile becomes a safety net rather than the
+mechanism. The idempotent upserts stay either way — they are what makes a retry
+safe.
+
+### Migrations and data changes
+
+There is no migration framework, deliberately: documents are versioned by shape,
+and every change so far has been additive, where a missing field reads as its
+zero value on an old document.
+
+The procedure for a change that is not additive:
+
+1. Write a one-off script in `scripts/`, in the same style as
+   `scripts/reconcile.ts` — a `--fix` flag, and report-only by default.
+2. Run it report-only against a copy of production data restored into the
+   development environment.
+3. Take a backup, run it with `--fix` against production, then run
+   `npm run reconcile` to confirm the ledger still agrees with its sources.
+4. Commit the script. It is the record of what was done, and it stays in the
+   repository even after it has been run.
+
+`npm run seed` is safe to re-run at any point: it is idempotent and
+non-destructive, writing `passwordHash` and business `modules` with
+`$setOnInsert` so it never resets a changed password or revokes an entitlement
+an admin granted in the app.
+
+### Backup and recovery
+
+Backups run on the production VPS and therefore land with the deployment; the
+design is fixed now so it is not improvised on the day:
+
+- **Method:** `mongodump` of the whole database on a schedule, plus a dump taken
+  immediately before any migration script is run with `--fix`.
+- **Frequency:** nightly.
+- **Location:** written to a directory outside the application tree, then copied
+  off the VPS, so losing the server does not lose the backups.
+- **Retention:** seven daily, four weekly.
+- **Access:** the storage account is held by the company, not by the developer.
+  This is the item that decides whether the business can recover AEGIS without
+  us, so it is deliberately not on a personal account.
+- **Restore:** `mongorestore` into a separate database name, never over the live
+  one. A restore is only counted as proven when the recovered data has been
+  opened in the application and read.
+
+### Development and production configuration
+
+One codebase, two environments, distinguished only by `.env.local`:
+
+```
+                development            production
+MONGODB_URI     localhost:27017        the VPS instance, bound to localhost
+MONGODB_DB_NAME aegis                  aegis_prod
+AUTH_SECRET     a local value          a distinct value; rotating it signs everyone out
+```
+
+The two databases never share a name, so a development process pointed at the
+wrong URI fails to find its data rather than quietly editing production. Seeding
+and `--fix` scripts are run against development first, always.
 
 ### Seeding
 
@@ -393,7 +722,10 @@ show entitlement state.
 
 ## 7. Known gaps
 
-- **No password reset, MFA, invitations, or rate limiting on sign-in.**
+- **No password *reset*, MFA, invitations, or rate limiting on sign-in.** A
+  signed-in user can change their own password at `/account` (Account Settings
+  in the user menu), which requires their current password; what is missing is
+  the forgotten-password path, which needs a mail sender.
 - **No Add Business flow** — the button exists but is inert.
 - **`status: "suspended"` is stored but never enforced.** A suspended business
   still resolves and renders.

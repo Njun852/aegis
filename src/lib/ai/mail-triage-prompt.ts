@@ -21,8 +21,15 @@ import type {
  * can do to this install.
  */
 
-/** v2 — checklist categories, deadline extraction and commitment guardrails. */
-export const PROMPT_VERSION = 2;
+/**
+ * v3 — the approval guardrail names the words it forbids.
+ *
+ * v2 said "never offer an option that accepts, confirms or agrees" and the model
+ * still returned "Confirm acceptance" for an email headed "Confirmation
+ * required", echoing the sender's own request back as an option. The rule is now
+ * stated as specific forbidden words plus that exact counter-example.
+ */
+export const PROMPT_VERSION = 3;
 
 /** Messages per request. Large enough to amortise, small enough to stay whole. */
 export const BATCH_SIZE = 6;
@@ -76,8 +83,12 @@ export const SCHEMA = {
  * The nine things a suggested reply must never assert on the business's behalf,
  * named individually. A general instruction to "be careful" does not reliably
  * stop a model agreeing to a price.
+ *
+ * Exported because the full reply drafter must be bound by exactly this list.
+ * Two copies would drift, and the one that drifted would be the one that agreed
+ * to something.
  */
-const NEVER_INVENT = [
+export const NEVER_INVENT = [
   "a price or quotation",
   "approval of a discount",
   "confirmation that a payment has been made or received",
@@ -125,6 +136,12 @@ export const INSTRUCTIONS = [
   "When needsApproval is true, every reply option must route the matter to a person:",
   "refer to management, request written terms, or acknowledge without agreeing.",
   "Never offer an option that accepts, confirms or agrees.",
+  "Concretely: when needsApproval is true, no option may start with or contain",
+  "Confirm, Accept, Approve, Agree, Authorise, Proceed, Pay or Settle.",
+  "An email that asks for confirmation does not license an option that gives it —",
+  "a message headed 'Confirmation required' still gets 'Send for management review',",
+  "never 'Confirm acceptance'. Do not echo the sender's request back as an option.",
+  "The business's answer to a commitment is always to route it, never to make it.",
 
   "Return exactly one entry per message, reusing the id you were given.",
   "Work only from the text provided. Never invent a figure, a date or a name that is not in it.",

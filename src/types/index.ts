@@ -8,3 +8,4 @@ export type * from "./inventory";
 export type * from "./ledger";
 export type * from "./mail";
 export type * from "./navigation";
+export type * from "./status";

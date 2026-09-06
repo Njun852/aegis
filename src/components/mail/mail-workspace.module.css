@@ -1,5 +1,10 @@
-/* Below 1240px the three panes stack and each gets a workable fixed height;
-   at 1240px and up they become the side-by-side, full-height mail layout. */
+/* Two panes: the folder rail, and one main pane that is either the message
+   list or the message being read — never both at once. Two columns rather than
+   three is what lets the mail screen work on a laptop or a narrow window: the
+   list gets the full remaining width instead of being squeezed into a third of
+   it, and the side-by-side layout can start 216px earlier.
+
+   Below the breakpoint the two stack, each with a workable fixed height. */
 .workspace {
   display: flex;
   flex-direction: column;
@@ -10,18 +15,23 @@
 .panes {
   display: grid;
   gap: var(--card-gap);
-  grid-template-rows: 420px 560px 640px;
+  /* The rail is bounded rather than `auto`: its folder, priority and flag lists
+     run to well over a thousand pixels, and letting it size to content would
+     put the whole of it above the mail. It scrolls inside itself instead.
+     The main pane is taller than the old 640px because the composer now holds
+     a full draft reply. */
+  grid-template-rows: 420px minmax(0, 720px);
   min-height: 0;
 }
 
-@media (min-width: 1240px) {
+@media (min-width: 1024px) {
   .workspace {
     height: 100%;
   }
 
   .panes {
     flex: 1;
-    grid-template-columns: 252px minmax(0, 1.05fr) minmax(0, 1.45fr);
+    grid-template-columns: 252px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 }

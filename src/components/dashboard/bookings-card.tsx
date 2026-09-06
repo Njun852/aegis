@@ -1,13 +1,13 @@
 "use client";
 
-import { Card, DeltaIndicator, LegendItem } from "@/components/ui";
+import { Card, DeltaIndicator, DemoBadge, LegendItem } from "@/components/ui";
 import { useDashboardRange } from "./dashboard-range-provider";
 
 export function BookingsCard() {
   const { data } = useDashboardRange();
 
   return (
-    <Card title="Bookings" padding="16px">
+    <Card title="Bookings" padding="16px" action={<DemoBadge />}>
       <div className="flex flex-col gap-3">
         <div>
           <div

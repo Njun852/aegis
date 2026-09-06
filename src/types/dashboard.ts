@@ -7,6 +7,12 @@ export interface Kpi {
   tone: StatTone;
   delta: string;
   points: number[];
+  /**
+   * True while this figure is a sample with no data source behind it. The card
+   * shows a DEMO DATA marker, so an invented number cannot be read as a real
+   * operating result.
+   */
+  demo?: boolean;
 }
 
 export interface RevenueMonth {
