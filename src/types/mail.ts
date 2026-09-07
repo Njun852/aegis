@@ -69,6 +69,8 @@ export interface MailMessage {
    * to — the screen shows that policy's reason instead.
    */
   suggestedReply: string | null;
+  /** Replies actually sent from AEGIS, oldest first. */
+  sentReplies: SentReply[];
 }
 
 export interface MailPriorityStyle {
@@ -114,6 +116,13 @@ export interface ComposeDraftSuggestion {
  * them, and is what stops triage re-running — and re-billing — for a message
  * that has already been analysed.
  */
+/** A reply that really left the building, recorded after SMTP accepted it. */
+export interface SentReply {
+  body: string;
+  /** ISO 8601 on the wire, a Date in storage. */
+  sentAt: string;
+}
+
 export interface MailMessageDocument {
   businessId: string;
   /** Stable per tenant. Becomes the Gmail message id once that lands. */
@@ -143,6 +152,8 @@ export interface MailMessageDocument {
    * and re-billing for — a message that already has a current draft.
    */
   replyPromptVersion: number | null;
+  /** Sent replies, stored so a reload still shows what was sent. */
+  sentReplies?: { body: string; sentAt: Date }[];
   receivedAt: Date;
   createdAt: Date;
 }
@@ -154,7 +165,7 @@ export interface MailMessageDocument {
  */
 export type MailMessageSeed = Omit<
   MailMessage,
-  "aiGeneratedAt" | "suggestedReply"
+  "aiGeneratedAt" | "suggestedReply" | "sentReplies"
 >;
 
 /**

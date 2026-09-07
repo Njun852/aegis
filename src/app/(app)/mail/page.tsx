@@ -19,7 +19,7 @@ export default async function MailPage() {
     <MailWorkspace
       messages={messages}
       aiEnabled={isAiConfigured()}
-      mailbox={mailboxAddress()}
+      mailbox={await mailboxAddress()}
     />
   );
 }

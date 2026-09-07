@@ -10,6 +10,8 @@ import {
 } from "@/lib/ai/reply";
 import { generateInsight } from "@/lib/ai/insight";
 import { triageInbox } from "@/lib/ai/mail-triage";
+import { syncMailbox } from "@/lib/mail/ingest";
+import { explainMailFailure } from "@/lib/mail/failures";
 import { isAiConfigured } from "@/lib/ai/client";
 import { explainFailure } from "@/lib/ai/failures";
 import { requireModule } from "@/lib/dal/businesses";
@@ -50,6 +52,8 @@ export async function generateInsightAction(
 }
 
 export interface SyncInboxState {
+  /** Messages retrieved from the mailbox that AEGIS had not seen before. */
+  retrieved: number;
   analysed: number;
   pending: number;
   /** Suggested Reply fields written on this run. */
@@ -57,6 +61,8 @@ export interface SyncInboxState {
   /** Messages still waiting for one, when the per-run cap was reached. */
   draftsPending: number;
   note: string | null;
+  /** A mailbox failure, worded for a person. Null when there is nothing wrong. */
+  mailNote: string | null;
 }
 
 /**
@@ -66,8 +72,31 @@ export interface SyncInboxState {
 export async function syncInboxAction(): Promise<SyncInboxState> {
   await requireModule("mail");
 
+  /**
+   * Retrieve first, then analyse what arrived. The order matters: triage is a
+   * set difference over what is stored, so anything pulled in on this run is
+   * picked up by the same sweep rather than waiting for the next press.
+   *
+   * A mailbox that is simply not connected is not an error — it is the state
+   * this install has been in all along, and the screen already says so. Only a
+   * real failure is worth reporting here.
+   */
+  const retrieval = await syncMailbox();
+  const mailNote =
+    retrieval.failed && retrieval.failed !== "not-configured"
+      ? explainMailFailure(retrieval.failed)
+      : null;
+
   if (!isAiConfigured()) {
-    return { analysed: 0, pending: 0, drafted: 0, draftsPending: 0, note: null };
+    return {
+      retrieved: retrieval.added,
+      analysed: 0,
+      pending: 0,
+      drafted: 0,
+      draftsPending: 0,
+      note: null,
+      mailNote,
+    };
   }
 
   const report = await triageInbox();
@@ -80,7 +109,7 @@ export async function syncInboxAction(): Promise<SyncInboxState> {
     ? { pending: 0, drafted: 0, stoppedBecause: null }
     : await draftInboxReplies();
 
-  if (report.analysed > 0 || replies.drafted > 0) {
+  if (retrieval.added > 0 || report.analysed > 0 || replies.drafted > 0) {
     revalidatePath("/mail");
     revalidatePath("/dashboard");
   }
@@ -88,11 +117,13 @@ export async function syncInboxAction(): Promise<SyncInboxState> {
   const stopped = report.stoppedBecause ?? replies.stoppedBecause;
 
   return {
+    retrieved: retrieval.added,
     analysed: report.analysed,
     pending: report.pending,
     drafted: replies.drafted,
     draftsPending: Math.max(0, replies.pending - replies.drafted),
     note: stopped ? explainFailure(stopped) : null,
+    mailNote,
   };
 }
 

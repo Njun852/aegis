@@ -8,14 +8,15 @@
  * green dot over seeded data.
  */
 
-export function isMailboxConnected(): boolean {
-  return Boolean(process.env.GMAIL_REFRESH_TOKEN?.trim());
-}
-
-/** The mailbox address, once one is connected. */
-export function mailboxAddress(): string | null {
-  return process.env.GMAIL_ACCOUNT?.trim() || null;
-}
+/**
+ * Mail is the exception to the env-var rule above: a mailbox is connected per
+ * business, not per install, so its state lives on the business record and
+ * these are async reads. `src/lib/dal/mailbox.ts` owns them.
+ */
+export {
+  isMailboxConfigured as isMailboxConnected,
+  readMailboxAddress as mailboxAddress,
+} from "./dal/mailbox";
 
 export function isMetaConnected(): boolean {
   return Boolean(process.env.META_ACCESS_TOKEN?.trim());

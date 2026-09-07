@@ -6,10 +6,12 @@ integration.
 
 **Status:** auth, users, businesses, entitlements, **bookings**, the **revenue
 ledger**, **inventory**, **mail** and **ads** are real and persisted, and
-dashboard revenue aggregates over the ledger. Mail and ads hold real database
-records seeded from sample content rather than fetched from Gmail and Meta;
-connecting those integrations replaces the seeding step without changing a
-screen. What remains static fixture in `src/lib/data/*.ts` is the rest of the
+dashboard revenue aggregates over the ledger. **Mail can now retrieve and send
+over IMAP/SMTP** against a company mailbox connected per business in Business
+Management; until one is connected it runs on the seeded sample inbox and every
+status surface reports it as disconnected. Ads still hold records seeded from
+the design rather than fetched from Meta; connecting that integration replaces
+the seeding step without changing a screen. What remains static fixture in `src/lib/data/*.ts` is the rest of the
 dashboard — balance, expenses, net profit, bookings mix and alerts — because no
 module produces expense entries yet.
 
@@ -24,6 +26,7 @@ module produces expense entries yet.
 | `MONGODB_URI` | Connection string, e.g. `mongodb://localhost:27017` |
 | `MONGODB_DB_NAME` | Database name — `aegis` |
 | `AUTH_SECRET` | Signs the session JWT. **NextAuth v5 reads `AUTH_SECRET`**, not the v4 `NEXTAUTH_SECRET`. Generate with `npx auth secret`. |
+| `MAIL_CREDENTIAL_KEY` | 32 bytes of hex (`openssl rand -hex 32`). Encrypts mailbox app passwords at rest. Rotating it makes every stored mailbox unreadable — each must be reconnected. |
 
 The old `NEXTAUTH_*` and `GOOGLE_CLIENT_*` variables were removed — the design
 has no SSO, so nothing read them.
@@ -51,7 +54,7 @@ Section 5 describes the mitigation.
 
 ### Collections
 
-Eleven in all. The first three — `users`, `businesses` and `memberships` — are
+Twelve in all. The first three — `users`, `businesses` and `memberships` — are
 **control plane**: they span tenants and carry no `businessId`. Every collection
 after them is **tenant-owned**, carries `businessId`, and is reached only
 through `tenantScope()` (§5).
@@ -84,6 +87,20 @@ status      "active" | "suspended"
 ```
 
 Index: `{ businessId: 1 }` unique.
+
+A connected mailbox is stored here too, as `mailbox`:
+
+```
+mailbox.address       string  the address AEGIS signs in to and sends from
+mailbox.secretCipher  string  the Gmail app password, AES-256-GCM encrypted
+mailbox.updatedAt     Date
+```
+
+Absent until an admin connects one. The password is encrypted by
+`src/lib/auth/secrets.ts` under `MAIL_CREDENTIAL_KEY`, so a database dump on its
+own yields nothing usable. It is decrypted only in `src/lib/dal/mailbox.ts`, at
+the moment a connection is opened, and no read path returns it to a browser —
+the admin screen is served `MailboxStatus`, which has no field for a secret.
 
 `modules` is the entitlement grant that Business Management edits. Core modules
 (Dashboard, Mail, Ads) are **not** stored here — they are constants in
@@ -381,6 +398,35 @@ These are real records read from the database, seeded from the design rather
 than fetched from Meta. The Meta integration replaces the seeding step; no
 screen changes.
 
+#### `mailSync` — tenant-owned
+
+Where mail retrieval got to for one business. Kept apart from the business
+record because it is rewritten on every sync, while the mailbox configuration
+almost never changes.
+
+```
+_id          ObjectId
+businessId   string       one document per business
+uidValidity  string|null  IMAP reissues every UID when this changes
+lastUid      number|null  high-water mark; null means "import from scratch"
+lastSyncAt   Date|null    when mail last actually arrived
+lastOutcome  string|null  "ok", or the failure classification
+lastError    string|null  the failure, already worded for a person
+lastErrorAt  Date|null
+```
+
+Index: `{ businessId: 1 }` unique — the sync path upserts on it.
+
+`lastSyncAt` and `lastError` move independently on purpose. A failed attempt
+records the error without touching `lastSyncAt`, because "the last attempt
+failed" and "the data is now this old" are different facts and the status screen
+has to be able to state both.
+
+Reached by explicit `businessId` rather than through `tenantScope()`, because an
+administrator inspects a business other than the one they are switched to. Every
+caller is gated by `requireAdmin` or by the active session — see
+`src/lib/dal/mailbox.ts`.
+
 ### Index summary
 
 Every index the system relies on, all created by `npm run seed`
@@ -404,6 +450,7 @@ aiOutputs       { businessId: 1, kind: 1, cacheKey: 1 }      unique
 aiUsage         { businessId: 1, period: 1 }
 adRows          { businessId: 1, id: 1 }                     unique
 adRows          { businessId: 1, level: 1 }
+mailSync        { businessId: 1 }                            unique
 ```
 
 Two things to read out of that list. Every tenant-owned index is compound on

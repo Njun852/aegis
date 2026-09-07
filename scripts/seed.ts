@@ -364,6 +364,11 @@ async function seedMail(db: Db, businessId: string) {
     .collection("aiOutputs")
     .createIndex({ businessId: 1, kind: 1, cacheKey: 1 }, { unique: true });
   await db.collection("aiUsage").createIndex({ businessId: 1, period: 1 });
+  // One sync-state document per business; the upserts in src/lib/dal/mailbox.ts
+  // rely on this being unique.
+  await db
+    .collection("mailSync")
+    .createIndex({ businessId: 1 }, { unique: true });
 
   // One-time repair for documents written before categories, deadlines and the
   // approval flag existed. It only touches messages no model has analysed, so
@@ -436,6 +441,7 @@ async function seedMail(db: Db, businessId: string) {
           aiPromptVersion: null,
           suggestedReply: null,
           replyPromptVersion: null,
+          sentReplies: [],
           createdAt: new Date(),
         },
       },

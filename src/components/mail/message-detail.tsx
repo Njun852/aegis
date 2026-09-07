@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useTypewriter } from "@/hooks/use-typewriter";
 import { draftReplyAction } from "@/app/actions/ai";
+import { sendReplyAction } from "@/app/actions/mail";
 import { useSync } from "@/components/layout/sync-provider";
 import { useToast } from "@/components/layout/toast-provider";
 import {
@@ -15,27 +16,27 @@ import {
 import { CURRENT_USER, ORGANIZATION } from "@/lib/data/workspace";
 import { getPriorityStyle } from "@/lib/mail";
 import { replyPolicy } from "@/lib/mail-reply-policy";
-import type { MailMessage } from "@/types";
-
-const SEND_DELAY_MS = 700;
-
-interface SentReply {
-  id: string;
-  body: string;
-}
+import type { MailMessage, SentReply } from "@/types";
 
 export interface MessageDetailProps {
   message: MailMessage;
   /** Returns to the message list, which shares this pane. */
   onBack: () => void;
+  /** The connected mailbox address, or null when none is connected. */
+  mailbox: string | null;
 }
 
-export function MessageDetail({ message, onBack }: MessageDetailProps) {
+export function MessageDetail({
+  message,
+  onBack,
+  mailbox,
+}: MessageDetailProps) {
   const priority = getPriorityStyle(message.priority);
   const policy = replyPolicy(message.category);
   const toast = useToast();
   const { connected: mailboxConnected } = useSync();
   const [drafting, startDrafting] = useTransition();
+  const [, startSending] = useTransition();
   // The stored field is the source of truth; this only carries a draft written
   // in this session until the route revalidates and the prop catches up.
   /**
@@ -67,7 +68,11 @@ export function MessageDetail({ message, onBack }: MessageDetailProps) {
   const writing = reveal !== null && !done;
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const [sentReplies, setSentReplies] = useState<SentReply[]>([]);
+  // Seeded from the stored record, so replies survive a reload rather than
+  // living only as long as the component that sent them.
+  const [sentReplies, setSentReplies] = useState<SentReply[]>(
+    message.sentReplies,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleDraftChange = (value: string) => {
@@ -130,20 +135,58 @@ export function MessageDetail({ message, onBack }: MessageDetailProps) {
     });
   };
 
+  /**
+   * Sends the reply for real, over SMTP, from the connected mailbox.
+   *
+   * This used to be a timer that appended the text to the thread and called it
+   * sent. It now waits for the mail server to accept the message, and only then
+   * shows it — a reply that failed must never appear to have gone out.
+   *
+   * The confirmation is deliberate: the button leaves the building now.
+   */
   const handleSend = () => {
     if (!draft.trim() || sending || writing) return;
+
     const body = draft;
+    const target = message.email || message.from;
+    if (!window.confirm(`Send this reply to ${target}?`)) return;
+
     setSending(true);
-    setTimeout(() => {
+    startSending(async () => {
+      const result = await sendReplyAction(message.id, body);
       setSending(false);
+
+      if (!result.sent) {
+        toast({
+          tone: "error",
+          title: "Reply not sent",
+          description: result.error ?? "The message could not be sent.",
+          key: "reply-send",
+        });
+        return;
+      }
+
       setSent(true);
-      setSentReplies((replies) => [...replies, { id: crypto.randomUUID(), body }]);
+      setSentReplies((replies) => [
+        ...replies,
+        { body, sentAt: new Date().toISOString() },
+      ]);
       setDraft("");
       setReveal(null);
-      requestAnimationFrame(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      toast({
+        tone: "success",
+        title: "Reply sent",
+        description: `Delivered to ${target}.`,
+        key: "reply-send",
       });
-    }, SEND_DELAY_MS);
+
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({
+          top: scrollRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      });
+    });
   };
 
   return (
@@ -353,7 +396,7 @@ export function MessageDetail({ message, onBack }: MessageDetailProps) {
 
         {sentReplies.map((reply) => (
           <div
-            key={reply.id}
+            key={reply.sentAt}
             style={{
               background: "var(--accent-soft)",
               border: "1px solid var(--blue-200)",
@@ -643,8 +686,8 @@ export function MessageDetail({ message, onBack }: MessageDetailProps) {
           <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
             {mailboxConnected
               ? sent
-                ? `Sent via Gmail as ${ORGANIZATION.mailbox}`
-                : `Sends via Gmail as ${ORGANIZATION.mailbox}`
+                ? `Sent from ${mailbox ?? ORGANIZATION.mailbox}`
+                : `Sends from ${mailbox ?? ORGANIZATION.mailbox}`
               : sent
                 ? "Added to this thread only — no mailbox is connected, so nothing was sent"
                 : "No mailbox is connected, so this will not leave AEGIS"}

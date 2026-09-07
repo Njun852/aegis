@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Collection, Db, Document } from "mongodb";
 import clientPromise from "@/lib/db/mongodb";
-import type { BusinessDocument, Membership } from "@/types";
+import type { BusinessDocument, MailSyncDocument, Membership } from "@/types";
 
 /**
  * The single place the database handle is produced. Nothing outside
@@ -28,6 +28,7 @@ export const COLLECTIONS = {
   users: "users",
   businesses: "businesses",
   memberships: "memberships",
+  mailSync: "mailSync",
 } as const;
 
 async function collection<T extends Document>(name: string): Promise<Collection<T>> {
@@ -41,6 +42,16 @@ export const businessesCollection = () =>
   collection<BusinessDocument>(COLLECTIONS.businesses);
 export const membershipsCollection = () =>
   collection<Membership>(COLLECTIONS.memberships);
+
+/**
+ * Mail sync state carries a `businessId` like any tenant-owned collection, but
+ * is reached by explicit id rather than through `tenantScope`: the admin screen
+ * reports on a business other than the one the admin is currently switched to.
+ * Every caller passes the id deliberately and is gated by `requireAdmin` or by
+ * the active session — see `src/lib/dal/mailbox.ts`.
+ */
+export const mailSyncCollection = () =>
+  collection<MailSyncDocument>(COLLECTIONS.mailSync);
 
 export interface DatabasePing {
   ok: boolean;

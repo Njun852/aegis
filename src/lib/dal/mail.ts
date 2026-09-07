@@ -3,7 +3,10 @@ import "server-only";
 import { tenantScope } from "./tenant";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
 import { NO_DRAFT_CATEGORIES } from "@/lib/mail-reply-policy";
+import { formatDay, formatStamp } from "@/lib/format";
+import type { FetchedMessage } from "@/lib/mail/source";
 import { isMailboxConnected } from "@/lib/integrations";
+import { readActiveMailSync } from "./mailbox";
 import type {
   MailFreshnessState,
   MailMessage,
@@ -47,6 +50,10 @@ function toMessage(doc: MailMessageDocument): MailMessage {
     aiGeneratedAt: doc.aiGeneratedAt ? doc.aiGeneratedAt.toISOString() : null,
     // Absent on documents seeded before reply drafting existed.
     suggestedReply: doc.suggestedReply ?? null,
+    sentReplies: (doc.sentReplies ?? []).map((reply) => ({
+      body: reply.body,
+      sentAt: reply.sentAt.toISOString(),
+    })),
   };
 }
 
@@ -55,6 +62,90 @@ export async function listMessages(): Promise<MailMessage[]> {
   const collection = await messages();
   const docs = await collection.find().sort({ receivedAt: -1 }).toArray();
   return docs.map(toMessage);
+}
+
+/**
+ * Writes retrieved mail into the inbox.
+ *
+ * Idempotent by construction: the upsert is keyed on `messageId`, and
+ * `{ businessId: 1, messageId: 1 }` is unique, so re-polling a mailbox updates
+ * what is already there instead of duplicating it. Only the delivered fields
+ * are written — everything a model assigns goes in with `$setOnInsert`, so a
+ * message that has already been triaged never loses its analysis to a re-fetch,
+ * and never gets re-billed for one.
+ *
+ * The display strings are derived here, on the server, for the reason
+ * `src/lib/dal/bookings.ts` sets out: formatting them in the browser would use
+ * the visitor's timezone and mismatch the server-rendered HTML.
+ *
+ * Returns how many messages were new, which is what decides whether the caller
+ * needs to revalidate anything.
+ */
+export async function upsertFetchedMessages(
+  fetched: FetchedMessage[],
+): Promise<number> {
+  const collection = await messages();
+  const now = new Date();
+  let inserted = 0;
+
+  for (const message of fetched) {
+    const result = await collection.updateOne(
+      { messageId: message.messageId },
+      {
+        $set: {
+          from: message.from,
+          email: message.email,
+          subject: message.subject,
+          body: message.body,
+          receivedAt: message.receivedAt,
+          unread: message.unread,
+          time: formatStamp(message.receivedAt),
+          date: formatDay(message.receivedAt),
+        },
+        $setOnInsert: {
+          messageId: message.messageId,
+          // Deliberately unanalysed: `listUntriaged` is a set difference on
+          // these two fields, so a newly arrived message is picked up by the
+          // existing triage sweep with no further wiring.
+          category: "Other",
+          priority: "Normal",
+          aiSummary: "",
+          actionItems: [],
+          replies: [],
+          deadline: null,
+          needsApproval: false,
+          approvalReason: "",
+          aiGeneratedAt: null,
+          aiPromptVersion: null,
+          suggestedReply: null,
+          replyPromptVersion: null,
+          createdAt: now,
+        },
+      },
+      { upsert: true },
+    );
+
+    if (result.upsertedCount > 0) inserted += 1;
+  }
+
+  return inserted;
+}
+
+/**
+ * Appends a reply that has already been accepted by the mail server.
+ *
+ * Called only after SMTP confirms; the thread must never show a reply that did
+ * not actually go out.
+ */
+export async function recordSentReply(
+  messageId: string,
+  body: string,
+): Promise<void> {
+  const collection = await messages();
+  await collection.updateOne(
+    { messageId },
+    { $push: { sentReplies: { body, sentAt: new Date() } } },
+  );
 }
 
 /** One message by its id, or null. Tenant-scoped like every other mail read. */
@@ -104,14 +195,29 @@ export async function readMailFreshness(): Promise<{
  * and the verdict together, and so the render path stays free of clock reads.
  */
 export async function readMailFreshnessState(): Promise<MailFreshnessState> {
-  const { newestReceivedAt } = await readMailFreshness();
+  const [{ newestReceivedAt }, connected, sync] = await Promise.all([
+    readMailFreshness(),
+    isMailboxConnected(),
+    readActiveMailSync(),
+  ]);
   const now = Date.now();
 
+  /**
+   * Once a mailbox is connected the pill reports the last *retrieval*, not the
+   * age of the newest message: a quiet inbox is not a stale one, and only the
+   * retrieval time can tell the owner whether AEGIS is still reading their
+   * mail. With no mailbox connected there is nothing to report but the age of
+   * the sample data, which is what it says.
+   */
+  const reference = connected
+    ? (sync?.lastSyncAt?.toISOString() ?? null)
+    : newestReceivedAt;
+
   return {
-    newestReceivedAt,
-    connected: isMailboxConnected(),
-    label: relativeAge(newestReceivedAt, now),
-    tone: freshnessTone(newestReceivedAt, now),
+    newestReceivedAt: reference,
+    connected,
+    label: relativeAge(reference, now),
+    tone: freshnessTone(reference, now),
   };
 }
 

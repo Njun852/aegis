@@ -97,7 +97,7 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
       : `No pending changes for ${business.name}`;
 
   return (
-    <div className="flex max-w-[1080px] flex-col gap-3.5">
+    <div className="flex flex-col gap-3.5">
       <div
         className="flex items-center gap-2.5"
         style={{ fontSize: "12.5px", color: "var(--text-muted)" }}

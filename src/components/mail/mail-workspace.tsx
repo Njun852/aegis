@@ -133,6 +133,18 @@ export function MailWorkspace({
     startAnalysing(async () => {
       const result = await syncInboxAction();
 
+      // A mailbox failure outranks anything the analysis has to say: if mail
+      // could not be retrieved, what was or was not analysed is a detail.
+      if (result.mailNote) {
+        toast({
+          tone: "error",
+          title: "Mailbox could not be read",
+          description: result.mailNote,
+          key: "mail-sync",
+        });
+        return;
+      }
+
       // One key for the whole operation, so pressing Sync repeatedly replaces
       // the last result rather than stacking identical notices.
       if (result.note) {
@@ -142,8 +154,17 @@ export function MailWorkspace({
           description: result.note,
           key: "mail-sync",
         });
-      } else if (result.analysed > 0 || result.drafted > 0) {
+      } else if (
+        result.retrieved > 0 ||
+        result.analysed > 0 ||
+        result.drafted > 0
+      ) {
         const parts: string[] = [];
+        if (result.retrieved > 0) {
+          parts.push(
+            `retrieved ${result.retrieved} new ${result.retrieved === 1 ? "message" : "messages"}`,
+          );
+        }
         if (result.analysed > 0) {
           parts.push(
             `analysed ${result.analysed} ${result.analysed === 1 ? "message" : "messages"}`,
@@ -201,6 +222,7 @@ export function MailWorkspace({
             key={active.id}
             message={active}
             onBack={() => setActiveId(null)}
+            mailbox={mailbox}
           />
         ) : (
           <MessageList

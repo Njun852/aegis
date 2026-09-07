@@ -6,6 +6,7 @@ import { pingDatabase } from "./db";
 import { readMailFreshness } from "./mail";
 import { AI_MODELS, AI_MONTHLY_TOKEN_BUDGET, isAiConfigured } from "@/lib/ai/client";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
+import { readActiveMailSync } from "./mailbox";
 import {
   isMailboxConnected,
   isMetaConnected,
@@ -29,38 +30,58 @@ import type {
 export async function readSystemStatus(): Promise<SystemStatus> {
   const now = new Date();
 
-  const [ping, mail, spend, health, adRows] = await Promise.all([
-    pingDatabase(),
-    readMailFreshness(),
-    spendThisMonth(AI_MONTHLY_TOKEN_BUDGET, now),
-    readAiHealth(5, now),
-    adRowCount(),
-  ]);
+  const [ping, mail, spend, health, adRows, mailConnected, mailAddress, sync] =
+    await Promise.all([
+      pingDatabase(),
+      readMailFreshness(),
+      spendThisMonth(AI_MONTHLY_TOKEN_BUDGET, now),
+      readAiHealth(5, now),
+      adRowCount(),
+      isMailboxConnected(),
+      mailboxAddress(),
+      readActiveMailSync(),
+    ]);
 
   const integrations: IntegrationStatus[] = [];
 
   // --- Mail ---------------------------------------------------------------
-  const mailConnected = isMailboxConnected();
-  const mailAge = relativeAge(mail.newestReceivedAt, now.getTime());
-  const mailTone = freshnessTone(mail.newestReceivedAt, now.getTime());
+  /**
+   * Four genuinely distinct states, in the order they have to be checked.
+   *
+   * A recorded failure outranks staleness: if the last attempt was rejected,
+   * saying only "stale" would describe the symptom and hide the cause. And the
+   * age reported is of the last *successful retrieval*, not of the newest
+   * message — an inbox that has simply been quiet is not the same as one AEGIS
+   * has stopped being able to read, and item 12 turns on telling them apart.
+   */
+  const lastSyncIso = sync?.lastSyncAt ? sync.lastSyncAt.toISOString() : null;
+  const syncTone = freshnessTone(lastSyncIso, now.getTime());
+  const mailFailing = Boolean(sync?.lastError);
 
   integrations.push({
     key: "mail",
     label: "Mail",
     state: !mailConnected
       ? "DISCONNECTED"
-      : mailTone === "fresh"
-        ? "ONLINE"
-        : "STALE",
-    detail: mailConnected
-      ? mailTone === "fresh"
-        ? "Mail is being retrieved from the connected mailbox."
-        : "No mail has been retrieved recently. What is shown may be out of date."
-      : "No mailbox is connected. Mail is running on the seeded sample inbox, not on real correspondence.",
+      : mailFailing
+        ? "ERROR"
+        : syncTone === "fresh"
+          ? "ONLINE"
+          : "STALE",
+    detail: !mailConnected
+      ? "No mailbox is connected. Mail is running on the seeded sample inbox, not on real correspondence."
+      : (sync?.lastError ??
+        (syncTone === "fresh"
+          ? "Mail is being retrieved from the connected mailbox."
+          : "No mail has been retrieved recently. What is shown may be out of date.")),
     facts: [
-      { label: "Mailbox", value: mailboxAddress() ?? "None connected" },
+      { label: "Mailbox", value: mailAddress ?? "None connected" },
       { label: "Messages held", value: String(mail.count) },
-      { label: "Newest message", value: mailAge },
+      { label: "Last retrieval", value: relativeAge(lastSyncIso, now.getTime()) },
+      {
+        label: "Newest message",
+        value: relativeAge(mail.newestReceivedAt, now.getTime()),
+      },
     ],
   });
 
