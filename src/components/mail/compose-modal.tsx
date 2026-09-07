@@ -4,17 +4,22 @@ import { useState, useTransition } from "react";
 import { draftEmailAction } from "@/app/actions/ai";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { useTypewriter } from "@/hooks/use-typewriter";
-import { COMPOSE_DRAFT_SUGGESTIONS } from "@/lib/data/mail";
-import { ORGANIZATION } from "@/lib/data/workspace";
 
 export interface ComposeModalProps {
   open: boolean;
-  /** With no key configured the canned suggestions stand in for real drafting. */
+  /** Whether this install has an OpenAI key, so drafting can be offered. */
   aiEnabled: boolean;
+  /** The connected mailbox address, or null when none is connected. */
+  mailbox: string | null;
   onClose: () => void;
 }
 
-export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
+export function ComposeModal({
+  open,
+  aiEnabled,
+  mailbox,
+  onClose,
+}: ComposeModalProps) {
   const [ccOpen, setCcOpen] = useState(false);
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
@@ -119,7 +124,9 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
               New Message
             </span>
             <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-              Sending as {ORGANIZATION.mailbox}
+              {mailbox
+                ? `Sending as ${mailbox}`
+                : "No mailbox connected — this cannot be sent"}
             </span>
           </span>
           <span className="ml-auto flex items-center gap-2">
@@ -318,23 +325,15 @@ export function ComposeModal({ open, aiEnabled, onClose }: ComposeModalProps) {
                 )}
               </>
             ) : (
-              /* No key configured — the canned drafts stand in, as before. */
-              <div className="flex flex-wrap gap-2">
-                {COMPOSE_DRAFT_SUGGESTIONS.map((suggestion) => (
-                  <Button
-                    key={suggestion.label}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setTo(suggestion.to);
-                      setSubject(suggestion.subject);
-                      setBody(suggestion.body);
-                    }}
-                  >
-                    {suggestion.label}
-                  </Button>
-                ))}
-              </div>
+              /*
+                No key configured. This used to offer canned drafts written
+                against the sample inbox — one of which committed the business
+                to a 3% rate adjustment, which is exactly what the drafting
+                guardrails forbid. Better to say nothing is available.
+              */
+              <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                AI drafting is not switched on for this workspace.
+              </span>
             )}
           </div>
         </div>

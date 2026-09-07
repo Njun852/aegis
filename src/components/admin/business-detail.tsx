@@ -5,7 +5,10 @@ import { useMemo, useState, useTransition } from "react";
 import { useToast } from "@/components/layout/toast-provider";
 import { useBusiness } from "@/components/business/business-provider";
 import { Badge, Button, Icon } from "@/components/ui";
-import { saveModuleGrantsAction } from "@/app/actions/business";
+import {
+  renameBusinessAction,
+  saveModuleGrantsAction,
+} from "@/app/actions/business";
 import { sameGrants } from "@/lib/businesses";
 import { CORE_MODULES, OPTIONAL_MODULES } from "@/lib/data/businesses";
 import type { OptionalModuleKey } from "@/types";
@@ -29,6 +32,13 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
 
   const [draft, setDraft] = useState<OptionalModuleKey[]>(saved);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  /** Renaming is a separate edit from entitlements, so it saves on its own. */
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [metaDraft, setMetaDraft] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [renaming, startRenaming] = useTransition();
 
   if (!business) {
     return (
@@ -90,6 +100,35 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
 
   const openAsClient = () => switchBusiness(businessId);
 
+  const beginRename = () => {
+    setNameDraft(business?.name ?? "");
+    setMetaDraft(business?.meta ?? "");
+    setNameError(null);
+    setEditingName(true);
+  };
+
+  const commitRename = () => {
+    setNameError(null);
+    startRenaming(async () => {
+      const result = await renameBusinessAction(businessId, nameDraft, metaDraft);
+      if (result.error) {
+        setNameError(result.error);
+        return;
+      }
+
+      setEditingName(false);
+      toast({
+        tone: "success",
+        title: "Business renamed",
+        description: `Now shown as ${nameDraft.trim()} everywhere it appears.`,
+        key: `rename-${businessId}`,
+      });
+      // The name is on the sidebar switcher and every screen's header, so the
+      // whole tree needs the new value rather than this page alone.
+      router.refresh();
+    });
+  };
+
   const saveNote = dirty
     ? `Unsaved changes to ${business.name} · module access updates at next sign-in`
     : savedAt
@@ -142,21 +181,115 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
             <Icon name="building-2" size={20} />
           </span>
           <div style={{ minWidth: 0 }}>
-            <h2
-              style={{
-                margin: 0,
-                fontFamily: "var(--font-display)",
-                fontSize: "22px",
-                lineHeight: "28px",
-                fontWeight: 700,
-                letterSpacing: "-.02em",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {business.name}
-            </h2>
+            {editingName ? (
+              <div className="flex flex-col gap-2" style={{ minWidth: 0 }}>
+                <input
+                  value={nameDraft}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && nameDraft.trim() && !renaming) {
+                      event.preventDefault();
+                      commitRename();
+                    }
+                    if (event.key === "Escape") setEditingName(false);
+                  }}
+                  aria-label="Business name"
+                  autoFocus
+                  style={{
+                    font: "inherit",
+                    fontFamily: "var(--font-display)",
+                    fontSize: "20px",
+                    fontWeight: 700,
+                    letterSpacing: "-.02em",
+                    color: "var(--text-primary)",
+                    background: "var(--surface-card)",
+                    border: "1px solid var(--accent-primary)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "6px 10px",
+                    outline: "none",
+                    minWidth: 0,
+                    width: "100%",
+                  }}
+                />
+                <input
+                  value={metaDraft}
+                  onChange={(event) => setMetaDraft(event.target.value)}
+                  aria-label="Industry and plan"
+                  placeholder="Automotive services · Enterprise"
+                  style={{
+                    font: "inherit",
+                    fontSize: "12px",
+                    color: "var(--text-secondary)",
+                    background: "var(--surface-card)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "6px 10px",
+                    outline: "none",
+                    minWidth: 0,
+                    width: "100%",
+                  }}
+                />
+                {nameError && (
+                  <span
+                    role="alert"
+                    style={{ fontSize: "12px", color: "var(--status-negative)" }}
+                  >
+                    {nameError}
+                  </span>
+                )}
+                <span className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    icon="check"
+                    disabled={renaming || !nameDraft.trim()}
+                    onClick={commitRename}
+                  >
+                    {renaming ? "Saving…" : "Save name"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={renaming}
+                    onClick={() => setEditingName(false)}
+                  >
+                    Cancel
+                  </Button>
+                </span>
+              </div>
+            ) : (
+              <h2
+                className="flex flex-wrap items-center gap-2"
+                style={{
+                  margin: 0,
+                  fontFamily: "var(--font-display)",
+                  fontSize: "22px",
+                  lineHeight: "28px",
+                  fontWeight: 700,
+                  letterSpacing: "-.02em",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {business.name}
+                <button
+                  type="button"
+                  onClick={beginRename}
+                  title="Rename this business"
+                  style={{
+                    border: "none",
+                    background: "none",
+                    padding: 2,
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    display: "inline-flex",
+                  }}
+                >
+                  <Icon name="pen-line" size={15} />
+                </button>
+              </h2>
+            )}
             <p
               className="flex flex-wrap items-center gap-2"
+              hidden={editingName}
               style={{
                 margin: "3px 0 0",
                 fontSize: "12px",

@@ -1,7 +1,6 @@
 "use client";
 
 import { Button, Icon, NavItem } from "@/components/ui";
-import { MAIL_MONITORING } from "@/lib/data/mail";
 import type {
   MailFlagFilter,
   MailFolder,
@@ -102,38 +101,6 @@ export function MailFolderRail({
         );
       })}
 
-      <Divider />
-      <RailLabel>Monitoring</RailLabel>
-      <div className="flex flex-col gap-[9px] px-1 pt-0.5 pb-1">
-        {MAIL_MONITORING.map((entry) => (
-          <div key={entry.label} className="flex items-start gap-2">
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                flex: "0 0 auto",
-                marginTop: 5,
-                borderRadius: "var(--radius-pill)",
-                background: entry.dot,
-              }}
-            />
-            <span className="flex min-w-0 flex-col">
-              <span style={{ fontSize: "11.5px", color: "var(--text-primary)" }}>
-                {entry.label}
-              </span>
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "10px",
-                  color: "var(--text-muted)",
-                }}
-              >
-                {entry.meta}
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }

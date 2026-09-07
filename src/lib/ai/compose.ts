@@ -1,6 +1,6 @@
 import "server-only";
 
-import { CURRENT_USER, ORGANIZATION } from "@/lib/data/workspace";
+import { readMailIdentity } from "@/lib/dal/mailbox";
 import { AI_MODELS } from "./client";
 import { clip } from "@/lib/format";
 import { cacheKeyFor, generate } from "./generate";
@@ -53,9 +53,14 @@ export interface ComposeRequest {
 export async function draftEmail(
   request: ComposeRequest,
 ): Promise<AiResult<ComposeDraft>> {
+  const identity = await readMailIdentity();
+
   const input = {
-    from: `${CURRENT_USER.name}, ${CURRENT_USER.role} at ${ORGANIZATION.name}`,
-    signOff: CURRENT_USER.firstName,
+    // Real identity, not the demo constants this used to carry.
+    from: identity.businessName
+      ? `${identity.name} at ${identity.businessName}`
+      : identity.name,
+    signOff: identity.firstName,
     to: clip(request.to, 120),
     intent: clip(request.intent, 400),
   };

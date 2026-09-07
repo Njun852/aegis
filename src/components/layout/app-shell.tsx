@@ -25,7 +25,10 @@ export function AppShell({
   mailFreshness,
 }: AppShellProps) {
   return (
-    <SyncProvider initial={mailFreshness}>
+    // Keyed by business: `SyncProvider` copies its initial value into state, so
+    // without this a switch would leave the previous business's mail state on
+    // screen — a connected badge over a business with no mailbox.
+    <SyncProvider key={mailFreshness.businessId} initial={mailFreshness}>
       <ToastProvider>
         <ShellFrame unreadCount={unreadCount} mailFreshness={mailFreshness}>
           {children}

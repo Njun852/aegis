@@ -6,6 +6,7 @@ import type { MailFailure } from "@/lib/mail/failures";
 import type { MailCursor, MailboxCredentials } from "@/lib/mail/source";
 import { businessesCollection, mailSyncCollection } from "./db";
 import { verifySession } from "./session";
+import { findUserById } from "./users";
 import type { MailSyncDocument, MailboxStatus } from "@/types";
 
 /**
@@ -134,6 +135,45 @@ export async function readMailSync(
 ): Promise<MailSyncDocument | null> {
   const sync = await mailSyncCollection();
   return sync.findOne({ businessId });
+}
+
+/**
+ * Who a reply is written by, and which mailbox it leaves from.
+ *
+ * Read from the session and the business record, never from a fixture. The
+ * drafting prompts previously signed every reply "Ahmed" on behalf of
+ * "AUTOBLITZ" because those were the demo constants in
+ * `src/lib/data/workspace.ts` — so a real user's reply went out under someone
+ * else's name.
+ */
+export interface MailIdentity {
+  /** The signed-in user's full name. */
+  name: string;
+  /** What a reply signs off with. */
+  firstName: string;
+  /** The business the reply is sent on behalf of. */
+  businessName: string;
+  /** The connected mailbox, or null when none is connected. */
+  address: string | null;
+}
+
+export async function readMailIdentity(): Promise<MailIdentity> {
+  const session = await verifySession();
+  const [user, businesses] = await Promise.all([
+    findUserById(session.userId),
+    businessesCollection(),
+  ]);
+  const business = await businesses.findOne({
+    businessId: session.activeBusinessId,
+  });
+
+  const name = user?.name?.trim() || user?.username || "";
+  return {
+    name,
+    firstName: name.split(/\s+/)[0] ?? "",
+    businessName: business?.name ?? "",
+    address: business?.mailbox?.address ?? null,
+  };
 }
 
 /** Sync state for the business the caller is signed in to. */

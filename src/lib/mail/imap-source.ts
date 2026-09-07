@@ -214,6 +214,8 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
               body: toParagraphs(plain),
               receivedAt: parsed.date ?? new Date(),
               unread: !item.flags?.has("\\Seen"),
+              uid: item.uid,
+              uidValidity,
             });
 
             if (item.uid > highest) highest = item.uid;
@@ -228,6 +230,40 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
           lock.release();
         }
       });
+    },
+
+    async setSeen(uid: number, uidValidity: string, seen: boolean) {
+      const result = await guarded(async (connection) => {
+        const lock = await connection.getMailboxLock("INBOX");
+        try {
+          const mailbox = connection.mailbox;
+          if (!mailbox || typeof mailbox === "boolean") {
+            throw new Error("mailbox does not exist");
+          }
+
+          /**
+           * The UID was recorded against a particular uidValidity. If the
+           * server has reissued its UIDs since, that number now points at some
+           * other message, and marking a stranger's mail read is worse than
+           * refusing to mark anything.
+           */
+          if (String(mailbox.uidValidity) !== uidValidity) {
+            throw new Error("uid no longer valid for this mailbox");
+          }
+
+          const range = { uid: String(uid) };
+          const options = { uid: true };
+          await (seen
+            ? connection.messageFlagsAdd(range, ["\\Seen"], options)
+            : connection.messageFlagsRemove(range, ["\\Seen"], options));
+
+          return true as const;
+        } finally {
+          lock.release();
+        }
+      });
+
+      return result.ok ? { ok: true as const, data: true as const } : result;
     },
 
     async send(to: string, subject: string, body: string) {

@@ -53,10 +53,10 @@ function syncPhrase(
   tone: FreshnessTone,
   age: string,
 ): { caption: string; value: string } {
+  // There is no sample inbox any more — an unconnected mailbox simply has
+  // nothing behind it, and saying so is the whole point of this line.
   if (!connected) {
-    return age === "never"
-      ? { caption: "Sample inbox — no mail retrieved", value: "" }
-      : { caption: "Sample inbox — updated", value: age };
+    return { caption: "No mailbox connected", value: "" };
   }
   if (tone === "never") return { caption: "No mail retrieved", value: "" };
   if (tone === "stale") return { caption: "Stale — last sync", value: age };

@@ -9,7 +9,6 @@ import { randomBytes, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
 import { BUSINESSES } from "../src/lib/data/businesses.ts";
 import { BOOKING_SEEDS } from "../src/lib/data/bookings.ts";
-import { MESSAGES } from "../src/lib/data/mail.ts";
 import { AD_ROW_SEEDS } from "../src/lib/data/ads.ts";
 import {
   INVENTORY_SEEDS,
@@ -370,92 +369,17 @@ async function seedMail(db: Db, businessId: string) {
     .collection("mailSync")
     .createIndex({ businessId: 1 }, { unique: true });
 
-  // One-time repair for documents written before categories, deadlines and the
-  // approval flag existed. It only touches messages no model has analysed, so
-  // it can never overwrite generated content that was paid for.
-  const legacy = await db
-    .collection("messages")
-    .countDocuments({ businessId, category: { $exists: false } });
-
-  if (legacy > 0) {
-    for (const message of MESSAGES) {
-      await db.collection("messages").updateOne(
-        { businessId, messageId: message.id, category: { $exists: false } },
-        {
-          $set: {
-            category: message.category,
-            priority: message.priority,
-            aiSummary: message.aiSummary,
-            actionItems: message.actionItems,
-            replies: message.replies,
-            deadline: message.deadline,
-            needsApproval: message.needsApproval,
-            approvalReason: message.approvalReason,
-            aiGeneratedAt: null,
-            aiPromptVersion: null,
-          },
-          $unset: { label: "" },
-        },
-      );
-    }
-    console.log(`  repaired ${legacy} message(s) predating the category change`);
-  }
-
-  const now = Date.now();
-  let index = 0;
-
-  for (const message of MESSAGES) {
-    // The fixture is ordered newest first; space them an hour apart so the
-    // list keeps that order without inventing dates that contradict the
-    // display strings already on each message.
-    const receivedAt = new Date(now - index * 3_600_000);
-
-    await db.collection("messages").updateOne(
-      { businessId, messageId: message.id },
-      {
-        $set: {
-          businessId,
-          messageId: message.id,
-          from: message.from,
-          email: message.email,
-
-          subject: message.subject,
-          time: message.time,
-          date: message.date,
-          unread: message.unread,
-          body: message.body,
-          receivedAt,
-        },
-        $setOnInsert: {
-          // Everything a model assigns goes in on insert only, so re-running
-          // the seed never overwrites an analysis already paid for.
-          category: message.category,
-          priority: message.priority,
-          aiSummary: message.aiSummary,
-          actionItems: message.actionItems,
-          replies: message.replies,
-          deadline: message.deadline,
-          needsApproval: message.needsApproval,
-          approvalReason: message.approvalReason,
-          aiGeneratedAt: null,
-          aiPromptVersion: null,
-          suggestedReply: null,
-          replyPromptVersion: null,
-          sentReplies: [],
-          createdAt: new Date(),
-        },
-      },
-      { upsert: true },
-    );
-    index += 1;
-  }
-
-  const analysed = await db
-    .collection("messages")
-    .countDocuments({ businessId, aiPromptVersion: { $ne: null } });
-
+  /**
+   * No sample inbox is seeded any more.
+   *
+   * Mail arrives from the mailbox connected in Business Management, so seeding
+   * invented messages would put fictional correspondence in front of the owner
+   * beside real mail with no way to tell them apart. An empty inbox until a
+   * mailbox is connected is the honest state, and the screens say so.
+   */
+  const held = await db.collection("messages").countDocuments({ businessId });
   console.log(
-    `✓ ${MESSAGES.length} messages for ${businessId} · ${analysed} already analysed, ${MESSAGES.length - analysed} awaiting triage`,
+    `✓ messages for ${businessId}: ${held} held (none seeded — connect a mailbox to retrieve)`,
   );
 }
 

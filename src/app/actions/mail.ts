@@ -1,10 +1,16 @@
 "use server";
 
 import { requireModule } from "@/lib/dal/businesses";
-import { findMessage, readMailFreshness, recordSentReply } from "@/lib/dal/mail";
+import {
+  findMessage,
+  readMailFreshness,
+  readMessageLocation,
+  recordSentReply,
+  setMessageRead,
+} from "@/lib/dal/mail";
 import { isMailboxConnected } from "@/lib/integrations";
 import { explainMailFailure } from "@/lib/mail/failures";
-import { sendMail } from "@/lib/mail/ingest";
+import { markMailSeen, sendMail } from "@/lib/mail/ingest";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -73,4 +79,61 @@ export async function sendReplyAction(
   revalidatePath("/mail");
 
   return { sent: true, error: null };
+}
+
+export interface ReadStateResult {
+  read: boolean;
+  /**
+   * Whether the change reached the mailbox itself, or only AEGIS's own record.
+   * The caller must not claim Gmail was updated when it was not.
+   */
+  mailboxUpdated: boolean;
+  /** Set when the mailbox refused; the stored state is then left alone. */
+  error: string | null;
+}
+
+/**
+ * Marks one message read or unread, in Gmail and then in AEGIS.
+ *
+ * The order matters and is not interchangeable. Every sync re-reads the \Seen
+ * flag from the server, so a state stored locally without the mailbox agreeing
+ * would be silently reverted on the next retrieval — the badge would appear to
+ * reset itself for no reason anyone could see. The mailbox is therefore the
+ * thing that decides, and the local row only records what it accepted.
+ */
+export async function setMessageReadAction(
+  messageId: string,
+  read: boolean,
+): Promise<ReadStateResult> {
+  await requireModule("mail");
+
+  const id = messageId.trim();
+  const location = await readMessageLocation(id);
+
+  /**
+   * No UID stored, so there is nothing on the server this can safely address —
+   * a message retrieved before UIDs were recorded.
+   *
+   * Falling back to a local-only change is safe here for a specific reason:
+   * `fetchSince` only ever returns UIDs above the stored high-water mark, so a
+   * message already below it is never re-fetched and its stored read state is
+   * never overwritten. The consequence is real and worth knowing — reading such
+   * a message in AEGIS does not mark it read in Gmail. Anything retrieved from
+   * now on carries its UID and updates both.
+   */
+  if (!location) {
+    await setMessageRead(id, read);
+    revalidatePath("/", "layout");
+    return { read, mailboxUpdated: false, error: null };
+  }
+
+  const failure = await markMailSeen(location.uid, location.uidValidity, read);
+  if (failure) {
+    return { read: !read, mailboxUpdated: false, error: explainMailFailure(failure) };
+  }
+
+  await setMessageRead(id, read);
+  // Layout-wide: the unread badge lives in the sidebar, not on this page.
+  revalidatePath("/", "layout");
+  return { read, mailboxUpdated: true, error: null };
 }

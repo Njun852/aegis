@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { syncInboxAction } from "@/app/actions/ai";
+import { setMessageReadAction } from "@/app/actions/mail";
 import { useSync } from "@/components/layout/sync-provider";
 import { useToast } from "@/components/layout/toast-provider";
 import {
@@ -47,7 +48,7 @@ export function MailWorkspace({
   const [composeOpen, setComposeOpen] = useState(false);
   const [analysing, startAnalysing] = useTransition();
 
-  const { syncing, sync, connected, label: dataAge } = useSync();
+  const { syncing, sync, connected } = useSync();
 
   const folders = useMemo(() => buildFolders(messages), [messages]);
 
@@ -93,8 +94,35 @@ export function MailWorkspace({
     ? (messages.find((message) => message.id === activeId) ?? null)
     : null;
 
+  const [, startMarking] = useTransition();
+
+  /**
+   * Opening a message marks it read — in the mailbox first, then here.
+   *
+   * Done from the click rather than from an effect in the detail, so it happens
+   * once per deliberate open instead of on every mount. A failure is reported
+   * but not worked around: the message simply stays unread, which is both
+   * recoverable and true.
+   */
   const selectMessage = (id: string) => {
     setActiveId(id);
+
+    const opened = messages.find((message) => message.id === id);
+    if (!opened?.unread) return;
+
+    startMarking(async () => {
+      const result = await setMessageReadAction(id, true);
+      if (result.error) {
+        toast({
+          tone: "error",
+          title: "Could not mark as read",
+          description: result.error,
+          key: "mail-read-state",
+        });
+        return;
+      }
+      router.refresh();
+    });
   };
 
   /**
@@ -204,7 +232,6 @@ export function MailWorkspace({
         onSync={handleSync}
         mailboxConnected={connected}
         mailbox={mailbox}
-        dataAge={dataAge}
       />
 
       <div className={styles.panes}>
@@ -239,6 +266,8 @@ export function MailWorkspace({
             priorities={priorities}
             activePriority={priority}
             onSelectPriority={refilter(setPriority)}
+            totalHeld={messages.length}
+            mailboxConnected={connected}
           />
         )}
       </div>
@@ -246,6 +275,7 @@ export function MailWorkspace({
       <ComposeModal
         open={composeOpen}
         aiEnabled={aiEnabled}
+        mailbox={mailbox}
         onClose={() => setComposeOpen(false)}
       />
     </div>

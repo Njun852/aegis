@@ -118,3 +118,25 @@ export async function sendMail(
   const result = await createImapSource(credentials).send(to, subject, body);
   return result.ok ? null : result.reason;
 }
+
+/**
+ * Sets or clears \Seen on the mailbox itself.
+ *
+ * This is the one place AEGIS writes *into* Gmail rather than reading from it,
+ * so it is deliberately narrow: one message, one flag.
+ */
+export async function markMailSeen(
+  uid: number,
+  uidValidity: string,
+  seen: boolean,
+): Promise<MailFailure | null> {
+  const credentials = await readMailboxCredentials();
+  if (!credentials) return "not-configured";
+
+  const result = await createImapSource(credentials).setSeen(
+    uid,
+    uidValidity,
+    seen,
+  );
+  return result.ok ? null : result.reason;
+}

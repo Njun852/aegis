@@ -9,7 +9,7 @@ import { AI_MODELS } from "./client";
 import { cacheKeyFor, generate } from "./generate";
 import { NEVER_INVENT } from "./mail-triage-prompt";
 import { clip } from "@/lib/format";
-import { CURRENT_USER, ORGANIZATION } from "@/lib/data/workspace";
+import { readMailIdentity } from "@/lib/dal/mailbox";
 import type { AiFailure, AiResult, MailMessage } from "@/types";
 
 /**
@@ -68,6 +68,8 @@ export async function draftReply(
   message: MailMessage,
   steer?: string,
 ): Promise<AiResult<ReplyDraft>> {
+  const identity = await readMailIdentity();
+
   const input = {
     from: message.from,
     subject: clip(message.subject, 160),
@@ -75,8 +77,12 @@ export async function draftReply(
     deadline: message.deadline ?? "",
     needsApproval: message.needsApproval,
     approvalReason: message.approvalReason,
-    replyingAs: `${CURRENT_USER.name}, ${CURRENT_USER.role} at ${ORGANIZATION.name}`,
-    signOff: CURRENT_USER.firstName,
+    // The real signed-in user and their real business. These used to be demo
+    // constants, so every draft was signed with somebody else's name.
+    replyingAs: identity.businessName
+      ? `${identity.name} at ${identity.businessName}`
+      : identity.name,
+    signOff: identity.firstName,
     /** Empty when this is the neutral default written by the sweep. */
     wantedByUser: steer ? clip(steer.trim(), STEER_BUDGET) : "",
   };

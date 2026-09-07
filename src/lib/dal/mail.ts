@@ -7,6 +7,7 @@ import { formatDay, formatStamp } from "@/lib/format";
 import type { FetchedMessage } from "@/lib/mail/source";
 import { isMailboxConnected } from "@/lib/integrations";
 import { readActiveMailSync } from "./mailbox";
+import { verifySession } from "./session";
 import type {
   MailFreshnessState,
   MailMessage,
@@ -99,6 +100,8 @@ export async function upsertFetchedMessages(
           body: message.body,
           receivedAt: message.receivedAt,
           unread: message.unread,
+          uid: message.uid,
+          uidValidity: message.uidValidity,
           time: formatStamp(message.receivedAt),
           date: formatDay(message.receivedAt),
         },
@@ -129,6 +132,31 @@ export async function upsertFetchedMessages(
   }
 
   return inserted;
+}
+
+/**
+ * Where the mail server keeps this message, so its flags can be addressed.
+ *
+ * Returns null when the message predates retrieval and has no UID — there is
+ * nothing on the server to mark, and pretending otherwise would write a flag
+ * onto whichever message happens to hold that number now.
+ */
+export async function readMessageLocation(
+  messageId: string,
+): Promise<{ uid: number; uidValidity: string } | null> {
+  const collection = await messages();
+  const doc = await collection.findOne({ messageId });
+  if (!doc?.uid || !doc.uidValidity) return null;
+  return { uid: doc.uid, uidValidity: doc.uidValidity };
+}
+
+/** Records the read state locally, after the mail server has accepted it. */
+export async function setMessageRead(
+  messageId: string,
+  read: boolean,
+): Promise<void> {
+  const collection = await messages();
+  await collection.updateOne({ messageId }, { $set: { unread: !read } });
 }
 
 /**
@@ -195,10 +223,11 @@ export async function readMailFreshness(): Promise<{
  * and the verdict together, and so the render path stays free of clock reads.
  */
 export async function readMailFreshnessState(): Promise<MailFreshnessState> {
-  const [{ newestReceivedAt }, connected, sync] = await Promise.all([
+  const [{ newestReceivedAt }, connected, sync, session] = await Promise.all([
     readMailFreshness(),
     isMailboxConnected(),
     readActiveMailSync(),
+    verifySession(),
   ]);
   const now = Date.now();
 
@@ -214,6 +243,7 @@ export async function readMailFreshnessState(): Promise<MailFreshnessState> {
     : newestReceivedAt;
 
   return {
+    businessId: session.activeBusinessId,
     newestReceivedAt: reference,
     connected,
     label: relativeAge(reference, now),

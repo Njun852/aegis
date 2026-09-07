@@ -19,6 +19,10 @@ export interface MessageListProps {
   priorities: MailPriorityOption[];
   activePriority: MailPriorityFilter;
   onSelectPriority: (priority: MailPriorityFilter) => void;
+  /** Messages held before filtering, so an empty inbox reads differently. */
+  totalHeld: number;
+  /** False until a mailbox is connected. */
+  mailboxConnected: boolean;
 }
 
 export function MessageList({
@@ -31,6 +35,8 @@ export function MessageList({
   priorities,
   activePriority,
   onSelectPriority,
+  totalHeld,
+  mailboxConnected,
 }: MessageListProps) {
   return (
     <section
@@ -144,15 +150,40 @@ export function MessageList({
                 borderLeft: `3px solid ${active ? "var(--accent-primary)" : priority.accent}`,
                 borderBottom: "1px solid var(--border-subtle)",
                 padding: "4px 10px 10px",
+                /*
+                  Read mail recedes rather than disappearing — the same signal
+                  as the bold/plain convention every mail client uses, done with
+                  contrast because the row's text comes from a shared primitive.
+                */
+                opacity: message.unread ? 1 : 0.58,
               }}
             >
-              <ListRow
-                title={message.subject}
-                meta={`${message.from} · ${message.time}`}
-                icon={priority.icon}
-                iconColor={priority.color}
-                onClick={() => onSelect(message.id)}
-              />
+              <div className="flex items-center gap-1.5">
+                <span
+                  aria-label={message.unread ? "Unread" : undefined}
+                  title={message.unread ? "Unread" : "Read"}
+                  style={{
+                    width: 7,
+                    height: 7,
+                    flex: "0 0 auto",
+                    borderRadius: "var(--radius-pill)",
+                    // Kept as a transparent placeholder when read, so the
+                    // subject lines stay aligned down the whole list.
+                    background: message.unread
+                      ? "var(--accent-primary)"
+                      : "transparent",
+                  }}
+                />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <ListRow
+                    title={message.subject}
+                    meta={`${message.from} · ${message.time}`}
+                    icon={priority.icon}
+                    iconColor={priority.color}
+                    onClick={() => onSelect(message.id)}
+                  />
+                </span>
+              </div>
               <div
                 onClick={() => onSelect(message.id)}
                 className="flex cursor-pointer flex-col gap-[7px] px-1"
@@ -200,10 +231,20 @@ export function MessageList({
               margin: 0,
               padding: "24px 16px",
               fontSize: "12.5px",
+              lineHeight: "18px",
               color: "var(--text-muted)",
             }}
           >
-            No threads match this filter.
+            {/*
+              An inbox with nothing in it is not the same as a filter that
+              matches nothing, and since the sample inbox was removed the first
+              case is what a new install actually sees.
+            */}
+            {totalHeld > 0
+              ? "No threads match this filter."
+              : mailboxConnected
+                ? "No mail retrieved yet. Press Sync now to check the mailbox."
+                : "No mailbox is connected. An AEGIS administrator can connect one in Business Management."}
           </p>
         )}
       </div>

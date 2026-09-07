@@ -3,7 +3,10 @@
 import { useRef, useState, useTransition } from "react";
 import { useTypewriter } from "@/hooks/use-typewriter";
 import { draftReplyAction } from "@/app/actions/ai";
-import { sendReplyAction } from "@/app/actions/mail";
+import {
+  sendReplyAction,
+  setMessageReadAction,
+} from "@/app/actions/mail";
 import { useSync } from "@/components/layout/sync-provider";
 import { useToast } from "@/components/layout/toast-provider";
 import {
@@ -13,7 +16,8 @@ import {
   Icon,
   IconButton,
 } from "@/components/ui";
-import { CURRENT_USER, ORGANIZATION } from "@/lib/data/workspace";
+import { useBusiness } from "@/components/business/business-provider";
+import { relativeAge } from "@/lib/freshness";
 import { getPriorityStyle } from "@/lib/mail";
 import { replyPolicy } from "@/lib/mail-reply-policy";
 import type { MailMessage, SentReply } from "@/types";
@@ -33,10 +37,12 @@ export function MessageDetail({
 }: MessageDetailProps) {
   const priority = getPriorityStyle(message.priority);
   const policy = replyPolicy(message.category);
+  const { user } = useBusiness();
   const toast = useToast();
   const { connected: mailboxConnected } = useSync();
   const [drafting, startDrafting] = useTransition();
   const [, startSending] = useTransition();
+  const [markingUnread, startMarkingUnread] = useTransition();
   // The stored field is the source of truth; this only carries a draft written
   // in this session until the route revalidates and the prop catches up.
   /**
@@ -78,6 +84,50 @@ export function MessageDetail({
   const handleDraftChange = (value: string) => {
     if (sent) setSent(false);
     setDraft(value);
+  };
+
+  /**
+   * Empties the composer.
+   *
+   * Also drops the reveal, which both stops a draft that is still typing itself
+   * in and stops that same text reappearing: while a reveal is running the box
+   * renders from it rather than from `draft`, so clearing one without the other
+   * would look like the clear had failed.
+   */
+  /**
+   * Puts a message back to unread.
+   *
+   * The counterpart to marking on open: opening a message writes to the real
+   * mailbox, so there has to be a way to undo an open you did not mean.
+   */
+  const markUnread = () => {
+    startMarkingUnread(async () => {
+      const result = await setMessageReadAction(message.id, false);
+      if (result.error) {
+        toast({
+          tone: "error",
+          title: "Could not mark as unread",
+          description: result.error,
+          key: "mail-read-state",
+        });
+        return;
+      }
+      toast({
+        tone: "info",
+        title: "Marked unread",
+        description: result.mailboxUpdated
+          ? "Restored in Gmail as well as here."
+          : "Restored here. This message was retrieved before AEGIS recorded mailbox ids, so Gmail still shows it as read.",
+        key: "mail-read-state",
+      });
+      onBack();
+    });
+  };
+
+  const clearDraft = () => {
+    setDraft("");
+    setReveal(null);
+    if (sent) setSent(false);
   };
 
   /** Puts a finished draft in the box and lets it type itself in. */
@@ -256,6 +306,13 @@ export function MessageDetail({
             {mailboxConnected && (
               <IconButton icon="external-link" size={32} label="Open in Gmail" />
             )}
+            <IconButton
+              icon="mail"
+              size={32}
+              label="Mark as unread"
+              disabled={markingUnread}
+              onClick={markUnread}
+            />
             <IconButton icon="archive" size={32} label="Archive" />
           </span>
         </div>
@@ -408,13 +465,19 @@ export function MessageDetail({
             }}
           >
             <div className="flex items-center gap-2.5">
-              <Avatar name={CURRENT_USER.name} size={28} />
+              <Avatar name={user.name} size={28} />
               <span className="flex min-w-0 flex-col leading-[1.3]">
                 <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-primary)" }}>
-                  {CURRENT_USER.name}
+                  {user.name}
                 </span>
+                {/*
+                  The signed-in user and the mailbox it actually left from.
+                  This used to print the demo constants, so every reply you sent
+                  was attributed to a person and an address that do not exist.
+                */}
                 <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                  {ORGANIZATION.mailbox} · just now
+                  {mailbox ?? "not sent — no mailbox connected"} ·{" "}
+                  {relativeAge(reply.sentAt)}
                 </span>
               </span>
               <span
@@ -683,14 +746,28 @@ export function MessageDetail({
           >
             {sending ? "Sending…" : sent ? "Sent" : "Send reply"}
           </Button>
+          {/*
+            Only offered when there is something to clear, so the row does not
+            carry a permanently dead control. Available mid-reveal on purpose:
+            stopping a draft you did not want is exactly when you reach for it.
+          */}
+          {(draft.trim() || writing) && (
+            <Button
+              variant="ghost"
+              size="md"
+              icon="x"
+              disabled={sending}
+              onClick={clearDraft}
+            >
+              Clear
+            </Button>
+          )}
           <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-            {mailboxConnected
+            {mailboxConnected && mailbox
               ? sent
-                ? `Sent from ${mailbox ?? ORGANIZATION.mailbox}`
-                : `Sends from ${mailbox ?? ORGANIZATION.mailbox}`
-              : sent
-                ? "Added to this thread only — no mailbox is connected, so nothing was sent"
-                : "No mailbox is connected, so this will not leave AEGIS"}
+                ? `Sent from ${mailbox}`
+                : `Sends from ${mailbox}`
+              : "No mailbox is connected, so this cannot be sent"}
           </span>
         </div>
           </>

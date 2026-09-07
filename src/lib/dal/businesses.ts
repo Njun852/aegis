@@ -53,6 +53,88 @@ export async function getBusinessForUser(
   return doc ? toBusiness(doc) : null;
 }
 
+/** The id format every business gets: BIZ-1001, BIZ-1002, and so on. */
+const ID_PREFIX = "BIZ-";
+const FIRST_ID = 1001;
+
+/**
+ * Next free business id.
+ *
+ * Read-the-maximum-and-add-one, the same allocation booking refs use, and with
+ * the same caveat: two admins creating a business at the same instant can pick
+ * the same number. The unique index on `businessId` turns that into a write
+ * error rather than a collision, and `createBusiness` retries.
+ */
+async function nextBusinessId(): Promise<string> {
+  const businesses = await businessesCollection();
+  const docs = await businesses
+    .find({}, { projection: { businessId: 1 } })
+    .toArray();
+
+  const highest = docs.reduce((max, doc) => {
+    const parsed = Number.parseInt(doc.businessId.replace(ID_PREFIX, ""), 10);
+    return Number.isFinite(parsed) && parsed > max ? parsed : max;
+  }, FIRST_ID - 1);
+
+  return `${ID_PREFIX}${highest + 1}`;
+}
+
+/**
+ * Creates a business. Admin-only, like every other write on this screen.
+ *
+ * A new business starts with **no optional modules**: entitlements are what the
+ * customer has bought, so granting them by default would hand out access nobody
+ * asked for. The admin turns them on afterwards on the detail screen.
+ */
+export async function createBusiness(
+  name: string,
+  meta: string,
+): Promise<Business> {
+  await requireAdmin();
+
+  const businesses = await businessesCollection();
+  const onboarded = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+
+  // Two attempts: the second covers losing the id race against another admin.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const businessId = await nextBusinessId();
+    const doc: BusinessDocument = {
+      businessId,
+      name,
+      meta,
+      onboarded,
+      modules: [],
+      status: "active",
+    };
+
+    try {
+      await businesses.insertOne(doc);
+      return toBusiness(doc);
+    } catch (cause) {
+      const duplicate = (cause as { code?: number })?.code === 11000;
+      if (!duplicate || attempt === 1) throw cause;
+    }
+  }
+
+  throw new Error("Could not allocate a business id.");
+}
+
+/** Renames a business. The id never changes — other records point at it. */
+export async function renameBusiness(
+  businessId: string,
+  name: string,
+  meta: string,
+): Promise<void> {
+  await requireAdmin();
+
+  const businesses = await businessesCollection();
+  await businesses.updateOne({ businessId }, { $set: { name, meta } });
+}
+
 /** Entitlements are admin-set, so this asserts the role before writing. */
 export async function setModuleGrants(
   businessId: string,

@@ -94,20 +94,6 @@ export interface MailPriorityOption {
   count: number;
 }
 
-export interface MailMonitorEntry {
-  label: string;
-  meta: string;
-  dot: string;
-}
-
-/** A canned "AI Assist" reply the compose modal can drop into the draft. */
-export interface ComposeDraftSuggestion {
-  label: string;
-  to: string;
-  subject: string;
-  body: string;
-}
-
 /**
  * Stored shape. `businessId` is stamped on by `tenantScope`.
  *
@@ -142,7 +128,7 @@ export interface MailMessageDocument {
   deadline: string | null;
   needsApproval: boolean;
   approvalReason: string;
-  /** Null while the AI fields are still the seeded samples. */
+  /** Null until a model has analysed this message. */
   aiGeneratedAt: Date | null;
   aiPromptVersion: number | null;
   /** The stored full draft reply, or null if none has been written. */
@@ -154,19 +140,16 @@ export interface MailMessageDocument {
   replyPromptVersion: number | null;
   /** Sent replies, stored so a reload still shows what was sent. */
   sentReplies?: { body: string; sentAt: Date }[];
+  /**
+   * How the mail server names this message. Needed to set the \Seen flag,
+   * which is addressed by UID rather than by Message-ID. Absent on anything
+   * stored before retrieval existed.
+   */
+  uid?: number;
+  uidValidity?: string;
   receivedAt: Date;
   createdAt: Date;
 }
-
-/**
- * The sample inbox's shape: a message as it exists before anything has analysed
- * it. The fixture in `src/lib/data/mail.ts` is a seed, not a loaded message —
- * `aiGeneratedAt` is set by the database, once a model has actually run.
- */
-export type MailMessageSeed = Omit<
-  MailMessage,
-  "aiGeneratedAt" | "suggestedReply" | "sentReplies"
->;
 
 /**
  * What the shell is told about mail freshness at render time.
@@ -176,7 +159,13 @@ export type MailMessageSeed = Omit<
  * two renders.
  */
 export interface MailFreshnessState {
-  /** ISO of the newest message held, or null when nothing has ever arrived. */
+  /**
+   * Whose freshness this is. Mail is connected per business, so switching
+   * business replaces every value below — the shell keys the provider on this
+   * so none of it can survive the switch.
+   */
+  businessId: string;
+  /** ISO of the last successful retrieval, or null when none has succeeded. */
   newestReceivedAt: string | null;
   /** False until a real mailbox is connected. */
   connected: boolean;

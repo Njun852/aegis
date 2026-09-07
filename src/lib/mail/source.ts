@@ -22,6 +22,15 @@ export interface FetchedMessage {
   body: string[];
   receivedAt: Date;
   unread: boolean;
+  /**
+   * The IMAP UID, and the uidValidity it belongs to.
+   *
+   * Stored because flags are addressed by UID, not by Message-ID: marking a
+   * message read has to name it the way the server names it. A UID is only
+   * meaningful within its uidValidity, so the pair travels together.
+   */
+  uid: number;
+  uidValidity: string;
 }
 
 /**
@@ -56,5 +65,17 @@ export interface MailSource {
   fetchSince(cursor: MailCursor, limit: number): Promise<MailOutcome<FetchResult>>;
   /** Proves the credentials work without reading or writing anything. */
   verify(): Promise<MailOutcome<true>>;
+  /**
+   * Sets or clears the \Seen flag on one message.
+   *
+   * The only write AEGIS makes into the mailbox itself. `uidValidity` is
+   * checked against the server's before anything is touched — a stale UID would
+   * otherwise mark an unrelated message read.
+   */
+  setSeen(
+    uid: number,
+    uidValidity: string,
+    seen: boolean,
+  ): Promise<MailOutcome<true>>;
   send(to: string, subject: string, body: string): Promise<MailOutcome<true>>;
 }

@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useBusiness } from "@/components/business/business-provider";
+import { useToast } from "@/components/layout/toast-provider";
+import { createBusinessAction } from "@/app/actions/business";
 import { Badge, Button, Icon, SearchInput } from "@/components/ui";
 import {
   TOTAL_MODULE_COUNT,
@@ -23,7 +25,39 @@ const ROW =
 export function BusinessList() {
   const router = useRouter();
   const { businesses, activeBusinessId } = useBusiness();
+  const toast = useToast();
   const [query, setQuery] = useState("");
+
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [meta, setMeta] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [creating, startCreating] = useTransition();
+
+  const create = () => {
+    setError(null);
+    startCreating(async () => {
+      const result = await createBusinessAction(name, meta);
+      if (result.error || !result.businessId) {
+        setError(result.error ?? "The business could not be created.");
+        return;
+      }
+
+      toast({
+        tone: "success",
+        title: `${name.trim()} created`,
+        description:
+          "Core modules are on. Grant optional modules and connect a mailbox next.",
+        key: "business-create",
+      });
+      setAdding(false);
+      setName("");
+      setMeta("");
+      // Straight to the new business: it has no modules and no mailbox yet, and
+      // both are set on that screen.
+      router.push(`/admin/businesses/${result.businessId}`);
+    });
+  };
 
   const rows = filterBusinesses(businesses, query);
 
@@ -89,9 +123,105 @@ export function BusinessList() {
             onChange={setQuery}
             width={240}
           />
-          <Button icon="plus">Add Business</Button>
+          <Button
+            icon={adding ? "x" : "plus"}
+            variant={adding ? "ghost" : "primary"}
+            onClick={() => {
+              setAdding((open) => !open);
+              setError(null);
+            }}
+          >
+            {adding ? "Cancel" : "Add Business"}
+          </Button>
         </div>
       </div>
+
+      {adding && (
+        <section
+          style={{
+            background: "var(--surface-card)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-card)",
+            padding: "18px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+          }}
+        >
+          <div className="flex flex-col gap-1">
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: "15px",
+                fontWeight: 700,
+              }}
+            >
+              New business
+            </span>
+            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+              Dashboard, Mail and Ads are included. Optional modules and a
+              mailbox are set on the business itself, once it exists.
+            </span>
+          </div>
+
+          <div className="grid gap-2.5 wide:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span style={LABEL}>Business name</span>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && name.trim() && !creating) {
+                    event.preventDefault();
+                    create();
+                  }
+                }}
+                placeholder="Northgate Motors"
+                autoFocus
+                style={FIELD}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span style={LABEL}>Industry and plan</span>
+              <input
+                value={meta}
+                onChange={(event) => setMeta(event.target.value)}
+                placeholder="Automotive services · Standard"
+                style={FIELD}
+              />
+            </label>
+          </div>
+
+          {error && (
+            <div
+              role="alert"
+              style={{
+                padding: "9px 11px",
+                borderRadius: "var(--radius-md)",
+                background: "var(--status-negative-soft)",
+                color: "var(--status-negative)",
+                fontSize: "12.5px",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Button
+              icon="check"
+              disabled={creating || !name.trim()}
+              onClick={create}
+            >
+              {creating ? "Creating…" : "Create business"}
+            </Button>
+            <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+              The id is allocated automatically and never changes.
+            </span>
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 gap-3 wide:grid-cols-3">
         {summary.map((item) => (
@@ -358,3 +488,21 @@ function ColumnLabel({ children }: { children?: React.ReactNode }) {
     </span>
   );
 }
+
+const LABEL = {
+  fontSize: "12px",
+  fontWeight: 600,
+  color: "var(--text-primary)",
+} as const;
+
+const FIELD = {
+  width: "100%",
+  font: "inherit",
+  fontSize: "13px",
+  color: "var(--text-primary)",
+  background: "var(--surface-card)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "var(--radius-md)",
+  padding: "9px 11px",
+  outline: "none",
+} as const;

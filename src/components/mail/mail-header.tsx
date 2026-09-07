@@ -1,7 +1,6 @@
 "use client";
 
 import { Badge, Button } from "@/components/ui";
-import { ORGANIZATION } from "@/lib/data/workspace";
 
 export interface MailHeaderProps {
   syncing: boolean;
@@ -10,8 +9,6 @@ export interface MailHeaderProps {
   mailboxConnected: boolean;
   /** The connected address, when there is one. */
   mailbox: string | null;
-  /** How long ago the newest held message arrived. */
-  dataAge: string;
 }
 
 export function MailHeader({
@@ -19,7 +16,6 @@ export function MailHeader({
   onSync,
   mailboxConnected,
   mailbox,
-  dataAge,
 }: MailHeaderProps) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -44,7 +40,7 @@ export function MailHeader({
         >
           {mailboxConnected
             ? "Gmail-connected inbox with AI prioritization, summaries and suggested replies."
-            : "AI prioritization, summaries and suggested replies, running on the seeded sample inbox until a mailbox is connected."}
+            : "AI prioritization, summaries and suggested replies. Connect a mailbox in Business Management to start retrieving mail."}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2.5">
@@ -58,8 +54,8 @@ export function MailHeader({
           icon={mailboxConnected ? "shield-check" : "circle-alert"}
         >
           {mailboxConnected
-            ? `Gmail connected · ${mailbox ?? ORGANIZATION.mailbox}`
-            : `No mailbox connected · sample inbox, updated ${dataAge}`}
+            ? `Gmail connected · ${mailbox}`
+            : "No mailbox connected"}
         </Badge>
         <Button
           variant="primary"
