@@ -6,11 +6,8 @@ import { useBusiness } from "@/components/business/business-provider";
 import { BusinessSwitcher } from "@/components/business/business-switcher";
 import { Avatar, Button, IconButton, NavItem, UserChip } from "@/components/ui";
 import { OPTIONAL_MODULES } from "@/lib/data/businesses";
-import {
-  CURRENT_USER,
-  INTERNAL_NAV,
-  WORKSPACE_NAV,
-} from "@/lib/data/workspace";
+import { INTERNAL_NAV, WORKSPACE_NAV } from "@/lib/data/workspace";
+import { roleLabel } from "@/lib/roles";
 import type { OptionalModuleKey } from "@/types";
 
 export interface SidebarProps {
@@ -32,7 +29,7 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { activeBusiness, hasModule, isAdmin } = useBusiness();
+  const { activeBusiness, hasModule, isAdmin, user } = useBusiness();
 
   const go = (href: string) => {
     onNavigate();
@@ -297,12 +294,14 @@ export function Sidebar({
 
         {collapsed ? (
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <Avatar name={CURRENT_USER.name} ring />
+            <Avatar name={user.name} ring />
           </div>
         ) : (
+          /* The signed-in user, not a constant: this used to name one person
+             whoever was actually signed in. */
           <UserChip
-            name={CURRENT_USER.name}
-            plan={CURRENT_USER.role}
+            name={user.name}
+            plan={roleLabel(user.role)}
             onMenu={onToggleUserMenu}
           />
         )}

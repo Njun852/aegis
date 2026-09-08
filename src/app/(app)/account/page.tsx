@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { PasswordForm } from "@/components/account/password-form";
 import { verifySession } from "@/lib/dal/session";
 import { findUserById } from "@/lib/dal/users";
+import { roleLabel } from "@/lib/roles";
 
 export const metadata: Metadata = {
   title: "Account · AEGIS AI",
@@ -28,7 +29,7 @@ export default async function AccountPage() {
         </h2>
         <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
           Signed in as {user?.name ?? "—"} ({user?.username ?? "—"}) ·{" "}
-          {session.role === "aegis_admin" ? "AEGIS administrator" : "Member"}
+          {roleLabel(session.role)}
         </p>
       </div>
       <PasswordForm />

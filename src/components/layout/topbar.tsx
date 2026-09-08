@@ -3,7 +3,6 @@
 import { usePathname } from "next/navigation";
 import { useBusiness } from "@/components/business/business-provider";
 import { Avatar, IconButton } from "@/components/ui";
-import { CURRENT_USER } from "@/lib/data/workspace";
 import { routeTitle } from "@/lib/navigation";
 import type { FreshnessTone } from "@/lib/freshness";
 
@@ -71,7 +70,7 @@ export function Topbar({
   hasNotifications,
 }: TopbarProps) {
   const pathname = usePathname();
-  const { businesses } = useBusiness();
+  const { businesses, user } = useBusiness();
   const title = routeTitle(pathname, businesses);
   // A disconnected mailbox can never be fresh, whatever the data's age says.
   const tone = SYNC_TONES[mailboxConnected ? syncTone : "never"];
@@ -184,7 +183,7 @@ export function Topbar({
           </span>
         </div>
         <IconButton icon="bell" badge={hasNotifications} label="Notifications" />
-        <Avatar name={CURRENT_USER.name} ring />
+        <Avatar name={user.name} ring />
       </div>
     </header>
   );

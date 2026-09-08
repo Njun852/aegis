@@ -2,12 +2,14 @@
 
 import { Select } from "@/components/ui";
 import { DATE_RANGES } from "@/lib/data/dashboard";
-import { CURRENT_USER } from "@/lib/data/workspace";
+import { useBusiness } from "@/components/business/business-provider";
+import { firstNameOf } from "@/lib/roles";
 import { useDashboardRange } from "./dashboard-range-provider";
 import type { DateRange } from "@/types";
 
 export function DashboardHeader() {
   const { range, setRange } = useDashboardRange();
+  const { user } = useBusiness();
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-4">
@@ -21,7 +23,7 @@ export function DashboardHeader() {
             letterSpacing: "-.02em",
           }}
         >
-          Welcome back, {CURRENT_USER.firstName} 👋
+          Welcome back, {firstNameOf(user.name)} 👋
         </h2>
         <p
           style={{
