@@ -64,15 +64,18 @@ through `tenantScope()` (§5).
 ```
 _id                ObjectId
 username           string   lowercased, unique
-email              string
 name               string
 passwordHash       string   "scrypt$<saltHex>$<hashHex>"
 role               "aegis_admin" | "member"
 defaultBusinessId  string   fallback tenant, e.g. "BIZ-1001"
 createdAt          Date
+createdBy          string?  id of the administrator who made it; absent on seeded accounts
 ```
 
 Index: `{ username: 1 }` unique.
+
+Accounts carry no email address. Older records may still hold an `email`
+field from before it was dropped; nothing reads it.
 
 #### `businesses`
 
@@ -557,7 +560,9 @@ and `--fix` scripts are run against development first, always.
 ### Seeding
 
 ```bash
-npm run seed
+npm run seed                                   # businesses and sample data only
+npm run seed -- --demo                         # also the two demo accounts
+npm run seed -- --admin=maria.santos --name="Maria Santos"
 ```
 
 Runs `scripts/seed.ts` via `node --env-file=.env.local` (Node 24 strips the
@@ -568,15 +573,23 @@ It is **idempotent and non-destructive**: business `modules` and user
 `passwordHash` are written with `$setOnInsert`, so re-running never undoes an
 entitlement an admin granted in the app or resets a changed password.
 
-There is currently **one tenant, AUTOBLITZ** (`BIZ-1001`), with Bookings,
-Inventory and CRM granted. The earlier placeholder businesses were deleted.
+**No user accounts are created by default.** Accounts are made in the app, at
+`/admin/users` (section 3). The seed covers the two cases the app cannot:
 
-Seeded accounts — password `aegis-demo` for both:
+- **`--admin=<username>`** creates the first administrator on a database that
+  has none — nobody can sign in to reach the Users screen until one exists. The
+  password is generated and printed **once** (a typed one would be left in the
+  shell history); change it in Account Settings after signing in. It never touches
+  an existing account: if the username is taken it reports that and changes
+  nothing. With no administrator in the database, the seed says so and prints
+  this command.
+- **`--demo`** creates `ahmed.ben` (administrator) and `rosa.marin` (member) for
+  local development. They share a fixed password printed by the seed. **Never
+  run `--demo` against production**: a known administrator password is the
+  opposite of the company controlling administrator access.
 
-| Username | Role | Sees |
-|---|---|---|
-| `ahmed.ben` | `aegis_admin` | Every business, plus Business Management |
-| `rosa.marin` | `member` | AUTOBLITZ only, no Internal section |
+There is currently **one seeded tenant, AUTOBLITZ** (`BIZ-1001`). Further
+businesses are created in Business Management.
 
 > `src/lib/data/businesses.ts` is **seed input only** — no screen imports the
 > `BUSINESSES` array. It still exports `CORE_MODULES`, `OPTIONAL_MODULES`, and
@@ -621,8 +634,25 @@ Stateless JWT in an httpOnly cookie — `authjs.session-token`, or
 `__Secure-authjs.session-token` over HTTPS. Claims: `sub` (user id), `role`,
 `defaultBusinessId`.
 
+**Authorization does not trust the claims.** `verifySession()` and
+`optionalSession()` (`src/lib/dal/session.ts`) read the user back from MongoDB on
+every request — one lookup, memoised per render by `cache()` — and take the role
+and default business from that record. A JWT cannot be revoked, so trusting its
+`role` meant a deleted or demoted administrator kept admin powers in every
+server action until the token expired (thirty days by default). Now a deleted
+user is signed out, and a demoted one demoted, on their very next request. A
+token whose user no longer exists yields no session at all, which is also what
+lets `/login` render for them instead of bouncing to the dashboard and back.
+
 The active business is deliberately **not** a JWT claim; putting it there would
 force a token re-issue on every switch. See section 4.
+
+The stored `defaultBusinessId` is **checked, not trusted**. It used to be
+returned whenever the business cookie was missing or refused, so a member whose
+access to their default business had been removed kept it through that fallback.
+Now the cookie is used only if allowed, then the default only if allowed, then
+the first business the account can reach; a member who can reach none has no
+session at all.
 
 ### Sign-in flow
 
@@ -636,6 +666,44 @@ force a token re-issue on every switch. See section 4.
 5. On failure it returns one deliberately vague message. Distinguishing "no
    such user" from "wrong password" would tell an attacker which usernames
    exist.
+
+
+### User management
+
+Administrators create and remove accounts at **`/admin/users`**
+(`src/components/admin/user-management.tsx`), backed by
+`src/lib/dal/user-admin.ts`. Every function there calls `requireAdmin()` itself,
+so the check holds even for a caller that skips the action layer.
+
+- **Creating** an account takes a name, username, role, and a password the
+  administrator types and hands over. The password must meet the same rule as
+  Account Settings (`PASSWORD_MIN_LENGTH`, `src/lib/password-policy.ts`), is
+  hashed with scrypt before it is stored, and can never be read back by anyone.
+  The holder can change it whenever they like in Account Settings; nothing
+  forces them to. Members are given the businesses they may reach at creation;
+  `createdBy` records who made the account.
+- **Set password** replaces another account's password with one the
+  administrator types — the recovery path for a forgotten password. The old
+  password stops working at once. It is **not available for your own
+  account**: Account Settings asks for the current password first, and this
+  would be a way around that check.
+- **Edit** changes name, role, and the businesses a member reaches. The
+  username is fixed — it is what the person signs in with. Access is granted
+  before it is revoked (there are no transactions to make it atomic), so an
+  interrupted edit never leaves a member with no business. Promoting a member
+  clears their memberships, since administrators reach everything and stale rows
+  would silently return if the account were demoted again. If a member loses the
+  business that was their default, the default moves to one they still have.
+  **Nobody can change their own role**, which is also what guarantees an
+  administrator always remains.
+- **Delete** removes the account and its memberships. Nobody can delete the
+  account they are signed in with, which is what prevents an administrator
+  locking the company out.
+
+Edits and deletions apply on the account's **next request**, pages and server
+actions alike, because the session reads the user back from the database. The
+sidebar of an already-open page can keep showing the old navigation until the
+next full page load; every server path has already refused by then.
 
 ---
 
@@ -759,7 +827,8 @@ npm run seed
 npm run dev
 ```
 
-Sign in at `/login` with `ahmed.ben` / `aegis-demo`.
+Sign in at `/login` with an account made by `npm run seed -- --admin=…`, or,
+for local development only, with the accounts `npm run seed -- --demo` prints.
 
 To inspect what is stored, open a Mongo shell against `MONGODB_URI` and read the
 `businesses` collection — `businessId` and `modules` are the two fields that
@@ -773,7 +842,6 @@ show entitlement state.
   signed-in user can change their own password at `/account` (Account Settings
   in the user menu), which requires their current password; what is missing is
   the forgotten-password path, which needs a mail sender.
-- **No Add Business flow** — the button exists but is inert.
 - **`status: "suspended"` is stored but never enforced.** A suspended business
   still resolves and renders.
 - **Booking refs are allocated by reading the current maximum.** Concurrent
@@ -790,8 +858,11 @@ show entitlement state.
   The Revenue Overview chart's "Expense" legend is therefore decorative.
 - **No double-entry.** Entries are single-sided credits. Real accounting would
   want a matching debit and an account dimension.
-- **Sessions cannot be revoked.** JWTs are stateless, so a stolen token stays
-  valid until it expires. Server-side revocation needs a sessions collection.
+- **Sessions end on deletion, not on a password change.** Because the user is
+  read back on every request, deleting or demoting an account takes effect
+  immediately. Changing or setting a password does not end sessions already
+  signed in with the old one; that needs a sessions collection or a per-user
+  token version.
 - **Entitlement changes apply on next request, not next sign-in.** The admin
   screen's copy still says "at next sign-in", which is now more conservative
   than the actual behaviour — `revalidatePath` pushes it through immediately.

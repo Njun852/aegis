@@ -2,11 +2,19 @@
  * Seeds the control plane. Idempotent — re-running updates the fixtures in
  * place rather than duplicating them.
  *
- *   node --env-file=.env.local scripts/seed.ts
+ *   npm run seed                                  businesses and sample data only
+ *   npm run seed -- --demo                        also the two demo accounts
+ *   npm run seed -- --admin=maria.santos --name="Maria Santos"
+ *                                                 the first administrator on a
+ *                                                 fresh database
+ *
+ * No user accounts are created by default. The demo accounts share a published
+ * password, so they exist only when asked for, for local development.
  */
 import { MongoClient, type Db } from "mongodb";
 import { randomBytes, scrypt as scryptCb } from "node:crypto";
 import { promisify } from "node:util";
+import { generatePassword } from "../src/lib/auth/generate-password.ts";
 import { BUSINESSES } from "../src/lib/data/businesses.ts";
 import { BOOKING_SEEDS } from "../src/lib/data/bookings.ts";
 import { AD_ROW_SEEDS } from "../src/lib/data/ads.ts";
@@ -41,6 +49,15 @@ if (!uri || !dbName) {
 
 const DEMO_PASSWORD = "aegis-demo";
 
+const args = process.argv.slice(2);
+const DEMO = args.includes("--demo");
+
+/** `--name=value` or `--name="two words"` (the shell strips the quotes). */
+function flag(name: string): string | null {
+  const hit = args.find((arg) => arg.startsWith(`--${name}=`));
+  return hit ? hit.slice(name.length + 3).trim() || null : null;
+}
+
 async function main() {
   const client = await new MongoClient(uri!).connect();
   const db = client.db(dbName);
@@ -74,61 +91,111 @@ async function main() {
     }
     console.log(`✓ ${BUSINESSES.length} businesses`);
 
-    const passwordHash = await hashPassword(DEMO_PASSWORD);
+    if (DEMO) {
+      const passwordHash = await hashPassword(DEMO_PASSWORD);
 
-    const admin = await db.collection("users").findOneAndUpdate(
-      { username: "ahmed.ben" },
-      {
-        $set: {
-          username: "ahmed.ben",
-          email: "ahmed.ben@aegis.ai",
-          name: "Ahmed Ben",
-          role: "aegis_admin",
-          defaultBusinessId: BUSINESSES[0].id,
+      await db.collection("users").findOneAndUpdate(
+        { username: "ahmed.ben" },
+        {
+          $set: {
+            username: "ahmed.ben",
+            name: "Ahmed Ben",
+            role: "aegis_admin",
+            defaultBusinessId: BUSINESSES[0].id,
+          },
+          $setOnInsert: { passwordHash, createdAt: new Date() },
         },
-        $setOnInsert: { passwordHash, createdAt: new Date() },
-      },
-      { upsert: true, returnDocument: "after" },
-    );
-
-    // A plain member — the account that proves the switcher and /admin are
-    // actually restricted. Scoped to the first seeded business.
-    const memberBusinessId = BUSINESSES[0].id;
-
-    const member = await db.collection("users").findOneAndUpdate(
-      { username: "rosa.marin" },
-      {
-        $set: {
-          username: "rosa.marin",
-          email: "rosa@autoblitz.com",
-          name: "Rosa Marín",
-          role: "member",
-          defaultBusinessId: memberBusinessId,
-        },
-        $setOnInsert: { passwordHash, createdAt: new Date() },
-      },
-      { upsert: true, returnDocument: "after" },
-    );
-
-    if (member?._id) {
-      await db.collection("memberships").updateOne(
-        { userId: member._id.toString(), businessId: memberBusinessId },
-        { $set: { userId: member._id.toString(), businessId: memberBusinessId } },
-        { upsert: true },
+        { upsert: true, returnDocument: "after" },
       );
+
+      // A plain member — the account that proves the switcher and /admin are
+      // actually restricted. Scoped to the first seeded business.
+      const memberBusinessId = BUSINESSES[0].id;
+
+      const member = await db.collection("users").findOneAndUpdate(
+        { username: "rosa.marin" },
+        {
+          $set: {
+            username: "rosa.marin",
+            name: "Rosa Marín",
+            role: "member",
+            defaultBusinessId: memberBusinessId,
+          },
+          $setOnInsert: { passwordHash, createdAt: new Date() },
+        },
+        { upsert: true, returnDocument: "after" },
+      );
+
+      if (member?._id) {
+        await db.collection("memberships").updateOne(
+          { userId: member._id.toString(), businessId: memberBusinessId },
+          { $set: { userId: member._id.toString(), businessId: memberBusinessId } },
+          { upsert: true },
+        );
+      }
+      console.log("✓ demo users: ahmed.ben (aegis_admin), rosa.marin (member)");
+      console.log(`  password for both: ${DEMO_PASSWORD}  (development only)`);
     }
+
+    await bootstrapAdmin(db);
 
     await seedBookings(db, BUSINESSES[0].id);
     await seedInventory(db, BUSINESSES[0].id);
     await seedMail(db, BUSINESSES[0].id);
     await seedAds(db, BUSINESSES[0].id);
 
-    console.log("✓ users: ahmed.ben (aegis_admin), rosa.marin (member)");
-    console.log(`  password for both: ${DEMO_PASSWORD}`);
-    console.log(`  admin id: ${admin?._id?.toString()}`);
+    // Without an administrator nobody can sign in to create one, so say so
+    // plainly rather than leaving a fresh install unusable and silent.
+    const admins = await db
+      .collection("users")
+      .countDocuments({ role: "aegis_admin" });
+    if (admins === 0) {
+      console.log("");
+      console.log("! No administrator exists, so nobody can sign in yet. Create the first one:");
+      console.log('  npm run seed -- --admin=<username> --name="Full Name"');
+    }
   } finally {
     await client.close();
   }
+}
+
+/**
+ * Creates the first administrator on a database that has none of its own.
+ *
+ * The one account that cannot be made through the Users screen, because nobody
+ * can sign in to open it yet. Never touches an existing account: if the username
+ * is taken it says so and changes nothing, so re-running the command can never
+ * reset someone's password.
+ */
+async function bootstrapAdmin(db: Db) {
+  const username = flag("admin")?.toLowerCase();
+  if (!username) return;
+
+  if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) {
+    console.error("✗ Usernames are 3 to 32 characters: lowercase letters, numbers, dots, dashes or underscores.");
+    process.exitCode = 1;
+    return;
+  }
+
+  const users = db.collection("users");
+  if (await users.findOne({ username })) {
+    console.log(`• ${username} already exists — left unchanged.`);
+    return;
+  }
+
+  const password = generatePassword();
+  await users.insertOne({
+    username,
+    name: flag("name") ?? username,
+    passwordHash: await hashPassword(password),
+    role: "aegis_admin",
+    defaultBusinessId: BUSINESSES[0].id,
+    createdAt: new Date(),
+  });
+
+  console.log(`✓ administrator ${username} created`);
+  console.log(`  password: ${password}`);
+  console.log("  Shown once and never stored in the clear. Change it in Account Settings.");
 }
 
 /**

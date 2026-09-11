@@ -43,6 +43,12 @@ export const INTERNAL_NAV: NavLink[] = [
     title: "Business Management",
   },
   {
+    href: "/admin/users",
+    label: "Users",
+    icon: "users",
+    title: "Users",
+  },
+  {
     href: "/status",
     label: "System Status",
     icon: "shield-check",

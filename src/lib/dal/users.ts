@@ -24,7 +24,6 @@ export async function authenticate(
   return {
     id: doc._id.toString(),
     username: doc.username,
-    email: doc.email,
     name: doc.name,
     role: doc.role,
     defaultBusinessId: doc.defaultBusinessId,
@@ -41,7 +40,6 @@ export async function findUserById(userId: string): Promise<AegisUser | null> {
   return {
     id: doc._id.toString(),
     username: doc.username,
-    email: doc.email,
     name: doc.name,
     role: doc.role,
     defaultBusinessId: doc.defaultBusinessId,

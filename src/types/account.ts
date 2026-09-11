@@ -9,7 +9,6 @@ export type UserRole = "aegis_admin" | "member";
 export interface AegisUser {
   id: string;
   username: string;
-  email: string;
   name: string;
   role: UserRole;
   /** Where the user lands before they pick a business. */
@@ -20,6 +19,18 @@ export interface AegisUser {
 export interface Membership {
   userId: string;
   businessId: string;
+}
+
+/** An account as the Users screen sees it. Never carries a password or hash. */
+export interface ManagedUser {
+  id: string;
+  username: string;
+  name: string;
+  role: UserRole;
+  /** Businesses a member may reach. Empty for administrators, who reach all. */
+  businessIds: string[];
+  /** ISO 8601. */
+  createdAt: string;
 }
 
 /** What `verifySession()` hands back to every DAL read. */

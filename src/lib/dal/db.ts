@@ -14,14 +14,19 @@ export async function getDb(): Promise<Db> {
   return client.db(process.env.MONGODB_DB_NAME);
 }
 
+/**
+ * Accounts made before email was dropped may still carry an `email` field.
+ * Nothing reads it.
+ */
 export interface UserDocument {
   username: string;
-  email: string;
   name: string;
   passwordHash: string;
   role: "aegis_admin" | "member";
   defaultBusinessId: string;
   createdAt: Date;
+  /** The administrator who created this account. Absent on seeded users. */
+  createdBy?: string;
 }
 
 export const COLLECTIONS = {

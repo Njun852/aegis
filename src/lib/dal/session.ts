@@ -5,10 +5,37 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { auth } from "@/auth";
 import { businessesCollection } from "./db";
-import { membershipBusinessIds } from "./users";
+import { findUserById, membershipBusinessIds } from "./users";
 import type { AegisSession } from "@/types";
 
 export const ACTIVE_BUSINESS_COOKIE = "aegis.active_business";
+
+/**
+ * Who the request belongs to, read from the **database**, not the token.
+ *
+ * The JWT carries the role it was issued with, and Auth.js cannot revoke a JWT.
+ * Trusting it meant a deleted or demoted administrator kept admin powers in
+ * every server action until the token expired — thirty days by default. Reading
+ * the user back on each request makes deletion and demotion take effect on the
+ * very next request instead. `cache` keeps it to one lookup per render pass.
+ *
+ * Returns null for a token whose user no longer exists, which is what lets
+ * `/login` render for them rather than bouncing them to the dashboard and back.
+ */
+const resolveUser = cache(async () => {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return null;
+
+  const user = await findUserById(userId);
+  if (!user) return null;
+
+  return {
+    userId: user.id,
+    role: user.role,
+    defaultBusinessId: user.defaultBusinessId,
+  };
+});
 
 /**
  * The authorization checkpoint. Every DAL read calls this first.
@@ -17,55 +44,64 @@ export const ACTIVE_BUSINESS_COOKIE = "aegis.active_business";
  * page inside it share a single session lookup instead of two.
  */
 export const verifySession = cache(async (): Promise<AegisSession> => {
-  const session = await auth();
-  if (!session?.user?.id) {
+  const user = await resolveUser();
+  if (!user) {
     redirect("/login");
   }
 
-  const { id: userId, role, defaultBusinessId } = session.user;
   const activeBusinessId = await resolveActiveBusiness(
-    userId,
-    role,
-    defaultBusinessId,
+    user.userId,
+    user.role,
+    user.defaultBusinessId,
   );
+  // A member left with no business can reach nothing; signing them out is the
+  // only honest answer. `optionalSession` returns null for the same case, so
+  // /login renders for them instead of redirecting back here.
+  if (!activeBusinessId) {
+    redirect("/login");
+  }
 
-  return { userId, role, activeBusinessId };
+  return { userId: user.userId, role: user.role, activeBusinessId };
 });
 
 /** Null instead of a redirect — for callers that must not bounce, like /login. */
 export const optionalSession = cache(async (): Promise<AegisSession | null> => {
-  const session = await auth();
-  if (!session?.user?.id) return null;
+  const user = await resolveUser();
+  if (!user) return null;
 
-  const { id: userId, role, defaultBusinessId } = session.user;
-  return {
-    userId,
-    role,
-    activeBusinessId: await resolveActiveBusiness(
-      userId,
-      role,
-      defaultBusinessId,
-    ),
-  };
+  const activeBusinessId = await resolveActiveBusiness(
+    user.userId,
+    user.role,
+    user.defaultBusinessId,
+  );
+  if (!activeBusinessId) return null;
+
+  return { userId: user.userId, role: user.role, activeBusinessId };
 });
 
 /**
  * The active business comes from a cookie, so it is attacker-controlled input.
- * It is re-checked against what the user may actually reach on every request,
- * and falls back to their default when it does not hold up. A tampered cookie
- * therefore grants nothing.
+ * It is re-checked against what the user may actually reach on every request.
+ *
+ * The stored default is checked too, not trusted. It used to be returned
+ * unconditionally whenever the cookie was missing or refused — which meant a
+ * member whose access to their default business had been removed kept that
+ * access through the fallback. Now it is used only if it is still allowed,
+ * then the first business that is, and a member who can reach nothing gets no
+ * business at all (null), which the callers treat as no session.
  */
 async function resolveActiveBusiness(
   userId: string,
   role: AegisSession["role"],
   defaultBusinessId: string,
-): Promise<string> {
+): Promise<string | null> {
   const store = await cookies();
   const requested = store.get(ACTIVE_BUSINESS_COOKIE)?.value;
-  if (!requested) return defaultBusinessId;
-
   const allowed = await allowedBusinessIds(userId, role);
-  return allowed.includes(requested) ? requested : defaultBusinessId;
+
+  if (requested && allowed.includes(requested)) return requested;
+  if (allowed.includes(defaultBusinessId)) return defaultBusinessId;
+  return allowed[0] ?? null;
 }
 
 /** Admins administer every business; members only reach their memberships. */
