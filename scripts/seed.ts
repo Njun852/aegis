@@ -463,6 +463,12 @@ async function seedAds(db: Db, businessId: string) {
     .collection("adRows")
     .createIndex({ businessId: 1, id: 1 }, { unique: true });
   await db.collection("adRows").createIndex({ businessId: 1, level: 1 });
+  // A business shows either its Meta rows or its sample rows, never both, so
+  // every read filters on source.
+  await db.collection("adRows").createIndex({ businessId: 1, source: 1 });
+  await db
+    .collection("adSync")
+    .createIndex({ businessId: 1 }, { unique: true });
 
   const now = new Date();
 
@@ -471,7 +477,10 @@ async function seedAds(db: Db, businessId: string) {
     await db.collection("adRows").updateOne(
       { businessId, id: seed.id },
       {
-        $set: { businessId, ...rest, updatedAt: now },
+        // Marked explicitly: these are design fixtures, and the Ads screen
+        // labels them DEMO DATA. Rows seeded before `source` existed have none
+        // and are treated as samples too.
+        $set: { businessId, ...rest, source: "sample", updatedAt: now },
         $setOnInsert: { enabled, createdAt: now },
       },
       { upsert: true },

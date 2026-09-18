@@ -10,7 +10,8 @@
     "seed": "node --env-file=.env.local scripts/seed.ts",
     "reconcile": "node --env-file=.env.local scripts/reconcile.ts",
     "triage:check": "node --env-file=.env.local --experimental-strip-types --import ./scripts/register-alias.mjs scripts/triage-check.ts",
-    "mail:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/mail-check.ts"
+    "mail:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/mail-check.ts",
+    "ads:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/ads-check.ts"
   },
   "dependencies": {
     "imapflow": "^1.7.8",

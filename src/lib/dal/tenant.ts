@@ -54,6 +54,8 @@ export async function tenantScope<
 
     deleteOne: (filter: Filter<T>) => collection.deleteOne(scoped(filter)),
 
+    deleteMany: (filter: Filter<T>) => collection.deleteMany(scoped(filter)),
+
     /** Aggregations get the tenant match prepended; callers cannot opt out. */
     aggregate: (pipeline: Document[] = []) =>
       collection.aggregate([{ $match: { businessId: activeBusinessId } }, ...pipeline]),

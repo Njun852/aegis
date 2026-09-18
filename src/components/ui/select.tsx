@@ -11,6 +11,9 @@ export interface SelectProps {
   size?: "sm" | "md";
   leadingIcon?: string;
   style?: CSSProperties;
+  /** Shown but not openable — for a choice that would not change anything. */
+  disabled?: boolean;
+  title?: string;
 }
 
 export function Select({
@@ -20,6 +23,8 @@ export function Select({
   size = "sm",
   leadingIcon,
   style,
+  disabled = false,
+  title,
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const current = value ?? options[0];
@@ -29,9 +34,12 @@ export function Select({
     <div style={{ position: "relative", ...style }}>
       <button
         type="button"
+        disabled={disabled}
+        title={title}
         onClick={() => setOpen((isOpen) => !isOpen)}
         style={{
           height,
+          opacity: disabled ? 0.6 : 1,
           display: "inline-flex",
           alignItems: "center",
           gap: "8px",
@@ -43,7 +51,7 @@ export function Select({
           fontFamily: "var(--font-body)",
           fontSize: "12px",
           fontWeight: 500,
-          cursor: "pointer",
+          cursor: disabled ? "not-allowed" : "pointer",
         }}
       >
         {leadingIcon && <Icon name={leadingIcon} size={14} />}

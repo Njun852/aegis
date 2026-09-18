@@ -18,6 +18,11 @@ export {
   readMailboxAddress as mailboxAddress,
 } from "./dal/mailbox";
 
-export function isMetaConnected(): boolean {
-  return Boolean(process.env.META_ACCESS_TOKEN?.trim());
-}
+/**
+ * Meta follows mail: an ad account is connected per business, in Business
+ * Management, and stored encrypted on the business record. It used to be the
+ * presence of a `META_ACCESS_TOKEN` environment variable, which made System
+ * Status report Meta as ONLINE the moment the variable was set, while nothing
+ * was being retrieved at all. `src/lib/dal/ad-account.ts` owns it now.
+ */
+export { isMetaConfigured as isMetaConnected } from "./dal/ad-account";

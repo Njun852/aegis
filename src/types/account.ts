@@ -1,3 +1,4 @@
+import type { MetaAdsConfig } from "./ads";
 import type { OptionalModuleKey } from "./business";
 
 /**
@@ -66,6 +67,8 @@ export interface BusinessDocument {
   status: "active" | "suspended";
   /** Absent until an admin connects a mailbox for this business. */
   mailbox?: MailboxConfig;
+  /** Absent until an admin connects a Meta ad account for this business. */
+  metaAds?: MetaAdsConfig;
 }
 
 /** What the admin screen may safely know about a mailbox. Never the password. */

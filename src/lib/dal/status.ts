@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readActiveMetaAdsStatus } from "./ad-account";
 import { readAiHealth, spendThisMonth } from "./ai";
 import { adRowCount } from "./ads";
 import { pingDatabase } from "./db";
@@ -7,16 +8,16 @@ import { readMailFreshness } from "./mail";
 import { AI_MODELS, AI_MONTHLY_TOKEN_BUDGET, isAiConfigured } from "@/lib/ai/client";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
 import { readActiveMailSync } from "./mailbox";
-import {
-  isMailboxConnected,
-  isMetaConnected,
-  mailboxAddress,
-} from "@/lib/integrations";
+import { isMailboxConnected, mailboxAddress } from "@/lib/integrations";
 import type {
+  IntegrationState,
   IntegrationStatus,
   StatusFailure,
   SystemStatus,
 } from "@/types";
+
+/** Ads are synced on request; a day without one is worth flagging. */
+const META_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Everything the system-status screen reports, read fresh on every request.
@@ -30,7 +31,7 @@ import type {
 export async function readSystemStatus(): Promise<SystemStatus> {
   const now = new Date();
 
-  const [ping, mail, spend, health, adRows, mailConnected, mailAddress, sync] =
+  const [ping, mail, spend, health, adRows, mailConnected, mailAddress, sync, meta] =
     await Promise.all([
       pingDatabase(),
       readMailFreshness(),
@@ -40,6 +41,7 @@ export async function readSystemStatus(): Promise<SystemStatus> {
       isMailboxConnected(),
       mailboxAddress(),
       readActiveMailSync(),
+      readActiveMetaAdsStatus(),
     ]);
 
   const integrations: IntegrationStatus[] = [];
@@ -142,17 +144,54 @@ export async function readSystemStatus(): Promise<SystemStatus> {
   });
 
   // --- Meta ---------------------------------------------------------------
-  const metaConnected = isMetaConnected();
+  /**
+   * The same four states as mail, checked in the same order: not connected,
+   * last attempt failed, never synced or too long ago, current. Ads figures move
+   * more slowly than an inbox and are refreshed on request, so "stale" here is a
+   * day rather than half an hour.
+   */
+  const metaTone = freshnessTone(meta.lastSyncAt, now.getTime(), META_STALE_AFTER_MS);
+  const metaState: IntegrationState = !meta.connected
+    ? "DISCONNECTED"
+    : meta.lastError
+      ? "ERROR"
+      : metaTone === "fresh"
+        ? "ONLINE"
+        : "STALE";
+
   integrations.push({
     key: "meta",
     label: "Meta Ads",
-    state: metaConnected ? "ONLINE" : "DISCONNECTED",
-    detail: metaConnected
-      ? "Ad performance is being retrieved from the connected Meta account."
-      : "No Meta account is connected. Ads figures are stored records seeded from the design, not live performance.",
+    state: metaState,
+    detail: !meta.connected
+      ? "No Meta ad account is connected. The Ads screen shows sample figures from the design, labelled DEMO DATA."
+      : meta.lastError
+        ? `The last sync failed: ${meta.lastError} The Ads screen still shows the last good figures.`
+        : metaTone === "never"
+          ? "Connected, but nothing has been synced yet. Press Sync now on the Ads screen."
+          : metaTone === "stale"
+            ? "No sync in the last day. The figures on the Ads screen may be out of date."
+            : "Ad performance is read from the connected Meta account. AEGIS only reads it; nothing is changed in Meta.",
     facts: [
-      { label: "Ad account", value: metaConnected ? "Connected" : "None connected" },
-      { label: "Rows held", value: String(adRows) },
+      {
+        label: "Ad account",
+        value: meta.connected
+          ? `${meta.accountName ?? ""} (${meta.adAccountId}) · ${meta.currency ?? ""}`
+          : "None connected",
+      },
+      {
+        label: "Last successful sync",
+        value: meta.connected ? relativeAge(meta.lastSyncAt, now.getTime()) : "—",
+      },
+      {
+        label: "Rows held",
+        value: meta.connected
+          ? `${meta.rowCount}${meta.truncated ? " (account larger than one sync reads)" : ""}`
+          : `${adRows} sample`,
+      },
+      ...(meta.canWrite
+        ? [{ label: "Token scope", value: "can also change ads — a read-only (ads_read) token is safer" }]
+        : []),
     ],
   });
 
@@ -162,6 +201,16 @@ export async function readSystemStatus(): Promise<SystemStatus> {
     outcome: entry.outcome,
     detail: FAILURE_DETAIL[entry.outcome] ?? "The call did not return usable output.",
   }));
+
+  if (meta.connected && meta.lastError && meta.lastErrorAt) {
+    failures.push({
+      at: meta.lastErrorAt,
+      surface: "Meta Ads sync",
+      outcome: "failed",
+      detail: meta.lastError,
+    });
+    failures.sort((a, b) => b.at.localeCompare(a.at));
+  }
 
   return { integrations, failures, checkedAt: now.toISOString() };
 }

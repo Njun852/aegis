@@ -16,6 +16,27 @@ export type AdState =
 
 export type AdStateFilter = "All" | AdState;
 
+/**
+ * Where a row came from. Sample rows are the seeded design fixtures; Meta rows
+ * are a read-only copy of a connected ad account. A business shows one or the
+ * other, never both, so a sample figure can never sit beside a real one.
+ */
+export type AdSource = "meta" | "sample";
+
+/** The date ranges a sync pulls, named as Meta's `date_preset` names them. */
+export type AdRange = "last_7d" | "last_30d" | "maximum";
+
+/** Performance over one date range. Money in the account's minor units. */
+export interface AdMetrics {
+  spendCents: number;
+  results: number;
+  /** What a result means here: "leads", "link clicks", or "mixed results". */
+  resultLabel: string;
+  roas: number;
+  reach: number;
+  impressions: number;
+}
+
 export interface AdStateStyle {
   tone: "positive" | "accent" | "warning" | "neutral" | "negative";
   dot: string;
@@ -38,6 +59,7 @@ export interface AdLevelDefinition {
 export interface AdRow {
   id: string;
   businessId: string;
+  source: AdSource;
   level: AdLevel;
   name: string;
   /** Name of the row one tier up. Empty for campaigns. */
@@ -69,9 +91,18 @@ export interface AdRow {
   cta: string;
 }
 
-/** Stored shape. `businessId` is stamped on by `tenantScope`. */
-export interface AdRowDocument extends Omit<AdRow, "businessId"> {
+/**
+ * Stored shape. `businessId` is stamped on by `tenantScope`.
+ *
+ * `source` is optional because rows seeded before it existed are samples. Meta
+ * rows carry `metrics` for every synced range; the flat metric fields on them
+ * hold the last-30-days figures, so anything reading the flat fields still gets
+ * a sensible answer.
+ */
+export interface AdRowDocument extends Omit<AdRow, "businessId" | "source"> {
   businessId: string;
+  source?: AdSource;
+  metrics?: Record<AdRange, AdMetrics>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -81,6 +112,65 @@ export interface AdPlacementShare {
   label: string;
   /** Percentage of spend, 0–100. */
   share: number;
+}
+
+/**
+ * A connected Meta ad account, as stored on the business.
+ *
+ * The access token is held encrypted (`src/lib/auth/secrets.ts`) and never
+ * leaves the server: no read path returns `secretCipher` to a browser.
+ */
+export interface MetaAdsConfig {
+  /** Always `act_` followed by digits. */
+  adAccountId: string;
+  secretCipher: string;
+  /** Read from Meta when the connection was saved or last tested. */
+  accountName: string;
+  /** ISO 4217, e.g. "PHP". Every amount on the screen is in this currency. */
+  currency: string;
+  timezone: string;
+  /**
+   * Whether the token also holds `ads_management`, as `/me/permissions`
+   * reported it. AEGIS never writes either way; this only drives the warning
+   * that a read-only token would be safer. Null when Meta would not say.
+   */
+  canWrite: boolean | null;
+  updatedAt: Date;
+}
+
+/** Where the last ads sync got to, kept apart from the business record. */
+export interface AdSyncDocument {
+  businessId: string;
+  /** Last run that completed and wrote rows. Failures never move this. */
+  lastSyncAt: Date | null;
+  /** Last run of any outcome — the cooldown is measured from here. */
+  lastAttemptAt: Date | null;
+  lastOutcome: string | null;
+  lastError: string | null;
+  lastErrorAt: Date | null;
+  /** The last successful sync hit the page cap, so some rows may be missing. */
+  truncated: boolean;
+  rowCount: number;
+  /** Today's account spend at the last sync, for the pacing bar. Minor units. */
+  spentTodayCents: number | null;
+}
+
+/** What screens may know about a Meta connection. Never the token. */
+export interface MetaAdsStatus {
+  connected: boolean;
+  adAccountId: string | null;
+  accountName: string | null;
+  currency: string | null;
+  timezone: string | null;
+  updatedAt: string | null;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  truncated: boolean;
+  rowCount: number;
+  spentTodayCents: number | null;
+  /** Set by a connection test when the token can also change ads. */
+  canWrite: boolean | null;
 }
 
 /** The connected ad account, as the connection strip reports it. */

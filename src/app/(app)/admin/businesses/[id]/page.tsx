@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { BusinessDetail } from "@/components/admin/business-detail";
 import { MailboxPanel } from "@/components/admin/mailbox-panel";
+import { MetaAdsPanel } from "@/components/admin/meta-ads-panel";
+import { readMetaAdsStatus } from "@/lib/dal/ad-account";
 import { getBusinessForUser } from "@/lib/dal/businesses";
 import { readMailboxStatus } from "@/lib/dal/mailbox";
 import { requireAdmin } from "@/lib/dal/session";
@@ -18,7 +20,11 @@ export default async function Page(props: PageProps<"/admin/businesses/[id]">) {
 
   // Read on the server: `readMailboxStatus` is shaped so it cannot carry the
   // stored password, which is why the panel can be a client component at all.
-  const mailbox = await readMailboxStatus(id);
+  // Both shaped so they cannot carry a stored secret.
+  const [mailbox, metaAds] = await Promise.all([
+    readMailboxStatus(id),
+    readMetaAdsStatus(id),
+  ]);
 
   return (
     // One column for the whole page, so the mailbox panel is the same width as
@@ -31,6 +37,11 @@ export default async function Page(props: PageProps<"/admin/businesses/[id]">) {
         businessId={id}
         businessName={business.name}
         status={mailbox}
+      />
+      <MetaAdsPanel
+        businessId={id}
+        businessName={business.name}
+        status={metaAds}
       />
     </div>
   );

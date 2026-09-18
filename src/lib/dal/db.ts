@@ -2,7 +2,12 @@ import "server-only";
 
 import type { Collection, Db, Document } from "mongodb";
 import clientPromise from "@/lib/db/mongodb";
-import type { BusinessDocument, MailSyncDocument, Membership } from "@/types";
+import type {
+  AdSyncDocument,
+  BusinessDocument,
+  MailSyncDocument,
+  Membership,
+} from "@/types";
 
 /**
  * The single place the database handle is produced. Nothing outside
@@ -34,6 +39,7 @@ export const COLLECTIONS = {
   businesses: "businesses",
   memberships: "memberships",
   mailSync: "mailSync",
+  adSync: "adSync",
 } as const;
 
 async function collection<T extends Document>(name: string): Promise<Collection<T>> {
@@ -57,6 +63,14 @@ export const membershipsCollection = () =>
  */
 export const mailSyncCollection = () =>
   collection<MailSyncDocument>(COLLECTIONS.mailSync);
+
+/**
+ * Ads sync state, reached by explicit id for the same reason as `mailSync`:
+ * the admin screen and System Status report on a business by id. See
+ * `src/lib/dal/ad-account.ts`.
+ */
+export const adSyncCollection = () =>
+  collection<AdSyncDocument>(COLLECTIONS.adSync);
 
 export interface DatabasePing {
   ok: boolean;

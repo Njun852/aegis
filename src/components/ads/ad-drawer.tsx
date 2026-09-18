@@ -11,13 +11,21 @@ import {
   placementBreakdown,
 } from "@/lib/ads";
 import { AD_ACCOUNT, AD_LEVELS } from "@/lib/data/ads";
-import { formatMoney } from "@/lib/format";
+import { formatMoneyIn } from "@/lib/format";
 import type { AdRow } from "@/types";
 
 export interface AdDrawerProps {
   row: AdRow;
   /** For comparing this row's cost per result against the account average. */
   accountCostPerResultCents: number;
+  /** The ad account's currency. Sample data is USD. */
+  currency: string;
+  /**
+   * A row from a connected Meta account. Those are read-only, and the drawer
+   * shows only what Meta reported — no sample placement split, no assumed
+   * attribution window.
+   */
+  live: boolean;
   onClose: () => void;
 }
 
@@ -25,8 +33,12 @@ export interface AdDrawerProps {
 export function AdDrawer({
   row,
   accountCostPerResultCents,
+  currency,
+  live,
   onClose,
 }: AdDrawerProps) {
+  const formatMoney = (cents: number, withCents = true) =>
+    formatMoneyIn(cents, currency, withCents);
   const status = displayState(row);
   const style = getStateStyle(status);
   const levelMeta = AD_LEVELS.find((entry) => entry.key === row.level) ?? AD_LEVELS[0];
@@ -72,7 +84,7 @@ export function AdDrawer({
     {
       icon: "sparkles",
       label: "Optimization & attribution",
-      value: `${row.optimization} · ${AD_ACCOUNT.attribution}`,
+      value: live ? row.optimization || "—" : `${row.optimization} · ${AD_ACCOUNT.attribution}`,
     },
     { icon: "bar-chart-2", label: "Delivery", value: row.learning },
     {
@@ -290,6 +302,9 @@ export function AdDrawer({
             ))}
           </div>
 
+          {/* The split is an account-wide sample shape, so it is only shown on
+              sample data. Live placement breakdowns are not fetched yet. */}
+          {!live && (
           <div className="flex flex-col gap-2.5">
             <SectionLabel>Placement mix</SectionLabel>
             {placementBreakdown(row).map((placement) => (
@@ -353,6 +368,8 @@ export function AdDrawer({
               </div>
             ))}
           </div>
+
+          )}
 
           <div className="flex flex-col gap-2.5">
             <SectionLabel>Creative</SectionLabel>
@@ -427,8 +444,28 @@ export function AdDrawer({
           </div>
         </div>
 
-        {/* Editing budgets and duplicating are not built; the design puts the
-            affordances here, so they stay visible and plainly inert. */}
+        {live ? (
+          <div
+            style={{
+              flex: "0 0 auto",
+              display: "flex",
+              alignItems: "center",
+              gap: "9px",
+              padding: "13px 16px",
+              borderTop: "1px solid var(--border-subtle)",
+              background: "var(--gray-25)",
+              fontSize: "12px",
+              lineHeight: "17px",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <Icon name="lock" size={14} />
+            <span>
+              Read-only copy of your Meta account. Budgets, schedules and on/off
+              are changed in Meta Ads Manager; AEGIS picks them up on the next sync.
+            </span>
+          </div>
+        ) : (
         <div
           style={{
             flex: "0 0 auto",
@@ -460,6 +497,7 @@ export function AdDrawer({
             style={{ opacity: 0.45, cursor: "not-allowed" }}
           />
         </div>
+        )}
       </aside>
     </>
   );

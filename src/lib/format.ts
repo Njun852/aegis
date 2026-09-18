@@ -14,6 +14,39 @@ export function formatMoney(cents: number, withCents = true) {
   return `$ ${amount}`;
 }
 
+function currencySymbol(currency: string): string {
+  try {
+    return (
+      new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency,
+        currencyDisplay: "narrowSymbol",
+      })
+        .formatToParts(0)
+        .find((part) => part.type === "currency")?.value ?? currency
+    );
+  } catch {
+    return currency;
+  }
+}
+
+/**
+ * Money in a connected ad account's own currency: "₱ 1,234.56". USD keeps the
+ * house `formatMoney` output exactly, so the sample screens do not change.
+ *
+ * Assumes two decimal places, which holds for PHP, USD, EUR and most others.
+ * Zero-decimal currencies such as JPY would be off by a factor of 100 — a known
+ * limit, stated in DATABASE_AND_AUTH_doc.md.
+ */
+export function formatMoneyIn(cents: number, currency: string, withCents = true) {
+  if (currency === "USD") return formatMoney(cents, withCents);
+  const amount = (cents / 100).toLocaleString("en-US", {
+    minimumFractionDigits: withCents ? 2 : 0,
+    maximumFractionDigits: withCents ? 2 : 0,
+  });
+  return `${currencySymbol(currency)} ${amount}`;
+}
+
 /** "Aug 28" */
 export function formatDay(date: Date) {
   return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import { generateAdsInsightAction } from "@/app/actions/ai";
-import { setAdEnabledAction } from "@/app/actions/ads";
+import { setAdEnabledAction, syncAdsAction } from "@/app/actions/ads";
 import {
   Badge,
   Button,
@@ -26,11 +26,28 @@ import {
   pacingPercent,
   rowsAtLevel,
 } from "@/lib/ads";
-import { AD_ACCOUNT, AD_LEVELS, AD_RANGES, AD_STATES } from "@/lib/data/ads";
-import { formatMoney } from "@/lib/format";
+import { AD_ACCOUNT, AD_LEVELS, AD_STATES } from "@/lib/data/ads";
+import { formatMoneyIn } from "@/lib/format";
+import { freshnessTone, relativeAge } from "@/lib/freshness";
 import { activateOnKey } from "@/lib/interaction";
 import { AdDrawer } from "./ad-drawer";
-import type { AdLevel, AdRow, AdStateFilter } from "@/types";
+import type {
+  AdLevel,
+  AdRange,
+  AdRow,
+  AdSource,
+  AdStateFilter,
+  MetaAdsStatus,
+} from "@/types";
+
+/** Live figures older than this are shown as STALE rather than current. */
+const ADS_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+const RANGE_OPTIONS: { key: AdRange; label: string }[] = [
+  { key: "last_7d", label: "Last 7 days" },
+  { key: "last_30d", label: "Last 30 days" },
+  { key: "maximum", label: "Maximum" },
+];
 
 /** Budget and the derived rates drop below the 1240px `wide` breakpoint. */
 const GRID =
@@ -44,6 +61,14 @@ export interface AdsWorkspaceProps {
   /** Sample copy shown when AI is off, or while the first one is generating. */
   fallbackInsight: string;
   aiEnabled: boolean;
+  /**
+   * Whether these rows are a connected Meta account or the design's samples.
+   * Decides the labelling, the currency, and whether anything can be switched.
+   */
+  source: AdSource;
+  /** The connection, when there is one. Never carries the token. */
+  meta: MetaAdsStatus | null;
+  range: AdRange;
 }
 
 export function AdsWorkspace({
@@ -52,9 +77,17 @@ export function AdsWorkspace({
   cachedInsight,
   fallbackInsight,
   aiEnabled,
+  source,
+  meta,
+  range,
 }: AdsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
+  const live = source === "meta";
+  const currency = live ? (meta?.currency ?? "USD") : "USD";
+  const money = (cents: number, withCents = true) =>
+    formatMoneyIn(cents, currency, withCents);
+  const [syncing, startSync] = useTransition();
   const [level, setLevel] = useState<AdLevel>("campaigns");
   const [state, setState] = useState<AdStateFilter>("All");
   const [search, setSearch] = useState("");
@@ -83,11 +116,21 @@ export function AdsWorkspace({
     [optimisticRows, level, state, search],
   );
 
-  const totals = useMemo(() => accountTotals(optimisticRows), [optimisticRows]);
+  const totals = useMemo(
+    () =>
+      accountTotals(
+        optimisticRows,
+        live ? { spentTodayCents: meta?.spentTodayCents ?? null } : undefined,
+      ),
+    [optimisticRows, live, meta?.spentTodayCents],
+  );
   const levelMeta = AD_LEVELS.find((entry) => entry.key === level) ?? AD_LEVELS[0];
   const selected = optimisticRows.find((row) => row.id === openId) ?? null;
 
   const toggle = (row: AdRow) => {
+    // AEGIS reads a connected Meta account and never changes it. The switch is
+    // disabled for these rows and the server refuses them as well.
+    if (live) return;
     const next = !row.enabled;
 
     startToggling(async () => {
@@ -119,6 +162,59 @@ export function AdsWorkspace({
       router.refresh();
     });
   };
+
+  const sync = () => {
+    startSync(async () => {
+      const result = await syncAdsAction();
+
+      if (result.retryInSeconds !== null) {
+        toast({
+          tone: "info",
+          title: "Synced a moment ago",
+          description: `Meta limits how often an account is read. Try again in ${result.retryInSeconds}s.`,
+          key: "ads-sync",
+        });
+        return;
+      }
+      if (result.error) {
+        toast({
+          tone: "error",
+          title: "Sync failed",
+          description: `${result.error} The figures below are from the last successful sync.`,
+          key: "ads-sync",
+        });
+        router.refresh();
+        return;
+      }
+
+      toast({
+        tone: result.truncated ? "info" : "success",
+        title: `Synced ${result.rows} ${result.rows === 1 ? "row" : "rows"} from Meta`,
+        description: result.truncated
+          ? "The account is larger than one sync reads, so some rows may be missing."
+          : "Campaigns, ad sets and ads are up to date.",
+        key: "ads-sync",
+      });
+      router.refresh();
+    });
+  };
+
+  const changeRange = (label: string) => {
+    const next = RANGE_OPTIONS.find((option) => option.label === label)?.key;
+    if (next && next !== range) router.push(`/ads?range=${next}`);
+  };
+
+  // Live freshness: never synced, synced but old, failing, or current.
+  const tone = live ? freshnessTone(meta?.lastSyncAt ?? null, undefined, ADS_STALE_AFTER_MS) : null;
+  const liveState: "ONLINE" | "STALE" | "ERROR" | "NOT SYNCED" | null = !live
+    ? null
+    : meta?.lastError
+      ? "ERROR"
+      : tone === "never"
+        ? "NOT SYNCED"
+        : tone === "stale"
+          ? "STALE"
+          : "ONLINE";
 
   // ---- AI commentary ------------------------------------------------------
   const [insight, setInsight] = useState<string | null>(cachedInsight);
@@ -157,21 +253,30 @@ export function AdsWorkspace({
   const stats = [
     {
       label: "Amount spent",
-      value: formatMoney(totals.spendCents, false),
+      value: money(totals.spendCents, false),
       icon: "wallet",
       bg: "var(--accent-soft)",
       fg: "var(--accent-primary)",
     },
     {
-      label: "Results · mixed objectives",
-      value: formatCount(totals.results),
+      label: !live
+        ? "Results · mixed objectives"
+        : totals.resultLabel
+          ? `Results · ${totals.resultLabel}`
+          : totals.spendCents
+            ? "Results · mixed, see campaigns"
+            : "Results",
+      value:
+        live && !totals.resultLabel && totals.spendCents
+          ? "Mixed"
+          : formatCount(totals.results),
       icon: "trending-up",
       bg: "var(--status-positive-soft)",
       fg: "var(--status-positive)",
     },
     {
       label: "Cost per result",
-      value: totals.results ? formatMoney(totals.costPerResultCents) : "—",
+      value: totals.costPerResultCents ? money(totals.costPerResultCents) : "—",
       icon: "arrow-left-right",
       bg: "var(--status-warning-soft)",
       fg: "var(--status-warning)",
@@ -213,8 +318,9 @@ export function AdsWorkspace({
                 textWrap: "pretty",
               }}
             >
-              {businessName} · Meta ad account {AD_ACCOUNT.account} · Facebook
-              and Instagram · attribution {AD_ACCOUNT.attribution}
+              {live
+                ? `${businessName} · Meta ad account ${meta?.adAccountId ?? ""} · ${currency}${meta?.timezone ? ` · ${meta.timezone}` : ""}`
+                : `${businessName} · sample ad account ${AD_ACCOUNT.account} · Facebook and Instagram · attribution ${AD_ACCOUNT.attribution}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
@@ -224,10 +330,30 @@ export function AdsWorkspace({
               onChange={setSearch}
               width={236}
             />
-            <Select size="md" leadingIcon="calendar" options={AD_RANGES} />
-            <Button icon="plus" disabled title="Campaign creation is not built yet">
-              Create Campaign
-            </Button>
+            <Select
+              size="md"
+              leadingIcon="calendar"
+              options={RANGE_OPTIONS.map((option) => option.label)}
+              value={
+                live
+                  ? RANGE_OPTIONS.find((option) => option.key === range)?.label
+                  : "Sample period"
+              }
+              onChange={changeRange}
+              disabled={!live}
+              title={
+                live ? undefined : "Sample data has one fixed period. Connect a Meta ad account to choose a range."
+              }
+            />
+            {live ? (
+              <Button icon="refresh-cw" disabled={syncing} onClick={sync}>
+                {syncing ? "Syncing…" : "Sync now"}
+              </Button>
+            ) : (
+              <Button icon="plus" disabled title="Campaign creation is not built yet">
+                Create Campaign
+              </Button>
+            )}
           </div>
         </div>
 
@@ -266,7 +392,7 @@ export function AdsWorkspace({
                   letterSpacing: "-.01em",
                 }}
               >
-                Meta Business Suite connected
+                {live ? meta?.accountName ?? "Meta ad account" : "Sample ad account"}
               </span>
               <span
                 style={{
@@ -275,28 +401,45 @@ export function AdsWorkspace({
                   color: "var(--text-muted)",
                 }}
               >
-                {AD_ACCOUNT.account}
+                {live ? meta?.adAccountId : AD_ACCOUNT.account}
               </span>
             </span>
             <span style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
-              Page {AD_ACCOUNT.page} · Instagram {AD_ACCOUNT.instagram}
+              {live
+                ? meta?.lastSyncAt
+                  ? `Read-only copy · synced ${relativeAge(meta.lastSyncAt)}`
+                  : "Read-only copy · not synced yet — press Sync now"
+                : `Page ${AD_ACCOUNT.page} · Instagram ${AD_ACCOUNT.instagram}`}
             </span>
           </span>
-          <span
-            className="flex items-center gap-2"
-            style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}
-          >
-            <span
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "var(--radius-pill)",
-                background: "var(--status-positive)",
-                animation: "aegis-pulse-dot 2.4s ease-in-out infinite",
-              }}
-            />
-            {AD_ACCOUNT.pixel}
-          </span>
+          {live ? (
+            <Badge
+              tone={
+                liveState === "ERROR"
+                  ? "negative"
+                  : liveState === "ONLINE"
+                    ? "positive"
+                    : "warning"
+              }
+              icon={liveState === "ONLINE" ? "check" : "alert-triangle"}
+            >
+              {liveState === "ONLINE" ? "LIVE" : liveState}
+            </Badge>
+          ) : (
+            <Badge tone="warning" icon="alert-triangle">
+              DEMO DATA
+            </Badge>
+          )}
+          {live && meta?.lastError && (
+            <span style={{ fontSize: "11.5px", color: "var(--status-negative)", maxWidth: 360 }}>
+              Last sync failed {relativeAge(meta.lastErrorAt)}: {meta.lastError}
+            </span>
+          )}
+          {!live && (
+            <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", maxWidth: 360 }}>
+              Sample figures from the design, not a connected account.
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-3.5">
             <span
               className="flex flex-col gap-1.5"
@@ -315,7 +458,7 @@ export function AdsWorkspace({
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {formatMoney(totals.spentTodayCents)}
+                  {money(totals.spentTodayCents)}
                 </span>
               </span>
               <span
@@ -347,15 +490,29 @@ export function AdsWorkspace({
                   fontVariantNumeric: "tabular-nums",
                 }}
               >
-                {formatMoney(totals.dailyBudgetCents, false)} daily budget
+                {money(totals.dailyBudgetCents, false)} daily budget
               </span>
             </span>
             <Button
               variant="outline"
               size="sm"
               icon="external-link"
-              disabled
-              title="Opening Meta Ads Manager is not wired up yet"
+              disabled={!live || !meta?.adAccountId}
+              title={
+                live
+                  ? "Open this account in Meta Ads Manager — changes are made there, not in AEGIS"
+                  : "Sample data has no Meta account to open"
+              }
+              onClick={() => {
+                const id = meta?.adAccountId?.replace(/^act_/, "");
+                if (id) {
+                  window.open(
+                    `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${id}`,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }
+              }}
             >
               Ads Manager
             </Button>
@@ -425,9 +582,16 @@ export function AdsWorkspace({
         </div>
 
         <InsightPanel
-          body={shown || fallbackInsight}
+          body={
+            shown ||
+            (!live
+              ? fallbackInsight
+              : aiEnabled
+                ? "Commentary appears once the account has campaign figures to analyse."
+                : "AI commentary is switched off on this server.")
+          }
           loading={generating}
-          action="Rebalance budgets"
+          action={live ? undefined : "Rebalance budgets"}
         />
 
         <section
@@ -621,11 +785,20 @@ export function AdsWorkspace({
                     role="switch"
                     aria-checked={row.enabled}
                     aria-label={
-                      row.enabled ? `Turn off ${row.name}` : `Turn on ${row.name}`
+                      live
+                        ? `${row.name} is ${row.enabled ? "on" : "off"} in Meta`
+                        : row.enabled
+                          ? `Turn off ${row.name}`
+                          : `Turn on ${row.name}`
                     }
                     title={
-                      row.enabled ? `Turn off ${row.name}` : `Turn on ${row.name}`
+                      live
+                        ? "Read-only. Switch this on or off in Meta Ads Manager."
+                        : row.enabled
+                          ? `Turn off ${row.name}`
+                          : `Turn on ${row.name}`
                     }
+                    disabled={live}
                     onClick={(event) => {
                       event.stopPropagation();
                       toggle(row);
@@ -639,7 +812,8 @@ export function AdsWorkspace({
                       padding: 3,
                       display: "inline-flex",
                       alignItems: "center",
-                      cursor: "pointer",
+                      cursor: live ? "not-allowed" : "pointer",
+                      opacity: live ? 0.55 : 1,
                       transition:
                         "background var(--dur-fast) var(--ease-standard)",
                       background: row.enabled
@@ -732,7 +906,7 @@ export function AdsWorkspace({
                       }}
                     >
                       {row.budgetType
-                        ? formatMoney(row.budgetCents, false)
+                        ? money(row.budgetCents, false)
                         : "Inherited"}
                     </span>
                     <span
@@ -752,7 +926,7 @@ export function AdsWorkspace({
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    {formatMoney(row.spendCents)}
+                    {money(row.spendCents)}
                   </span>
 
                   <span className="flex flex-col text-right leading-tight">
@@ -787,7 +961,7 @@ export function AdsWorkspace({
                       color: "var(--text-secondary)",
                     }}
                   >
-                    {cpr ? formatMoney(cpr) : "—"}
+                    {cpr ? money(cpr) : "—"}
                   </span>
 
                   <span
@@ -830,7 +1004,11 @@ export function AdsWorkspace({
                   color: "var(--text-muted)",
                 }}
               >
-                Nothing at this level matches the filter.
+                {live && levelRows.length === 0
+                  ? meta?.lastSyncAt
+                    ? `This ad account has no ${levelMeta.label.toLowerCase()} yet.`
+                    : "Nothing synced yet. Press Sync now to read this account from Meta."
+                  : "Nothing at this level matches the filter."}
               </div>
             )}
           </div>
@@ -842,6 +1020,8 @@ export function AdsWorkspace({
           key={selected.id}
           row={selected}
           accountCostPerResultCents={totals.costPerResultCents}
+          currency={currency}
+          live={live}
           onClose={() => setOpenId(null)}
         />
       )}

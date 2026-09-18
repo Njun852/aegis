@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readActiveMetaAdsStatus } from "@/lib/dal/ad-account";
 import { readCachedOutput } from "@/lib/dal/ai";
 import { listAdRows } from "@/lib/dal/ads";
 import {
@@ -8,7 +9,7 @@ import {
   displayState,
   rowsAtLevel,
 } from "@/lib/ads";
-import { formatMoney } from "@/lib/format";
+import { formatMoneyIn } from "@/lib/format";
 import { AI_MODELS } from "./client";
 import { cacheKeyFor, generate } from "./generate";
 import type { AiResult } from "@/types";
@@ -23,7 +24,9 @@ import type { AiResult } from "@/types";
  * commentary is there to notice.
  */
 
-const PROMPT_VERSION = 1;
+// 2: facts carry the account's currency, the period, and whether the figures
+// are live or samples; mixed result types are no longer totalled.
+const PROMPT_VERSION = 2;
 const MAX_OUTPUT_TOKENS = 240;
 const KIND = "ads-insight" as const;
 
@@ -47,13 +50,20 @@ const INSTRUCTIONS = [
   "Two or three sentences. Quote the figures you are reasoning from, and where you suggest",
   "moving budget, say roughly what it would buy at the receiving campaign's cost per result.",
   "Never invent a number that is not in the input.",
+  "Amounts are in the currency given; write them the way they appear in the input.",
+  "If the account's results are marked mixed, compare campaigns by their own cost per result",
+  "and do not add up results of different kinds.",
 ].join(" ");
 
 export interface AdsInsightFacts {
-  currency: "USD";
+  currency: string;
+  /** "live Meta account" or "sample data", so the cache never crosses them. */
+  source: string;
+  period: string;
   account: {
     spend: string;
-    results: number;
+    /** A count, or "mixed" when campaigns count different kinds of result. */
+    results: number | "mixed";
     costPerResult: string;
     roas: string;
     dailyBudget: string;
@@ -72,18 +82,29 @@ export interface AdsInsightFacts {
 }
 
 export async function buildAdsInsightFacts(): Promise<AdsInsightFacts | null> {
-  const all = await listAdRows();
+  const [all, meta] = await Promise.all([listAdRows(), readActiveMetaAdsStatus()]);
   const campaigns = rowsAtLevel(all, "campaigns");
   if (campaigns.length === 0) return null;
 
-  const totals = accountTotals(all);
+  const live = meta.connected;
+  const currency = live ? (meta.currency ?? "USD") : "USD";
+  const formatMoney = (cents: number, withCents = true) =>
+    formatMoneyIn(cents, currency, withCents);
+  const totals = accountTotals(
+    all,
+    live ? { spentTodayCents: meta.spentTodayCents } : undefined,
+  );
+  const mixed = live && !totals.resultLabel && totals.spendCents > 0;
 
   return {
-    currency: "USD",
+    currency,
+    source: live ? "live Meta account" : "sample data",
+    // listAdRows() without a range reads the default period.
+    period: live ? "last 30 days" : "sample period",
     account: {
       spend: formatMoney(totals.spendCents, false),
-      results: totals.results,
-      costPerResult: formatMoney(totals.costPerResultCents),
+      results: mixed ? "mixed" : totals.results,
+      costPerResult: totals.costPerResultCents ? formatMoney(totals.costPerResultCents) : "n/a",
       roas: totals.roas.toFixed(2),
       dailyBudget: formatMoney(totals.dailyBudgetCents, false),
     },
@@ -94,7 +115,7 @@ export async function buildAdsInsightFacts(): Promise<AdsInsightFacts | null> {
       spend: formatMoney(row.spendCents, false),
       results: row.results,
       resultLabel: row.resultLabel,
-      costPerResult: formatMoney(costPerResultCents(row)),
+      costPerResult: costPerResultCents(row) ? formatMoney(costPerResultCents(row)) : "n/a",
       roas: row.roas,
       dailyBudget:
         row.budgetType === "Daily" ? formatMoney(row.budgetCents, false) : null,

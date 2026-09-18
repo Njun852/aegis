@@ -9,9 +9,9 @@ ledger**, **inventory**, **mail** and **ads** are real and persisted, and
 dashboard revenue aggregates over the ledger. **Mail can now retrieve and send
 over IMAP/SMTP** against a company mailbox connected per business in Business
 Management; until one is connected it runs on the seeded sample inbox and every
-status surface reports it as disconnected. Ads still hold records seeded from
-the design rather than fetched from Meta; connecting that integration replaces
-the seeding step without changing a screen. What remains static fixture in `src/lib/data/*.ts` is the rest of the
+status surface reports it as disconnected. **Ads can now read a Meta ad
+account, read-only**, connected per business in Business Management; until one
+is connected the Ads screen shows the seeded sample rows, labelled DEMO DATA. What remains static fixture in `src/lib/data/*.ts` is the rest of the
 dashboard — balance, expenses, net profit, bookings mix and alerts — because no
 module produces expense entries yet.
 
@@ -26,7 +26,12 @@ module produces expense entries yet.
 | `MONGODB_URI` | Connection string, e.g. `mongodb://localhost:27017` |
 | `MONGODB_DB_NAME` | Database name — `aegis` |
 | `AUTH_SECRET` | Signs the session JWT. **NextAuth v5 reads `AUTH_SECRET`**, not the v4 `NEXTAUTH_SECRET`. Generate with `npx auth secret`. |
-| `MAIL_CREDENTIAL_KEY` | 32 bytes of hex (`openssl rand -hex 32`). Encrypts mailbox app passwords at rest. Rotating it makes every stored mailbox unreadable — each must be reconnected. |
+| `MAIL_CREDENTIAL_KEY` | 32 bytes of hex (`openssl rand -hex 32`). Encrypts stored credentials at rest: mailbox app passwords **and Meta access tokens**. Rotating it makes every stored credential unreadable — each mailbox and Meta account must be reconnected. |
+
+There are no Meta environment variables. An ad account is connected per business
+in Business Management, like a mailbox. `META_ACCESS_TOKEN` and
+`META_AD_ACCOUNT_ID` in an old `.env.local` are ignored, except by
+`npm run ads:check -- --env`, which uses them for a read-only rehearsal.
 
 The old `NEXTAUTH_*` and `GOOGLE_CLIENT_*` variables were removed — the design
 has no SSO, so nothing read them.
@@ -104,6 +109,24 @@ Absent until an admin connects one. The password is encrypted by
 own yields nothing usable. It is decrypted only in `src/lib/dal/mailbox.ts`, at
 the moment a connection is opened, and no read path returns it to a browser —
 the admin screen is served `MailboxStatus`, which has no field for a secret.
+
+A connected Meta ad account is stored here as `metaAds`:
+
+```
+metaAds.adAccountId   string        "act_" + digits
+metaAds.secretCipher  string        the access token, AES-256-GCM encrypted
+metaAds.accountName   string        read from Meta on connect and on each test
+metaAds.currency      string        ISO 4217, e.g. "PHP"; every amount is in it
+metaAds.timezone      string
+metaAds.canWrite      boolean|null  the token also holds ads_management
+metaAds.updatedAt     Date
+```
+
+Same rules as the mailbox: encrypted under `MAIL_CREDENTIAL_KEY`, decrypted only
+in `src/lib/dal/ad-account.ts` at the moment a request is made, and never
+returned to a browser — screens are served `MetaAdsStatus`, which has no field
+for a secret. The token is checked against Meta before it is stored, so a wrong
+token or account id is reported when it is typed, not later.
 
 `modules` is the entitlement grant that Business Management edits. Core modules
 (Dashboard, Mail, Ads) are **not** stored here — they are constants in
@@ -366,7 +389,8 @@ place a row in the hierarchy.
 ```
 _id           ObjectId
 businessId    string   stamped on by tenantScope
-id            string   unique per business
+id            string   unique per business; the Meta object id for Meta rows
+source        "meta" | "sample"   absent on rows seeded before it existed = sample
 level         "campaigns" | "adsets" | "ads"
 name          string
 parent        string   name of the row one tier up; empty for campaigns
@@ -390,16 +414,49 @@ format        string
 primary       string   creative body text
 headline      string
 cta           string
+metrics       { last_7d, last_30d, maximum }   Meta rows only; each holds
+              spendCents, results, resultLabel, roas, reach, impressions
 createdAt     Date
 updatedAt     Date
 ```
 
-Indexes: `{ businessId: 1, id: 1 }` unique, and `{ businessId: 1, level: 1 }`
-for the tier tabs.
+Indexes: `{ businessId: 1, id: 1 }` unique, `{ businessId: 1, level: 1 }` for
+the tier tabs, and `{ businessId: 1, source: 1 }`.
 
-These are real records read from the database, seeded from the design rather
-than fetched from Meta. The Meta integration replaces the seeding step; no
-screen changes.
+**Two kinds of row, never shown together.** Sample rows are the design's
+fixtures, written by `npm run seed`. Meta rows are a read-only copy of a
+connected ad account, written only by a sync. A business with an ad account
+connected sees only its Meta rows; one without sees only the samples, under a
+DEMO DATA label. A sample figure can therefore never sit beside a real one.
+
+For Meta rows the flat metric fields hold the last-30-days figures, and
+`metrics` holds all three synced ranges; `listAdRows(range)` substitutes the
+requested one. Money is in the account currency's minor units: Meta reports
+spend as a decimal string (`"1234.56"`) and budgets already in minor units.
+
+The per-row on/off switch works only on sample rows. For Meta rows it is
+disabled on screen and refused by `setAdEnabled`, which returns `read-only`.
+
+#### `adSync` — tenant-owned
+
+Where the last ads sync got to for one business, like `mailSync`.
+
+```
+_id              ObjectId
+businessId       string       one document per business
+lastSyncAt       Date|null    last run that completed and wrote rows
+lastAttemptAt    Date|null    last run of any outcome; the cooldown counts from here
+lastOutcome      string|null  "ok", or the failure classification
+lastError        string|null  already worded for a person
+lastErrorAt      Date|null
+truncated        boolean      the last good sync hit the 500-per-list cap
+rowCount         number
+spentTodayCents  number|null  Meta's figure for today, for the pacing bar
+```
+
+Index: `{ businessId: 1 }` unique. A failure records the error and keeps the
+previous rows, so the Ads screen keeps showing the last good figures beside an
+honest "last synced" time.
 
 #### `mailSync` — tenant-owned
 
@@ -453,6 +510,8 @@ aiOutputs       { businessId: 1, kind: 1, cacheKey: 1 }      unique
 aiUsage         { businessId: 1, period: 1 }
 adRows          { businessId: 1, id: 1 }                     unique
 adRows          { businessId: 1, level: 1 }
+adRows          { businessId: 1, source: 1 }
+adSync          { businessId: 1 }                            unique
 mailSync        { businessId: 1 }                            unique
 ```
 
@@ -836,6 +895,66 @@ show entitlement state.
 
 ---
 
+### Meta Ads integration
+
+**AEGIS reads Meta ad accounts and never changes them.** That is enforced in
+three places, not promised in one:
+
+1. `src/lib/meta/client.ts` is the only module that can reach the Graph API. Its
+   request method is fixed to `GET`, and it exports nothing that could create,
+   edit, pause or delete anything.
+2. An ESLint rule (`eslint.config.mjs`) fails the lint on the Graph API
+   hostname anywhere except that file, so a second path to Meta cannot slip in.
+3. The recommended token has only `ads_read`, so Meta itself would refuse a
+   write. If a token holding `ads_management` is connected, the admin panel and
+   System Status both warn.
+
+| File | Does |
+|---|---|
+| `src/lib/meta/client.ts` | GET-only Graph client, pinned to one API version, token in the header |
+| `src/lib/meta/failures.ts` | Classifies Graph errors: token, permission, account, rate limit, network |
+| `src/lib/meta/mapping.ts` | Pure: Meta objects and insights into `adRows` |
+| `src/lib/meta/fetch.ts` | Reads a whole account: structure, insights for three ranges, today's spend |
+| `src/lib/meta/sync.ts` | Session, cooldown, and the write — only after every read succeeded |
+| `src/lib/dal/ad-account.ts` | Encrypted credentials, connection status, `adSync` |
+| `src/components/admin/meta-ads-panel.tsx` | Connect, test, disconnect, per business |
+
+**Connecting.** Business Management → the business → Meta Ads. Paste the ad
+account id (`act_…`) and a system user token. Recommended setup in Meta: in the
+business portfolio that owns the ad account, create a system user, assign it the
+ad account with *view performance* only and the AEGIS app, and generate a
+never-expiring token with `ads_read`. That token belongs to the company, not a
+person, which is what Stage 2's "no critical component depends solely on
+Nicole's personal account" needs.
+
+**Sandbox exception.** Meta's sandbox ad accounts refuse a token that has only
+`ads_read`; they need `ads_management`. That is harmless there — a sandbox
+cannot deliver or spend, and AEGIS never writes either way — so the panel's
+"can also change ads" warning is expected while connected to a sandbox. The
+`ads_read`-only rule applies to real accounts.
+
+**Syncing.** The Ads screen's *Sync now* button, available to anyone who can see
+the screen, with a two-minute cooldown per business. About fourteen GET requests
+per sync. Nothing calls Meta unless someone presses it.
+
+**Results and cost per result.** Meta's own `results` field is used when the
+API returns it, because that is what Ads Manager shows. Otherwise the result is
+taken from `actions`, using the action type that matches the ad set's
+optimisation goal, counting a lead reported under several action types once. A
+campaign whose ad sets optimise for different things shows "mixed results" and
+no cost per result, and the account-level totals are withheld when campaigns
+count different kinds of result. Cost per result is spend divided by results,
+computed by AEGIS.
+
+**Rehearsal.** `npm run ads:check` asserts the arithmetic on recorded Meta
+responses. Add a business id to read that business's connected account, or
+`--env` to use the variables in `.env.local`. Nothing is written in either case,
+and the token is never printed.
+
+**Graph API version.** Pinned in `GRAPH_VERSION` (v26.0 at the time of writing).
+Meta retires versions about two years after release: bump it deliberately and
+re-run `npm run ads:check`.
+
 ## 7. Known gaps
 
 - **No password *reset*, MFA, invitations, or rate limiting on sign-in.** A
@@ -867,3 +986,19 @@ show entitlement state.
   screen's copy still says "at next sign-in", which is now more conservative
   than the actual behaviour — `revalidatePath` pushes it through immediately.
 - **No audit trail** on entitlement changes.
+- **Meta figures are unverified against Ads Manager on a real account.** The
+  arithmetic is proved on fixtures and the reads on the sandbox account, which
+  has no delivery. The first sync of the company account should be compared to
+  Ads Manager for the same range before its figures are relied on.
+- **Meta results for unusual goals.** Result types are mapped for the common
+  optimisation goals (link clicks, landing page views, leads, purchases, reach,
+  impressions, engagement, conversations, page likes). Anything else relies on
+  Meta's own `results` field and shows no results if the API omits it.
+- **Zero-decimal currencies.** Money assumes two decimal places, true for PHP
+  and USD. An account in JPY or KRW would be off by a factor of 100.
+- **No live placement breakdown.** The drawer's placement mix is shown for sample
+  data only; live rows show the placements configured, not the spend split.
+- **Ad set budgets are matched to their campaign by name** when totalling the
+  daily budget. Two campaigns with the same name would confuse it.
+- **Meta rows cannot be switched on or off from AEGIS.** By design: changes are
+  made in Meta Ads Manager and picked up on the next sync.
