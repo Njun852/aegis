@@ -148,6 +148,19 @@ export async function fetchAccount(
   };
 }
 
+/**
+ * Whose Page a Page token belongs to.
+ *
+ * A Page access token identifies its own Page, so an administrator only has to
+ * paste the token: the id and name are read back from Meta rather than hunted
+ * down in the Page's settings.
+ */
+export function readTokenOwner(
+  token: string,
+): Promise<MetaOutcome<{ id?: string; name?: string }>> {
+  return graphGet<{ id?: string; name?: string }>(token, "/me", { fields: "id,name" });
+}
+
 export interface AdAccountInspection {
   info: { accountName: string; currency: string; timezone: string };
   canWrite: boolean | null;

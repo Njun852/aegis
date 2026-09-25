@@ -45,6 +45,7 @@ function toBooking(doc: BookingDocument): Booking {
     status: doc.status,
     channel: doc.channel,
     notes: doc.notes,
+    source: doc.source ?? null,
   };
 }
 
@@ -124,6 +125,7 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
         status: "Pending",
         channel: input.channel,
         notes: input.notes,
+        ...(input.source ? { source: input.source } : {}),
         createdAt: new Date(),
       });
 
@@ -182,6 +184,36 @@ export async function rescheduleBooking(
 }
 
 /** Which business the current request is scoped to — handy for page headers. */
+/**
+ * Bookings per Meta campaign, made (not scheduled) within `[from, to)`. A null
+ * bound is open. Cancelled bookings are left out: a booking that did not happen
+ * should not make an ad look cheaper per booking than it was.
+ */
+export async function countBookingsByCampaign(
+  from: Date | null,
+  to: Date | null,
+): Promise<Record<string, number>> {
+  const collection = await bookings();
+  const createdAt: Record<string, Date> = {};
+  if (from) createdAt.$gte = from;
+  if (to) createdAt.$lt = to;
+
+  const rows = await collection
+    .aggregate([
+      {
+        $match: {
+          "source.campaignId": { $exists: true, $ne: "" },
+          status: { $ne: "Cancelled" },
+          ...(from || to ? { createdAt } : {}),
+        },
+      },
+      { $group: { _id: "$source.campaignId", count: { $sum: 1 } } },
+    ])
+    .toArray();
+
+  return Object.fromEntries(rows.map((row) => [String(row._id), Number(row.count)]));
+}
+
 export async function activeBusinessId(): Promise<string> {
   const { activeBusinessId: id } = await verifySession();
   return id;

@@ -7,10 +7,18 @@ import { createBookingAction } from "@/app/actions/bookings";
 import type { BookingFormState } from "@/app/actions/bookings";
 import { Button, Icon, IconButton, Select } from "@/components/ui";
 import { BOOKING_CHANNELS } from "@/lib/data/bookings";
+import type { AdCampaignOption } from "@/types";
 
 const INITIAL: BookingFormState = { error: null };
 
+const NOT_FROM_AN_AD = "Not from an ad";
+
 export interface NewBookingModalProps {
+  /**
+   * The synced Meta campaigns a booking can be credited to. Empty when no Meta
+   * account is connected, which hides the field: there is nothing real to pick.
+   */
+  adCampaigns: AdCampaignOption[];
   onClose: () => void;
   /** Fired once the server confirms the write, so the list can refresh. */
   onCreated: (ref: string) => void;
@@ -31,9 +39,20 @@ function nextHourLocal() {
  * Mounted only while open, so every opening starts from fresh state — no reset
  * effect, and no stale date left over from the last booking.
  */
-export function NewBookingModal({ onClose, onCreated }: NewBookingModalProps) {
+export function NewBookingModal({ adCampaigns, onClose, onCreated }: NewBookingModalProps) {
   const [state, formAction] = useActionState(createBookingAction, INITIAL);
   const [channel, setChannel] = useState(BOOKING_CHANNELS[0]);
+  const [adSource, setAdSource] = useState(NOT_FROM_AN_AD);
+
+  // The picker shows names, the form submits ids. Two campaigns can share a
+  // name, so a repeated one gets the end of its id to tell them apart.
+  const campaignLabels = new Map<string, string>();
+  for (const campaign of adCampaigns) {
+    const taken = [...campaignLabels.keys()].includes(campaign.name);
+    const label = taken ? `${campaign.name} (…${campaign.id.slice(-4)})` : campaign.name;
+    campaignLabels.set(label, campaign.id);
+  }
+  const sourceCampaignId = campaignLabels.get(adSource) ?? "";
   const [startsAt, setStartsAt] = useState(nextHourLocal);
 
   useEffect(() => {
@@ -201,6 +220,23 @@ export function NewBookingModal({ onClose, onCreated }: NewBookingModalProps) {
               onChange={setChannel}
             />
           </Field>
+
+          {adCampaigns.length > 0 && (
+            <Field label="Ad source">
+              <input type="hidden" name="sourceCampaignId" value={sourceCampaignId} />
+              <Select
+                size="md"
+                leadingIcon="megaphone"
+                options={[NOT_FROM_AN_AD, ...campaignLabels.keys()]}
+                value={adSource}
+                onChange={setAdSource}
+              />
+              <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                The campaign the customer came from, usually the ad they messaged
+                from. It is what the Ads screen counts cost per booking on.
+              </span>
+            </Field>
+          )}
 
           <Field label="Notes">
             <textarea

@@ -80,6 +80,8 @@ export function Select({
             border: "1px solid var(--border-strong)",
             borderRadius: "var(--radius-sm)",
             boxShadow: "var(--shadow-popover)",
+            maxHeight: 280,
+            overflowY: "auto",
           }}
         >
           {options.map((option) => (

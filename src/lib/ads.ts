@@ -131,10 +131,15 @@ export function accountTotals(rows: AdRow[], live?: LiveAccountFacts): AdAccount
   const results = comparable ? delivering.reduce((sum, row) => sum + row.results, 0) : 0;
   const deliveringSpend = delivering.reduce((sum, row) => sum + row.spendCents, 0);
 
-  // Ad sets carry the budget when their campaign has none. Matched by name,
-  // which is what an ad set row records of its parent.
+  // Ad sets carry the budget when their campaign has none — but only inside a
+  // campaign that is switched on. An ad set left on inside a paused campaign
+  // cannot spend, and counting it overstated the first real account's daily
+  // budget by more than half. Matched by name, which is what an ad set row
+  // records of its parent.
   const unbudgeted = new Set(
-    campaigns.filter((row) => row.budgetType === "").map((row) => row.name),
+    campaigns
+      .filter((row) => row.budgetType === "" && row.enabled)
+      .map((row) => row.name),
   );
   const adsetDaily = rowsAtLevel(rows, "adsets")
     .filter(

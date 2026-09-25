@@ -102,6 +102,12 @@ export interface AdRow {
 export interface AdRowDocument extends Omit<AdRow, "businessId" | "source"> {
   businessId: string;
   source?: AdSource;
+  /**
+   * The Meta campaign this row belongs to, on every Meta row including ad sets
+   * and ads. A Messenger chat names the ad it came from, and this is what turns
+   * that into the campaign a booking is credited to.
+   */
+  campaignId?: string;
   metrics?: Record<AdRange, AdMetrics>;
   createdAt: Date;
   updatedAt: Date;
@@ -135,6 +141,11 @@ export interface MetaAdsConfig {
    * that a read-only token would be safer. Null when Meta would not say.
    */
   canWrite: boolean | null;
+  /** The Facebook Page whose Messenger chats belong to this business. */
+  pageId?: string;
+  pageName?: string;
+  /** The Page access token, AES-256-GCM encrypted. Server-only, always. */
+  pageSecretCipher?: string;
   updatedAt: Date;
 }
 
@@ -155,6 +166,13 @@ export interface AdSyncDocument {
   spentTodayCents: number | null;
 }
 
+/** A synced Meta campaign, as the booking form's "Ad source" picker offers it. */
+export interface AdCampaignOption {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
 /** What screens may know about a Meta connection. Never the token. */
 export interface MetaAdsStatus {
   connected: boolean;
@@ -171,6 +189,49 @@ export interface MetaAdsStatus {
   spentTodayCents: number | null;
   /** Set by a connection test when the token can also change ads. */
   canWrite: boolean | null;
+  /** The Page whose chats arrive by webhook, when one is connected. */
+  pageId: string | null;
+  pageName: string | null;
+  /** Whether a Page token is stored. The token itself never leaves the server. */
+  pageTokenStored: boolean;
+  /** Last delivery Meta successfully signed, ISO 8601. */
+  lastEventAt: string | null;
+  /** Last delivery rejected because its signature did not match. */
+  lastSignatureFailureAt: string | null;
+  conversationCount: number;
+}
+
+/** One Messenger chat with the Page, as stored. */
+export interface MessengerMessage {
+  mid: string;
+  text: string;
+  at: Date;
+  /** True for the Page's own replies, kept as context and never acted on. */
+  fromPage: boolean;
+}
+
+export interface MessengerConversationDocument {
+  businessId: string;
+  /** Page-scoped id of the customer. Meaningless outside this Page. */
+  psid: string;
+  pageId: string;
+  name: string | null;
+  /** Newest last, capped so one long chat cannot grow without bound. */
+  messages: MessengerMessage[];
+  /** The ad that started the chat, and what it belongs to. Null when organic. */
+  adId: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  referralSource: string | null;
+  firstSeenAt: Date;
+  lastMessageAt: Date;
+}
+
+/** Webhook health for one business, for the admin panel and System Status. */
+export interface MessengerStateDocument {
+  businessId: string;
+  lastEventAt: Date | null;
+  lastSignatureFailureAt: Date | null;
 }
 
 /** The connected ad account, as the connection strip reports it. */

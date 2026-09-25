@@ -22,7 +22,12 @@ import { useToast } from "@/components/layout/toast-provider";
 import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
 import { NewBookingModal } from "./new-booking-modal";
-import type { Booking, BookingRange, BookingStatusFilter } from "@/types";
+import type {
+  AdCampaignOption,
+  Booking,
+  BookingRange,
+  BookingStatusFilter,
+} from "@/types";
 
 /** Columns collapse to the essentials below the 1240px `wide` breakpoint. */
 const GRID =
@@ -30,6 +35,8 @@ const GRID =
 
 export interface BookingsWorkspaceProps {
   bookings: Booking[];
+  /** Synced Meta campaigns for the Ad source field. Empty hides the field. */
+  adCampaigns: AdCampaignOption[];
   businessName: string;
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
@@ -40,6 +47,7 @@ export interface BookingsWorkspaceProps {
 
 export function BookingsWorkspace({
   bookings,
+  adCampaigns,
   businessName,
   todayIso,
 }: BookingsWorkspaceProps) {
@@ -497,6 +505,7 @@ export function BookingsWorkspace({
 
       {composing && (
         <NewBookingModal
+          adCampaigns={adCampaigns}
           onClose={() => setComposing(false)}
           onCreated={(ref) => {
             toast({

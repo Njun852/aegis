@@ -20,10 +20,11 @@
  */
 import assert from "node:assert/strict";
 import { MongoClient } from "mongodb";
-import { costPerResultCents } from "@/lib/ads";
+import { accountTotals, costPerResultCents } from "@/lib/ads";
 import { explainMetaFailure } from "@/lib/meta/failures";
 import { fetchAccount, inspectAdAccount } from "@/lib/meta/fetch";
 import { mapSnapshot, type MetaSnapshot } from "@/lib/meta/mapping";
+import { windowForRange } from "@/lib/meta/ranges";
 import { decryptSecret } from "@/lib/auth/secrets";
 import type { BusinessDocument } from "@/types";
 
@@ -76,6 +77,9 @@ const fixture: MetaSnapshot = {
       status: "ACTIVE",
       effective_status: "CAMPAIGN_PAUSED",
       optimization_goal: "LINK_CLICKS",
+      // Switched on, inside a paused campaign: must not count toward the
+      // account's daily budget.
+      daily_budget: "40000",
     },
     {
       id: "a3",
@@ -196,6 +200,28 @@ assert.equal(x1.state, "In review");
 assert.equal(x1.budgetType, "", "ads inherit budget");
 assert.equal(x1.headline, "Book now");
 
+const totals = accountTotals(
+  rows.map((entry) => ({ ...entry, businessId: "" })),
+  { spentTodayCents: 7000 },
+);
+assert.equal(totals.dailyBudgetCents, 50000, "only budgets that can spend: c1, not a2 inside paused c2");
+assert.equal(totals.spentTodayCents, 7000, "today's spend is Meta's figure");
+assert.equal(totals.resultLabel, null, "leads and mixed results are not totalled");
+assert.equal(totals.costPerResultCents, 0, "no account cost per result across unlike results");
+
+// Booking windows match Meta's date presets: whole days in the account's time
+// zone, ending at the start of today. 10:00 in Manila is 02:00 UTC.
+const now = new Date("2026-09-21T02:00:00Z");
+const week = windowForRange("last_7d", "Asia/Manila", now);
+assert.equal(week.to?.toISOString(), "2026-09-20T16:00:00.000Z", "today excluded: ends at Manila midnight");
+assert.equal(week.from?.toISOString(), "2026-09-13T16:00:00.000Z", "seven whole Manila days");
+assert.equal(windowForRange("last_30d", "Asia/Manila", now).from?.toISOString(), "2026-08-21T16:00:00.000Z");
+const all = windowForRange("maximum", "Asia/Manila", now);
+assert.equal(all.from, null, "maximum has no lower bound");
+assert.equal(all.to, null, "maximum includes today");
+assert.equal(windowForRange("last_7d", "Not/AZone", now).to?.toISOString(), "2026-09-21T00:00:00.000Z", "unknown zone falls back to UTC");
+
+console.log(`✓ booking windows match Meta's date presets`);
 console.log(`✓ mapping: ${rows.length} rows, spend, results, cost per result, state and budgets all as expected`);
 
 // ---- Part two: a live, read-only run ----------------------------------------

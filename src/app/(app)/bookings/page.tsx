@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { BookingsWorkspace } from "@/components/bookings/bookings-workspace";
 import { ModulePage } from "@/components/modules/module-page";
+import { listMetaCampaignOptions } from "@/lib/dal/ads";
 import { listBookings } from "@/lib/dal/bookings";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 
@@ -14,11 +15,16 @@ export default async function BookingsPage() {
     return <ModulePage moduleKey="bookings" />;
   }
 
-  const bookings = await listBookings();
+  const [bookings, adCampaigns] = await Promise.all([
+    listBookings(),
+    // Empty when no Meta account is connected, which hides the Ad source field.
+    listMetaCampaignOptions(),
+  ]);
 
   return (
     <BookingsWorkspace
       bookings={bookings}
+      adCampaigns={adCampaigns}
       businessName={business.name}
       todayIso={new Date().toISOString()}
     />

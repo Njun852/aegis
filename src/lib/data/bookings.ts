@@ -32,6 +32,7 @@ export const DEFAULT_BOOKING_RANGE: BookingRange = "Next 30 days";
 /** How a booking reached us. Offered in the New Booking form. */
 export const BOOKING_CHANNELS = [
   "Website form",
+  "Messenger",
   "Phone",
   "Email",
   "Referral",

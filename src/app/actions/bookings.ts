@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/dal/businesses";
+import { findMetaCampaign } from "@/lib/dal/ads";
 import {
   createBooking,
   rescheduleBooking,
@@ -50,6 +51,21 @@ export async function createBookingAction(
 
   const channel = text("channel");
 
+  // Checked against the synced account rather than trusted from the form: the
+  // id is what cost per booking is counted on, so a stale or made-up one would
+  // quietly credit the wrong campaign.
+  const campaignId = text("sourceCampaignId");
+  let source: { campaignId: string; campaignName: string } | null = null;
+  if (campaignId) {
+    const campaign = await findMetaCampaign(campaignId);
+    if (!campaign) {
+      return {
+        error: "That campaign is no longer in the synced ad account. Sync Ads, then choose again.",
+      };
+    }
+    source = { campaignId: campaign.id, campaignName: campaign.name };
+  }
+
   const booking = await createBooking({
     customer,
     company: text("company"),
@@ -61,9 +77,11 @@ export async function createBookingAction(
     valueCents,
     channel: BOOKING_CHANNELS.includes(channel) ? channel : BOOKING_CHANNELS[0],
     notes: text("notes"),
+    source,
   });
 
   revalidatePath("/bookings");
+  if (source) revalidatePath("/ads");
   return { error: null, createdRef: booking.ref };
 }
 

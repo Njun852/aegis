@@ -3,6 +3,7 @@ import "server-only";
 import { decryptSecret, encryptSecret } from "@/lib/auth/secrets";
 import { explainMetaFailure, type MetaFailure } from "@/lib/meta/failures";
 import { adSyncCollection, businessesCollection, getDb } from "./db";
+import { readMessengerHealth } from "./messenger";
 import { requireAdmin, verifySession } from "./session";
 import type { AdSyncDocument, MetaAdsStatus } from "@/types";
 
@@ -154,6 +155,57 @@ async function clearMetaData(businessId: string): Promise<void> {
   await sync.deleteOne({ businessId });
 }
 
+/**
+ * Connects the Facebook Page whose Messenger chats belong to this business.
+ *
+ * The Page id is what a webhook delivery is matched on, so it is stored in the
+ * clear; the Page token is encrypted like every other credential. A business
+ * must already have its ad account connected: the Page's chats are only useful
+ * beside the ads they came from.
+ */
+export async function saveMetaPage(
+  businessId: string,
+  pageId: string,
+  pageName: string,
+  token: string | null,
+): Promise<void> {
+  await requireAdmin();
+  const businesses = await businessesCollection();
+  await businesses.updateOne(
+    { businessId, metaAds: { $exists: true } },
+    {
+      $set: {
+        "metaAds.pageId": pageId,
+        "metaAds.pageName": pageName,
+        ...(token ? { "metaAds.pageSecretCipher": encryptSecret(token) } : {}),
+      },
+    },
+  );
+}
+
+export async function clearMetaPage(businessId: string): Promise<void> {
+  await requireAdmin();
+  const businesses = await businessesCollection();
+  await businesses.updateOne(
+    { businessId },
+    {
+      $unset: {
+        "metaAds.pageId": "",
+        "metaAds.pageName": "",
+        "metaAds.pageSecretCipher": "",
+      },
+    },
+  );
+}
+
+/** The Page token for server-side reads. Null when none is stored. */
+export async function readPageTokenFor(businessId: string): Promise<string | null> {
+  const businesses = await businessesCollection();
+  const business = await businesses.findOne({ businessId });
+  const cipher = business?.metaAds?.pageSecretCipher;
+  return cipher ? decryptSecret(cipher) : null;
+}
+
 // ---- Sync state -------------------------------------------------------------
 
 export async function readAdSync(businessId: string): Promise<AdSyncDocument | null> {
@@ -247,9 +299,13 @@ export async function clearAdSyncError(businessId: string): Promise<void> {
  */
 export async function readMetaAdsStatus(businessId: string): Promise<MetaAdsStatus> {
   const businesses = await businessesCollection();
-  const [business, sync] = await Promise.all([
-    businesses.findOne({ businessId }, { projection: { "metaAds.secretCipher": 0 } }),
+  const [business, sync, messenger] = await Promise.all([
+    businesses.findOne(
+      { businessId },
+      { projection: { "metaAds.secretCipher": 0, "metaAds.pageSecretCipher": 0 } },
+    ),
     readAdSync(businessId),
+    readMessengerHealth(businessId),
   ]);
   const config = business?.metaAds;
 
@@ -267,6 +323,12 @@ export async function readMetaAdsStatus(businessId: string): Promise<MetaAdsStat
     rowCount: sync?.rowCount ?? 0,
     spentTodayCents: sync?.spentTodayCents ?? null,
     canWrite: config?.canWrite ?? null,
+    pageId: config?.pageId ?? null,
+    pageName: config?.pageName ?? null,
+    pageTokenStored: Boolean(config?.pageSecretCipher),
+    lastEventAt: messenger.lastEventAt?.toISOString() ?? null,
+    lastSignatureFailureAt: messenger.lastSignatureFailureAt?.toISOString() ?? null,
+    conversationCount: messenger.conversationCount,
   };
 }
 

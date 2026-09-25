@@ -29,6 +29,12 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the auth endpoints, the login page, and static assets.
-  matcher: ["/((?!api/auth|login|_next/static|_next/image|favicon.ico).*)"],
+  /**
+   * Everything except the auth endpoints, the login page, static assets, and
+   * the Meta webhook — Meta arrives with no session, and that route proves who
+   * it is by checking Meta's signature instead.
+   */
+  matcher: [
+    "/((?!api/auth|api/meta/webhook|login|_next/static|_next/image|favicon.ico).*)",
+  ],
 };

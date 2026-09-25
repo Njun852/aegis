@@ -165,11 +165,18 @@ valueCents       number
 status           "Confirmed" | "Pending" | "In progress" | "Completed" | "Cancelled"
 channel          string
 notes            string
+source           { campaignId, campaignName } | absent   the Meta campaign it came from
 createdAt        Date
 ```
 
 Indexes: `{ businessId: 1, ref: 1 }` unique, and `{ businessId: 1, startsAt: 1 }`
 for range queries.
+
+`source` is the **Ad source** picked on the New Booking form, from the Meta
+campaigns AEGIS has synced; absent means "not from an ad". The server checks the
+id against the synced account before storing it. The campaign name is copied on
+so a booking still reads correctly if the campaign is later removed from Meta.
+It is what the Ads screen counts bookings and cost per booking on.
 
 Times are stored as real `Date`s. The display strings the UI renders (`day`,
 `time`, `duration`) are derived **on the server** in `src/lib/dal/bookings.ts` —
@@ -946,6 +953,16 @@ no cost per result, and the account-level totals are withheld when campaigns
 count different kinds of result. Cost per result is spend divided by results,
 computed by AEGIS.
 
+**Bookings and cost per booking.** Where a Meta account is connected and the
+business uses Bookings, the Ads screen shows bookings credited to each campaign
+and cost per booking (campaign spend ÷ bookings), plus a blended figure for the
+account (all ad spend ÷ all ad-credited bookings). Bookings are counted by when
+they were **made**, not when the appointment is, over exactly the days Meta's
+figures cover (`src/lib/meta/ranges.ts`: whole days in the ad account's time
+zone, today excluded, except for Maximum). Cancelled bookings are not counted.
+Credit is per campaign, because that is what staff record; ad sets and ads show
+a dash. The AI Ads commentary receives the same figures.
+
 **Rehearsal.** `npm run ads:check` asserts the arithmetic on recorded Meta
 responses. Add a business id to read that business's connected account, or
 `--env` to use the variables in `.env.local`. Nothing is written in either case,
@@ -1000,5 +1017,9 @@ re-run `npm run ads:check`.
   data only; live rows show the placements configured, not the spend split.
 - **Ad set budgets are matched to their campaign by name** when totalling the
   daily budget. Two campaigns with the same name would confuse it.
+- **Ad credit for a booking is recorded by staff**, on the New Booking form. It
+  is as accurate as that choice. The Messenger integration, once Meta approves
+  it, will fill the same field from the ad the customer actually tapped.
+- **Bookings are credited to campaigns only**, not to individual ad sets or ads.
 - **Meta rows cannot be switched on or off from AEGIS.** By design: changes are
   made in Meta Ads Manager and picked up on the next sync.

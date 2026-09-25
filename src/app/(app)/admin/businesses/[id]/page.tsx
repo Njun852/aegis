@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { BusinessDetail } from "@/components/admin/business-detail";
 import { MailboxPanel } from "@/components/admin/mailbox-panel";
+import { MessengerPanel } from "@/components/admin/messenger-panel";
 import { MetaAdsPanel } from "@/components/admin/meta-ads-panel";
 import { readMetaAdsStatus } from "@/lib/dal/ad-account";
 import { getBusinessForUser } from "@/lib/dal/businesses";
@@ -39,6 +40,11 @@ export default async function Page(props: PageProps<"/admin/businesses/[id]">) {
         status={mailbox}
       />
       <MetaAdsPanel
+        businessId={id}
+        businessName={business.name}
+        status={metaAds}
+      />
+      <MessengerPanel
         businessId={id}
         businessName={business.name}
         status={metaAds}

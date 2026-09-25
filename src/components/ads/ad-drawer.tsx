@@ -26,6 +26,8 @@ export interface AdDrawerProps {
    * attribution window.
    */
   live: boolean;
+  /** Bookings credited to this campaign in the period; null when not tracked here. */
+  bookings: number | null;
   onClose: () => void;
 }
 
@@ -35,6 +37,7 @@ export function AdDrawer({
   accountCostPerResultCents,
   currency,
   live,
+  bookings,
   onClose,
 }: AdDrawerProps) {
   const formatMoney = (cents: number, withCents = true) =>
@@ -86,6 +89,17 @@ export function AdDrawer({
       label: "Optimization & attribution",
       value: live ? row.optimization || "—" : `${row.optimization} · ${AD_ACCOUNT.attribution}`,
     },
+    ...(bookings !== null
+      ? [
+          {
+            icon: "calendar",
+            label: "Bookings credited",
+            value: bookings
+              ? `${bookings} · ${formatMoney(Math.round(row.spendCents / bookings))} per booking`
+              : "None credited to this campaign in this period",
+          },
+        ]
+      : []),
     { icon: "bar-chart-2", label: "Delivery", value: row.learning },
     {
       icon: "file-text",

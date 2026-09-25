@@ -3,6 +3,9 @@ import "server-only";
 import { readActiveMetaAdsStatus } from "@/lib/dal/ad-account";
 import { readCachedOutput } from "@/lib/dal/ai";
 import { listAdRows } from "@/lib/dal/ads";
+import { countBookingsByCampaign } from "@/lib/dal/bookings";
+import { getActiveBusiness } from "@/lib/dal/businesses";
+import { windowForRange } from "@/lib/meta/ranges";
 import {
   accountTotals,
   costPerResultCents,
@@ -26,7 +29,8 @@ import type { AiResult } from "@/types";
 
 // 2: facts carry the account's currency, the period, and whether the figures
 // are live or samples; mixed result types are no longer totalled.
-const PROMPT_VERSION = 2;
+// 3: bookings and cost per booking per campaign, where bookings are tracked.
+const PROMPT_VERSION = 3;
 const MAX_OUTPUT_TOKENS = 240;
 const KIND = "ads-insight" as const;
 
@@ -53,6 +57,9 @@ const INSTRUCTIONS = [
   "Amounts are in the currency given; write them the way they appear in the input.",
   "If the account's results are marked mixed, compare campaigns by their own cost per result",
   "and do not add up results of different kinds.",
+  "Where campaigns carry bookings, those are real bookings staff credited to that campaign;",
+  "a campaign that gets many conversations but few bookings is less effective than its cost",
+  "per result suggests, so prefer cost per booking when judging which campaign works.",
 ].join(" ");
 
 export interface AdsInsightFacts {
@@ -78,6 +85,9 @@ export interface AdsInsightFacts {
     costPerResult: string;
     roas: number;
     dailyBudget: string | null;
+    /** Present only where bookings are tracked for a live account. */
+    bookings?: number;
+    costPerBooking?: string;
   }[];
 }
 
@@ -95,6 +105,15 @@ export async function buildAdsInsightFacts(): Promise<AdsInsightFacts | null> {
     live ? { spentTodayCents: meta.spentTodayCents } : undefined,
   );
   const mixed = live && !totals.resultLabel && totals.spendCents > 0;
+
+  // Same period as the figures above (the default range), so the division is
+  // like for like.
+  const business = live ? await getActiveBusiness() : null;
+  const period = windowForRange("last_30d", meta.timezone ?? "UTC");
+  const booked =
+    business?.modules.includes("bookings")
+      ? await countBookingsByCampaign(period.from, period.to)
+      : null;
 
   return {
     currency,
@@ -119,6 +138,14 @@ export async function buildAdsInsightFacts(): Promise<AdsInsightFacts | null> {
       roas: row.roas,
       dailyBudget:
         row.budgetType === "Daily" ? formatMoney(row.budgetCents, false) : null,
+      ...(booked
+        ? {
+            bookings: booked[row.id] ?? 0,
+            costPerBooking: booked[row.id]
+              ? formatMoney(Math.round(row.spendCents / booked[row.id]))
+              : "n/a",
+          }
+        : {}),
     })),
   };
 }

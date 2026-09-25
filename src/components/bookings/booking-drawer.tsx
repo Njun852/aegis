@@ -122,6 +122,9 @@ export function BookingDrawer({ booking, onClose }: BookingDrawerProps) {
     },
     { icon: "user", label: "Assigned to", value: booking.staff },
     { icon: "mail", label: "Contact", value: booking.email },
+    ...(booking.source
+      ? [{ icon: "megaphone", label: "Ad source", value: booking.source.campaignName }]
+      : []),
     {
       icon: "wallet",
       label: "Value",

@@ -7,6 +7,8 @@ import type {
   BusinessDocument,
   MailSyncDocument,
   Membership,
+  MessengerConversationDocument,
+  MessengerStateDocument,
 } from "@/types";
 
 /**
@@ -40,6 +42,8 @@ export const COLLECTIONS = {
   memberships: "memberships",
   mailSync: "mailSync",
   adSync: "adSync",
+  messengerConversations: "messengerConversations",
+  messengerState: "messengerState",
 } as const;
 
 async function collection<T extends Document>(name: string): Promise<Collection<T>> {
@@ -71,6 +75,17 @@ export const mailSyncCollection = () =>
  */
 export const adSyncCollection = () =>
   collection<AdSyncDocument>(COLLECTIONS.adSync);
+
+/**
+ * Messenger chats and webhook health. Reached by explicit `businessId` like
+ * `mailSync`: a webhook delivery has no session at all — it is resolved to a
+ * business by the Page id Meta names — and the admin screen reports on a
+ * business other than the active one. See `src/lib/dal/messenger.ts`.
+ */
+export const messengerConversationsCollection = () =>
+  collection<MessengerConversationDocument>(COLLECTIONS.messengerConversations);
+export const messengerStateCollection = () =>
+  collection<MessengerStateDocument>(COLLECTIONS.messengerState);
 
 export interface DatabasePing {
   ok: boolean;

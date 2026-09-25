@@ -117,6 +117,7 @@ export const DEFAULT_AD_RANGE: AdRange = "last_30d";
 
 export type MetaRowDraft = Omit<AdRow, "businessId"> & {
   source: "meta";
+  campaignId: string;
   metrics: Record<AdRange, AdMetrics>;
 };
 
@@ -413,6 +414,7 @@ export function mapSnapshot(snapshot: MetaSnapshot): MetaRowDraft[] {
     rows.push({
       id: campaign.id,
       source: "meta",
+      campaignId: campaign.id,
       level: "campaigns",
       name: campaign.name,
       parent: "",
@@ -442,6 +444,7 @@ export function mapSnapshot(snapshot: MetaSnapshot): MetaRowDraft[] {
     rows.push({
       id: adset.id,
       source: "meta",
+      campaignId: adset.campaign_id,
       level: "adsets",
       name: adset.name,
       parent: campaign?.name ?? "",
@@ -474,6 +477,7 @@ export function mapSnapshot(snapshot: MetaSnapshot): MetaRowDraft[] {
     rows.push({
       id: ad.id,
       source: "meta",
+      campaignId: ad.campaign_id,
       level: "ads",
       name: ad.name,
       parent: adset?.name ?? "",

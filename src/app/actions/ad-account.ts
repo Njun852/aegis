@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { canStoreSecrets } from "@/lib/auth/secrets";
 import { explainMetaFailure } from "@/lib/meta/failures";
-import { inspectAdAccount } from "@/lib/meta/fetch";
+import { inspectAdAccount, readTokenOwner } from "@/lib/meta/fetch";
 import {
   clearAdSyncError,
   clearMetaAds,
+  clearMetaPage,
+  saveMetaPage,
   readMetaAdsStatus,
   readMetaCredentialsFor,
   recordAdSyncFailure,
@@ -123,6 +125,101 @@ export async function testMetaAdsAction(businessId: string): Promise<MetaAdsActi
 
   await updateMetaAccountInfo(businessId, inspection.data.info, inspection.data.canWrite);
   await clearAdSyncError(businessId);
+  revalidate(businessId);
+  return { error: null, status: await readMetaAdsStatus(businessId) };
+}
+
+/**
+ * Connects the Page whose Messenger chats belong to this business.
+ *
+ * The Page token is optional: the webhook needs only the Page id to know which
+ * business a chat belongs to. A token is what lets AEGIS read the customer's
+ * name, so when one is given it is checked against Meta before being stored.
+ */
+export async function saveMetaPageAction(
+  businessId: string,
+  pageId: string,
+  pageToken: string,
+): Promise<MetaAdsActionState> {
+  await requireAdmin();
+
+  if (!(await getBusinessForUser(businessId))) {
+    return { error: "That business could not be found.", status: null };
+  }
+
+  const status = await readMetaAdsStatus(businessId);
+  if (!status.connected) {
+    return {
+      error: "Connect the ad account first: a Page's chats are only useful beside the ads they came from.",
+      status,
+    };
+  }
+
+  const token = pageToken.trim();
+  let id = pageId.trim();
+
+  if (id && !/^\d{5,20}$/.test(id)) {
+    return {
+      error: "A Page id is digits only, like 102345678901234. Leave it blank to read it from the token.",
+      status,
+    };
+  }
+  if (!id && !token) {
+    return {
+      error: "Enter the Page id, or paste a Page access token and AEGIS will read the id from it.",
+      status,
+    };
+  }
+
+  let pageName = id && status.pageId === id ? (status.pageName ?? "") : "";
+
+  if (token) {
+    if (!canStoreSecrets()) {
+      return {
+        error:
+          "This server has no MAIL_CREDENTIAL_KEY set, so the Page token cannot be stored securely.",
+        status,
+      };
+    }
+
+    // A Page token knows its own Page, so an id typed by hand is only ever a
+    // second chance to get it wrong: read it from Meta instead.
+    const owner = await readTokenOwner(token);
+    if (!owner.ok) {
+      return { error: explainMetaFailure(owner.reason), status };
+    }
+    if (!owner.data.id) {
+      return {
+        error: "That token does not belong to a Page. Generate a Page access token, not a user token.",
+        status,
+      };
+    }
+    if (id && id !== owner.data.id) {
+      return {
+        error: `That token belongs to Page ${owner.data.id}, not ${id}. Leave the id blank to use the token's own Page.`,
+        status,
+      };
+    }
+
+    id = owner.data.id;
+    pageName = owner.data.name ?? "";
+  }
+
+  await saveMetaPage(businessId, id, pageName, token || null);
+  revalidate(businessId);
+  return { error: null, status: await readMetaAdsStatus(businessId) };
+}
+
+export async function disconnectMetaPageAction(
+  businessId: string,
+): Promise<MetaAdsActionState> {
+  await requireAdmin();
+
+  if (!(await getBusinessForUser(businessId))) {
+    return { error: "That business could not be found.", status: null };
+  }
+
+  await clearMetaPage(businessId);
   revalidate(businessId);
   return { error: null, status: await readMetaAdsStatus(businessId) };
 }
