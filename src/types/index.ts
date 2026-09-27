@@ -4,6 +4,7 @@ export type * from "./ai";
 export type * from "./bookings";
 export type * from "./business";
 export type * from "./dashboard";
+export type * from "./fleet";
 export type * from "./inventory";
 export type * from "./ledger";
 export type * from "./mail";

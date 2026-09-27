@@ -4,6 +4,7 @@ import { ModulePage } from "@/components/modules/module-page";
 import { listMetaCampaignOptions } from "@/lib/dal/ads";
 import { listBookings } from "@/lib/dal/bookings";
 import { getActiveBusiness } from "@/lib/dal/businesses";
+import { listVehicleOptions } from "@/lib/dal/fleet";
 
 export default async function BookingsPage() {
   const business = await getActiveBusiness();
@@ -15,16 +16,19 @@ export default async function BookingsPage() {
     return <ModulePage moduleKey="bookings" />;
   }
 
-  const [bookings, adCampaigns] = await Promise.all([
+  const [bookings, adCampaigns, vehicles] = await Promise.all([
     listBookings(),
     // Empty when no Meta account is connected, which hides the Ad source field.
     listMetaCampaignOptions(),
+    // Empty without Fleet, which hides the Vehicle field.
+    business.modules.includes("fleet") ? listVehicleOptions() : Promise.resolve([]),
   ]);
 
   return (
     <BookingsWorkspace
       bookings={bookings}
       adCampaigns={adCampaigns}
+      vehicles={vehicles}
       businessName={business.name}
       todayIso={new Date().toISOString()}
     />

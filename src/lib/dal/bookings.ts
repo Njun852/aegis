@@ -1,6 +1,7 @@
 import "server-only";
 
 import { formatDay, formatDuration, formatTimeRange } from "@/lib/bookings";
+import { syncBookingService } from "./fleet";
 import { postEntry, setEntryStatus } from "./ledger";
 import { tenantScope } from "./tenant";
 import { verifySession } from "./session";
@@ -46,6 +47,7 @@ function toBooking(doc: BookingDocument): Booking {
     channel: doc.channel,
     notes: doc.notes,
     source: doc.source ?? null,
+    vehicleRef: doc.vehicleRef ?? null,
   };
 }
 
@@ -126,6 +128,7 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
         channel: input.channel,
         notes: input.notes,
         ...(input.source ? { source: input.source } : {}),
+        ...(input.vehicleRef ? { vehicleRef: input.vehicleRef } : {}),
         createdAt: new Date(),
       });
 
@@ -165,6 +168,11 @@ export async function setBookingStatus(
     ref,
     status === "Cancelled" ? "void" : "recognised",
   );
+
+  // Completing a booking for a vehicle writes its service history line;
+  // moving it off Completed takes the line away again.
+  const changed = await getBooking(ref);
+  if (changed) await syncBookingService(changed);
 }
 
 export async function rescheduleBooking(
@@ -180,7 +188,11 @@ export async function rescheduleBooking(
 
   // Moving the appointment moves which period the revenue belongs to.
   const moved = await getBooking(ref);
-  if (moved) await syncLedger(moved);
+  if (moved) {
+    await syncLedger(moved);
+    // A completed booking's history line is dated by the booking, so it moves too.
+    await syncBookingService(moved);
+  }
 }
 
 /** Which business the current request is scoped to — handy for page headers. */

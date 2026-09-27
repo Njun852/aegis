@@ -64,9 +64,9 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
   {
     key: "fleet",
     name: "Fleet",
-    icon: "truck",
-    desc: "Vehicle assignments, maintenance schedules and route history.",
-    href: "/modules/fleet",
+    icon: "car",
+    desc: "Customer vehicles, service history and next service due.",
+    href: "/fleet",
   },
 ];
 

@@ -57,6 +57,8 @@ export interface Booking {
   channel: string;
   notes: string;
   source: BookingSource | null;
+  /** The Fleet vehicle this booking is for. Null when none was picked. */
+  vehicleRef: string | null;
 }
 
 /** What the New Booking form submits. `ref` and status are server-assigned. */
@@ -72,6 +74,7 @@ export interface BookingInput {
   channel: string;
   notes: string;
   source?: BookingSource | null;
+  vehicleRef?: string | null;
 }
 
 /** Stored shape. `businessId` is stamped on by `tenantScope`. */
@@ -91,6 +94,8 @@ export interface BookingDocument {
   notes: string;
   /** Absent on bookings made before ad attribution existed, and on those not from an ad. */
   source?: BookingSource | null;
+  /** Absent on bookings made before Fleet existed, and on those with no vehicle. */
+  vehicleRef?: string | null;
   createdAt: Date;
 }
 

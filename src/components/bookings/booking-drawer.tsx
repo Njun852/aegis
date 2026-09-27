@@ -9,7 +9,7 @@ import {
 import { Badge, Avatar, Button, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
 import { bookingTimeline, formatMoney, getStatusStyle } from "@/lib/bookings";
-import type { Booking, BookingStatus } from "@/types";
+import type { Booking, BookingStatus, VehicleOption } from "@/types";
 
 /** `<input type="datetime-local">` wants local wall-clock, not an ISO Z time. */
 function toLocalInput(iso: string) {
@@ -22,11 +22,13 @@ function toLocalInput(iso: string) {
 
 export interface BookingDrawerProps {
   booking: Booking;
+  /** The linked Fleet vehicle, when the booking has one and Fleet is on. */
+  vehicle: VehicleOption | null;
   onClose: () => void;
 }
 
 /** The right-hand detail panel for one booking. */
-export function BookingDrawer({ booking, onClose }: BookingDrawerProps) {
+export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -120,6 +122,9 @@ export function BookingDrawer({ booking, onClose }: BookingDrawerProps) {
       label: "When",
       value: `${booking.day}, ${new Date(booking.startsAt).getFullYear()} · ${booking.time}`,
     },
+    ...(vehicle
+      ? [{ icon: "car", label: "Vehicle", value: `${vehicle.plate} · ${vehicle.label}` }]
+      : []),
     { icon: "user", label: "Assigned to", value: booking.staff },
     { icon: "mail", label: "Contact", value: booking.email },
     ...(booking.source

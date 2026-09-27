@@ -12,6 +12,7 @@
     "triage:check": "node --env-file=.env.local --experimental-strip-types --import ./scripts/register-alias.mjs scripts/triage-check.ts",
     "mail:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/mail-check.ts",
     "ads:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/ads-check.ts",
+    "fleet:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/fleet-check.ts",
     "messenger:simulate": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/messenger-simulate.ts"
   },
   "dependencies": {

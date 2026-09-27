@@ -27,6 +27,7 @@ import type {
   Booking,
   BookingRange,
   BookingStatusFilter,
+  VehicleOption,
 } from "@/types";
 
 /** Columns collapse to the essentials below the 1240px `wide` breakpoint. */
@@ -37,6 +38,8 @@ export interface BookingsWorkspaceProps {
   bookings: Booking[];
   /** Synced Meta campaigns for the Ad source field. Empty hides the field. */
   adCampaigns: AdCampaignOption[];
+  /** Fleet vehicles for the Vehicle field. Empty without Fleet, which hides it. */
+  vehicles: VehicleOption[];
   businessName: string;
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
@@ -48,6 +51,7 @@ export interface BookingsWorkspaceProps {
 export function BookingsWorkspace({
   bookings,
   adCampaigns,
+  vehicles,
   businessName,
   todayIso,
 }: BookingsWorkspaceProps) {
@@ -499,6 +503,7 @@ export function BookingsWorkspace({
         <BookingDrawer
           key={selected.ref}
           booking={selected}
+          vehicle={vehicles.find((vehicle) => vehicle.ref === selected.vehicleRef) ?? null}
           onClose={() => setOpenRef(null)}
         />
       )}
@@ -506,6 +511,7 @@ export function BookingsWorkspace({
       {composing && (
         <NewBookingModal
           adCampaigns={adCampaigns}
+          vehicles={vehicles}
           onClose={() => setComposing(false)}
           onCreated={(ref) => {
             toast({

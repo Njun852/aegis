@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/dal/businesses";
 import { findMetaCampaign } from "@/lib/dal/ads";
+import { findVehicleOption } from "@/lib/dal/fleet";
 import {
   createBooking,
   rescheduleBooking,
@@ -21,11 +22,27 @@ export async function createBookingAction(
   _previous: BookingFormState,
   formData: FormData,
 ): Promise<BookingFormState> {
-  await requireModule("bookings");
+  const business = await requireModule("bookings");
 
   const text = (key: string) => String(formData.get(key) ?? "").trim();
 
-  const customer = text("customer");
+  // Checked against this business's vehicles rather than trusted from the
+  // form, like the campaign below: completing the booking writes that car's
+  // service history.
+  const vehicleRef = text("vehicleRef");
+  let vehicle: Awaited<ReturnType<typeof findVehicleOption>> = null;
+  if (vehicleRef) {
+    if (!business.modules.includes("fleet")) {
+      return { error: "Fleet is not enabled for this business, so a vehicle cannot be attached." };
+    }
+    vehicle = await findVehicleOption(vehicleRef);
+    if (!vehicle) {
+      return { error: "That vehicle is no longer on file. Choose it again." };
+    }
+  }
+
+  // The owner fills a blank customer and email, so picking the car is enough.
+  const customer = text("customer") || vehicle?.ownerName || "";
   const service = text("service");
   const startsAt = text("startsAt");
   const staff = text("staff");
@@ -69,7 +86,7 @@ export async function createBookingAction(
   const booking = await createBooking({
     customer,
     company: text("company"),
-    email: text("email"),
+    email: text("email") || vehicle?.ownerEmail || "",
     service,
     startsAt: when.toISOString(),
     durationMinutes,
@@ -78,9 +95,11 @@ export async function createBookingAction(
     channel: BOOKING_CHANNELS.includes(channel) ? channel : BOOKING_CHANNELS[0],
     notes: text("notes"),
     source,
+    vehicleRef: vehicle?.ref ?? null,
   });
 
   revalidatePath("/bookings");
+  if (vehicle) revalidatePath("/fleet");
   if (source) revalidatePath("/ads");
   return { error: null, createdRef: booking.ref };
 }
@@ -92,6 +111,8 @@ export async function setBookingStatusAction(
   await requireModule("bookings");
   await setBookingStatus(ref, status);
   revalidatePath("/bookings");
+  // A completed booking for a vehicle is a line in its service history.
+  revalidatePath("/fleet");
 }
 
 export async function rescheduleBookingAction(
@@ -111,4 +132,5 @@ export async function rescheduleBookingAction(
 
   await rescheduleBooking(ref, when.toISOString(), durationMinutes);
   revalidatePath("/bookings");
+  revalidatePath("/fleet");
 }

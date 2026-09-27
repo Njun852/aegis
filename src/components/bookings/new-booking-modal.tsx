@@ -7,11 +7,12 @@ import { createBookingAction } from "@/app/actions/bookings";
 import type { BookingFormState } from "@/app/actions/bookings";
 import { Button, Icon, IconButton, Select } from "@/components/ui";
 import { BOOKING_CHANNELS } from "@/lib/data/bookings";
-import type { AdCampaignOption } from "@/types";
+import type { AdCampaignOption, VehicleOption } from "@/types";
 
 const INITIAL: BookingFormState = { error: null };
 
 const NOT_FROM_AN_AD = "Not from an ad";
+const NO_VEHICLE = "No vehicle";
 
 export interface NewBookingModalProps {
   /**
@@ -19,6 +20,11 @@ export interface NewBookingModalProps {
    * account is connected, which hides the field: there is nothing real to pick.
    */
   adCampaigns: AdCampaignOption[];
+  /**
+   * Fleet vehicles the booking can be for. Empty without Fleet, which hides
+   * the field. Completing a booking with a vehicle adds to its service history.
+   */
+  vehicles: VehicleOption[];
   onClose: () => void;
   /** Fired once the server confirms the write, so the list can refresh. */
   onCreated: (ref: string) => void;
@@ -39,7 +45,12 @@ function nextHourLocal() {
  * Mounted only while open, so every opening starts from fresh state — no reset
  * effect, and no stale date left over from the last booking.
  */
-export function NewBookingModal({ adCampaigns, onClose, onCreated }: NewBookingModalProps) {
+export function NewBookingModal({
+  adCampaigns,
+  vehicles,
+  onClose,
+  onCreated,
+}: NewBookingModalProps) {
   const [state, formAction] = useActionState(createBookingAction, INITIAL);
   const [channel, setChannel] = useState(BOOKING_CHANNELS[0]);
   const [adSource, setAdSource] = useState(NOT_FROM_AN_AD);
@@ -54,6 +65,26 @@ export function NewBookingModal({ adCampaigns, onClose, onCreated }: NewBookingM
   }
   const sourceCampaignId = campaignLabels.get(adSource) ?? "";
   const [startsAt, setStartsAt] = useState(nextHourLocal);
+
+  // Plates are unique per business, so the plate alone keys the label.
+  const vehicleLabels = new Map<string, VehicleOption>();
+  for (const vehicle of vehicles) {
+    const owner = vehicle.ownerName ? ` · ${vehicle.ownerName}` : "";
+    vehicleLabels.set(`${vehicle.plate} · ${vehicle.label}${owner}`, vehicle);
+  }
+  const [vehicleChoice, setVehicleChoice] = useState(NO_VEHICLE);
+  const vehicle = vehicleLabels.get(vehicleChoice) ?? null;
+  const [customer, setCustomer] = useState("");
+  const [email, setEmail] = useState("");
+
+  /** Picking a car fills in its owner, without overwriting what was typed. */
+  const chooseVehicle = (choice: string) => {
+    setVehicleChoice(choice);
+    const picked = vehicleLabels.get(choice);
+    if (!picked) return;
+    if (!customer.trim()) setCustomer(picked.ownerName);
+    if (!email.trim()) setEmail(picked.ownerEmail);
+  };
 
   useEffect(() => {
     if (state.createdRef) {
@@ -147,9 +178,32 @@ export function NewBookingModal({ adCampaigns, onClose, onCreated }: NewBookingM
             </div>
           )}
 
+          {vehicles.length > 0 && (
+            <Field label="Vehicle">
+              <input type="hidden" name="vehicleRef" value={vehicle?.ref ?? ""} />
+              <Select
+                size="md"
+                leadingIcon="car"
+                options={[NO_VEHICLE, ...vehicleLabels.keys()]}
+                value={vehicleChoice}
+                onChange={chooseVehicle}
+              />
+              <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                When this booking is completed it is added to the car&apos;s service
+                history in Fleet.
+              </span>
+            </Field>
+          )}
+
           <div className="grid grid-cols-1 gap-3.5 wide:grid-cols-2">
             <Field label="Customer" required>
-              <input name="customer" style={INPUT} placeholder="Sofia Alvarez" />
+              <input
+                name="customer"
+                style={INPUT}
+                placeholder="Sofia Alvarez"
+                value={customer}
+                onChange={(event) => setCustomer(event.target.value)}
+              />
             </Field>
             <Field label="Company">
               <input name="company" style={INPUT} placeholder="Kestrel Haulage" />
@@ -162,6 +216,8 @@ export function NewBookingModal({ adCampaigns, onClose, onCreated }: NewBookingM
               type="email"
               style={INPUT}
               placeholder="sofia@kestrelhaulage.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
             />
           </Field>
 

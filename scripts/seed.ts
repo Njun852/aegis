@@ -18,6 +18,7 @@ import { generatePassword } from "../src/lib/auth/generate-password.ts";
 import { BUSINESSES } from "../src/lib/data/businesses.ts";
 import { BOOKING_SEEDS } from "../src/lib/data/bookings.ts";
 import { AD_ROW_SEEDS } from "../src/lib/data/ads.ts";
+import { FLEET_INDEXES } from "../src/lib/data/fleet.ts";
 import {
   INVENTORY_SEEDS,
   MOVE_REASONS,
@@ -143,6 +144,7 @@ async function main() {
     await seedInventory(db, BUSINESSES[0].id);
     await seedMail(db, BUSINESSES[0].id);
     await seedAds(db, BUSINESSES[0].id);
+    await seedFleetIndexes(db);
 
     // Without an administrator nobody can sign in to create one, so say so
     // plainly rather than leaving a fresh install unusable and silent.
@@ -494,6 +496,18 @@ async function seedAds(db: Db, businessId: string) {
   console.log(
     `✓ ${AD_ROW_SEEDS.length} ad rows for ${businessId} · ${live} campaigns switched on`,
   );
+}
+
+/**
+ * Fleet gets its indexes and nothing else. Customer cars are real people's
+ * property; a sample one in a live database would be read as a real customer,
+ * so the screen starts empty until staff add the first car.
+ */
+async function seedFleetIndexes(db: Db) {
+  for (const index of FLEET_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ fleet indexes (${FLEET_INDEXES.length}), no sample vehicles`);
 }
 
 main().catch((error) => {

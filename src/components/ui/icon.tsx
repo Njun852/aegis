@@ -10,6 +10,7 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  Car,
   Check,
   ChevronDown,
   ChevronRight,
@@ -25,6 +26,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  Gauge,
   Gem,
   Image,
   Inbox,
@@ -39,6 +41,7 @@ import {
   PanelLeft,
   Paperclip,
   PenLine,
+  Phone,
   Plus,
   RefreshCw,
   Search,
@@ -54,6 +57,7 @@ import {
   User,
   Users,
   Wallet,
+  Wrench,
   X,
 } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -78,6 +82,7 @@ const ICONS = {
   briefcase: Briefcase,
   "building-2": Building2,
   calendar: Calendar,
+  car: Car,
   check: Check,
   "chevron-down": ChevronDown,
   "chevron-right": ChevronRight,
@@ -92,6 +97,7 @@ const ICONS = {
   eye: Eye,
   "eye-off": EyeOff,
   "file-text": FileText,
+  gauge: Gauge,
   gem: Gem,
   image: Image,
   inbox: Inbox,
@@ -107,6 +113,7 @@ const ICONS = {
   "panel-left": PanelLeft,
   paperclip: Paperclip,
   "pen-line": PenLine,
+  phone: Phone,
   plus: Plus,
   "refresh-cw": RefreshCw,
   search: Search,
@@ -121,6 +128,7 @@ const ICONS = {
   user: User,
   users: Users,
   wallet: Wallet,
+  wrench: Wrench,
   x: X,
 } satisfies Record<string, LucideIcon>;
 
