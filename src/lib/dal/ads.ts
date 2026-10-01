@@ -4,7 +4,7 @@ import type { Filter } from "mongodb";
 import { DEFAULT_AD_RANGE, type MetaRowDraft } from "@/lib/meta/mapping";
 import { isMetaConfigured } from "./ad-account";
 import { tenantScope } from "./tenant";
-import type { AdCampaignOption, AdRange, AdRow, AdRowDocument, AdSource } from "@/types";
+import type { AdRange, AdRow, AdRowDocument, AdSource } from "@/types";
 
 const COLLECTION = "adRows";
 
@@ -86,31 +86,6 @@ export async function getAdRow(id: string): Promise<AdRow | null> {
   const [collection, source] = await Promise.all([rows(), activeAdSource()]);
   const doc = await collection.findOne({ id, ...sourceFilter(source) });
   return doc ? toRow(doc) : null;
-}
-
-/**
- * The synced Meta campaigns, for the "Ad source" picker on a new booking.
- * Empty when the business has no Meta account connected — there is nothing
- * real to attribute a booking to, and sample campaigns must never be offered.
- * Switched-on campaigns first, then the rest by name.
- */
-export async function listMetaCampaignOptions(): Promise<AdCampaignOption[]> {
-  if ((await activeAdSource()) !== "meta") return [];
-  const collection = await rows();
-  const docs = await collection
-    .find({ source: "meta", level: "campaigns" })
-    .project<{ id: string; name: string; enabled: boolean }>({ id: 1, name: 1, enabled: 1 })
-    .toArray();
-  return docs
-    .map((doc) => ({ id: doc.id, name: doc.name, enabled: doc.enabled }))
-    .sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.name.localeCompare(b.name));
-}
-
-/** One synced Meta campaign, to validate a booking's ad source on the server. */
-export async function findMetaCampaign(id: string): Promise<AdCampaignOption | null> {
-  const collection = await rows();
-  const doc = await collection.findOne({ id, source: "meta", level: "campaigns" });
-  return doc ? { id: doc.id, name: doc.name, enabled: doc.enabled } : null;
 }
 
 export type AdToggleOutcome = "ok" | "not-found" | "read-only";

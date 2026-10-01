@@ -38,6 +38,7 @@ export function Sidebar({
 
   return (
     <aside
+      className="aegis-no-print"
       style={{
         flex: "0 0 auto",
         // Without this the nav labels' min-content width wins over the

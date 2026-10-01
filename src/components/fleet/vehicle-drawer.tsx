@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { CSSProperties, ReactNode } from "react";
@@ -34,12 +35,20 @@ export interface VehicleDrawerProps {
   vehicle: Vehicle;
   /** This vehicle's service records, newest first. */
   history: ServiceRecord[];
+  /** Whether the owner links through to their CRM profile. */
+  crmEnabled: boolean;
   todayIso: string;
   onClose: () => void;
 }
 
 /** The right-hand detail panel for one vehicle. */
-export function VehicleDrawer({ vehicle, history, todayIso, onClose }: VehicleDrawerProps) {
+export function VehicleDrawer({
+  vehicle,
+  history,
+  crmEnabled,
+  todayIso,
+  onClose,
+}: VehicleDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -136,8 +145,22 @@ export function VehicleDrawer({ vehicle, history, todayIso, onClose }: VehicleDr
       `Reading added to the ${record.day} service`,
     );
 
-  const fields = [
-    { icon: "user", label: "Owner", value: vehicle.owner?.name ?? "Not on file" },
+  const fields: { icon: string; label: string; value: ReactNode }[] = [
+    {
+      icon: "user",
+      label: "Owner",
+      value:
+        vehicle.owner && crmEnabled ? (
+          <Link
+            href={`/crm?customer=${encodeURIComponent(vehicle.owner.ref)}`}
+            style={{ color: "var(--accent-primary)", textDecoration: "none" }}
+          >
+            {vehicle.owner.name}
+          </Link>
+        ) : (
+          (vehicle.owner?.name ?? "Not on file")
+        ),
+    },
     { icon: "phone", label: "Phone", value: vehicle.owner?.phone || "—" },
     { icon: "mail", label: "Email", value: vehicle.owner?.email || "—" },
     {

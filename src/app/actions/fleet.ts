@@ -2,10 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/dal/businesses";
+import { createCustomer } from "@/lib/dal/customers";
 import {
   FleetInputError,
   assertPlateFree,
-  createCustomer,
   createVehicle,
   logService,
   setServiceOdometer,

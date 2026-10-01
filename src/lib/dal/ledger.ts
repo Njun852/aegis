@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getDb } from "./db";
 import { tenantScope } from "./tenant";
 import type {
   LedgerEntryDocument,
@@ -23,34 +24,56 @@ async function ledger() {
  * derived from it, and `reconcileBookings` below repairs any entry that failed
  * to post.
  */
-export async function postEntry(entry: {
+interface LedgerPost {
   source: LedgerSource;
   sourceRef: string;
   occurredAt: Date;
   amountCents: number;
   description: string;
   status?: LedgerEntryDocument["status"];
-}): Promise<void> {
-  const collection = await ledger();
-  const now = new Date();
+}
 
+function entryUpdate(entry: LedgerPost) {
+  const now = new Date();
+  return {
+    $set: {
+      occurredAt: entry.occurredAt,
+      amountCents: entry.amountCents,
+      description: entry.description,
+      status: entry.status ?? "recognised",
+      updatedAt: now,
+    },
+    // businessId, source and sourceRef are equality terms in the filter, so
+    // Mongo seeds them onto an inserted document itself — repeating them here
+    // would be a conflicting update path.
+    $setOnInsert: { createdAt: now },
+  };
+}
+
+export async function postEntry(entry: LedgerPost): Promise<void> {
+  const collection = await ledger();
   await collection.updateOne(
     { source: entry.source, sourceRef: entry.sourceRef },
-    {
-      $set: {
-        occurredAt: entry.occurredAt,
-        amountCents: entry.amountCents,
-        description: entry.description,
-        status: entry.status ?? "recognised",
-        updatedAt: now,
-      },
-      // businessId, source and sourceRef are equality terms in the filter, so
-      // Mongo seeds them onto an inserted document itself — repeating them here
-      // would be a conflicting update path.
-      $setOnInsert: { createdAt: now },
-    },
+    entryUpdate(entry),
     { upsert: true },
   );
+}
+
+/**
+ * The same post for a business named explicitly, for the public booking page,
+ * which has no session for `tenantScope` to read. The caller has already
+ * resolved `businessId` from the page's own link; nothing here trusts a value
+ * the visitor sent.
+ */
+export async function postEntryFor(businessId: string, entry: LedgerPost): Promise<void> {
+  const db = await getDb();
+  await db
+    .collection<LedgerEntryDocument>(COLLECTION)
+    .updateOne(
+      { businessId, source: entry.source, sourceRef: entry.sourceRef },
+      entryUpdate(entry),
+      { upsert: true },
+    );
 }
 
 /** Voids rather than deletes, so the cancellation stays visible in the ledger. */

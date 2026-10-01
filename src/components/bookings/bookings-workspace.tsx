@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 import { Avatar, Badge, Button, Icon, SearchInput, Select } from "@/components/ui";
 import {
   countByStatus,
-  countOnDay,
   filterBookings,
   formatDay,
   formatMoney,
@@ -19,14 +18,18 @@ import {
   DEFAULT_BOOKING_RANGE,
 } from "@/lib/data/bookings";
 import { useToast } from "@/components/layout/toast-provider";
+import { monthLabel, monthOfKey, monthPrefix } from "@/lib/booking-calendar";
+import type { CalendarMonth } from "@/lib/booking-calendar";
 import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
+import { BookingsCalendar } from "./bookings-calendar";
 import { NewBookingModal } from "./new-booking-modal";
 import type {
-  AdCampaignOption,
   Booking,
   BookingRange,
   BookingStatusFilter,
+  Customer,
+  RequestMatches,
   VehicleOption,
 } from "@/types";
 
@@ -36,24 +39,35 @@ const GRID =
 
 export interface BookingsWorkspaceProps {
   bookings: Booking[];
-  /** Synced Meta campaigns for the Ad source field. Empty hides the field. */
-  adCampaigns: AdCampaignOption[];
   /** Fleet vehicles for the Vehicle field. Empty without Fleet, which hides it. */
   vehicles: VehicleOption[];
+  /** CRM customers for linking. Null without CRM, which hides both controls. */
+  customers: Customer[] | null;
+  fleetEnabled: boolean;
+  /** What each unlinked online request matches on file, by booking ref. */
+  requestMatches: Record<string, RequestMatches>;
   businessName: string;
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
    * clock so the date maths that runs during SSR and after hydration agree.
    */
   todayIso: string;
+  /** The same "now" as a calendar day, "2026-10-01", for the calendar view. */
+  todayKey: string;
 }
+
+type BookingsView = "List" | "Calendar";
+const VIEWS: BookingsView[] = ["List", "Calendar"];
 
 export function BookingsWorkspace({
   bookings,
-  adCampaigns,
   vehicles,
+  customers,
+  fleetEnabled,
+  requestMatches,
   businessName,
   todayIso,
+  todayKey,
 }: BookingsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
@@ -61,36 +75,60 @@ export function BookingsWorkspace({
   const [status, setStatus] = useState<BookingStatusFilter>("All");
   const [range, setRange] = useState<BookingRange>(DEFAULT_BOOKING_RANGE);
   const [openRef, setOpenRef] = useState<string | null>(null);
-  const [composing, setComposing] = useState(false);
+  // Null while closed; a date key while open from a calendar day, which the
+  // form then starts on; "" while open from the New Booking button.
+  const [composing, setComposing] = useState<string | null>(null);
+  const [view, setView] = useState<BookingsView>("List");
+  const [month, setMonth] = useState<CalendarMonth>(() => monthOfKey(todayKey));
+  const [selectedDay, setSelectedDay] = useState(todayKey);
 
   const today = useMemo(() => new Date(todayIso), [todayIso]);
+  const calendar = view === "Calendar";
 
   // Everything in the current date window, before the status and search
-  // filters. The stat tiles and the chip counts both read off this.
+  // filters. The stat tiles and the chip counts both read off this. The list
+  // takes its window from the range picker; the calendar from the month shown.
   const inWindow = useMemo(
-    () => filterBookings(bookings, { range, today }),
-    [bookings, range, today],
+    () =>
+      calendar
+        ? bookings.filter((booking) => booking.dateKey.startsWith(monthPrefix(month)))
+        : filterBookings(bookings, { range, today }),
+    [bookings, calendar, month, range, today],
+  );
+
+  // The calendar is given every date, so stepping to another month needs no
+  // re-filtering; only status and search narrow it.
+  const matching = useMemo(
+    () => filterBookings(bookings, { range: "All time", today, status, search }),
+    [bookings, today, status, search],
   );
 
   const visible = useMemo(
-    () => filterBookings(bookings, { range, today, status, search }),
-    [bookings, range, today, status, search],
+    () =>
+      calendar
+        ? matching.filter((booking) => booking.dateKey.startsWith(monthPrefix(month)))
+        : filterBookings(bookings, { range, today, status, search }),
+    [bookings, calendar, matching, month, range, today, status, search],
   );
 
   const selected = bookings.find((booking) => booking.ref === openRef) ?? null;
 
   // Null bounds mean "All time", which has no window to name.
   const bounds = rangeBounds(range, today);
-  const windowLabel = bounds
-    ? `${formatDay(bounds.from)} – ${formatDay(
-        new Date(bounds.to.getTime() - 86_400_000),
-      )}`
-    : null;
+  const windowLabel = calendar
+    ? monthLabel(month)
+    : bounds
+      ? `${formatDay(bounds.from)} – ${formatDay(
+          new Date(bounds.to.getTime() - 86_400_000),
+        )}`
+      : null;
 
   const stats = [
     {
       label: `Today · ${formatDay(today)}`,
-      value: String(countOnDay(inWindow, today)),
+      // By the server's calendar day, so the tile and the calendar's "today"
+      // cell can never disagree.
+      value: String(inWindow.filter((booking) => booking.dateKey === todayKey).length),
       icon: "calendar",
       bg: "var(--accent-soft)",
       fg: "var(--accent-primary)",
@@ -103,7 +141,7 @@ export function BookingsWorkspace({
       fg: "var(--status-warning)",
     },
     {
-      label: "Confirmed this range",
+      label: calendar ? "Confirmed this month" : "Confirmed this range",
       value: String(countByStatus(inWindow, "Confirmed")),
       icon: "check-circle-2",
       bg: "var(--status-positive-soft)",
@@ -158,7 +196,49 @@ export function BookingsWorkspace({
               onChange={setSearch}
               width={250}
             />
-            <Button icon="plus" onClick={() => setComposing(true)}>
+            <div
+              role="group"
+              aria-label="View"
+              style={{
+                display: "inline-flex",
+                padding: 3,
+                gap: 2,
+                border: "1px solid var(--border-default)",
+                borderRadius: "var(--radius-md)",
+                background: "var(--surface-card)",
+              }}
+            >
+              {VIEWS.map((option) => {
+                const active = option === view;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setView(option)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      height: 30,
+                      padding: "0 11px",
+                      border: "none",
+                      borderRadius: "var(--radius-sm)",
+                      cursor: "pointer",
+                      fontFamily: "var(--font-body)",
+                      fontSize: "12px",
+                      fontWeight: active ? 700 : 500,
+                      color: active ? "var(--blue-600)" : "var(--text-secondary)",
+                      background: active ? "var(--accent-soft)" : "transparent",
+                    }}
+                  >
+                    <Icon name={option === "List" ? "layers" : "calendar"} size={13} />
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+            <Button icon="plus" onClick={() => setComposing("")}>
               New Booking
             </Button>
           </div>
@@ -298,16 +378,35 @@ export function BookingsWorkspace({
               <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
                 {visible.length} of {inWindow.length} shown
               </span>
-              <Select
-                size="sm"
-                leadingIcon="calendar"
-                options={BOOKING_RANGES}
-                value={range}
-                onChange={(value) => setRange(value as BookingRange)}
-              />
+              {/* The calendar has its own month controls; a range would fight them. */}
+              {!calendar && (
+                <Select
+                  size="sm"
+                  leadingIcon="calendar"
+                  options={BOOKING_RANGES}
+                  value={range}
+                  onChange={(value) => setRange(value as BookingRange)}
+                />
+              )}
             </span>
           </div>
 
+          {calendar && (
+            <BookingsCalendar
+              bookings={matching}
+              month={month}
+              onMonthChange={setMonth}
+              todayKey={todayKey}
+              selectedDay={selectedDay}
+              onSelectDay={setSelectedDay}
+              openRef={openRef}
+              onOpen={setOpenRef}
+              onNewBooking={setComposing}
+            />
+          )}
+
+          {!calendar && (
+          <>
           <div
             className={GRID}
             style={{
@@ -376,6 +475,21 @@ export function BookingsWorkspace({
                         }}
                       >
                         {booking.ref}
+                        {booking.request && (
+                          <span
+                            style={{
+                              marginLeft: 6,
+                              padding: "1px 6px",
+                              borderRadius: "var(--radius-pill)",
+                              background: "var(--accent-soft)",
+                              color: "var(--accent-primary)",
+                              fontFamily: "var(--font-body)",
+                              fontWeight: 600,
+                            }}
+                          >
+                            Online
+                          </span>
+                        )}
                         <span className="wide:hidden"> · {booking.staff}</span>
                       </span>
                     </span>
@@ -496,6 +610,8 @@ export function BookingsWorkspace({
               </div>
             )}
           </div>
+          </>
+          )}
         </section>
       </div>
 
@@ -504,22 +620,26 @@ export function BookingsWorkspace({
           key={selected.ref}
           booking={selected}
           vehicle={vehicles.find((vehicle) => vehicle.ref === selected.vehicleRef) ?? null}
+          customers={customers}
+          fleetEnabled={fleetEnabled}
+          matches={requestMatches[selected.ref] ?? null}
           onClose={() => setOpenRef(null)}
         />
       )}
 
-      {composing && (
+      {composing !== null && (
         <NewBookingModal
-          adCampaigns={adCampaigns}
           vehicles={vehicles}
-          onClose={() => setComposing(false)}
+          customers={customers}
+          initialDate={composing || null}
+          onClose={() => setComposing(null)}
           onCreated={(ref) => {
             toast({
               tone: "success",
               title: `Booking ${ref} created`,
               description: "Saved as Pending — confirm it from the booking.",
             });
-            setComposing(false);
+            setComposing(null);
             // Pull the newly written row back from the server, then open it.
             router.refresh();
             setOpenRef(ref);

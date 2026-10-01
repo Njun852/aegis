@@ -53,10 +53,6 @@ const RANGE_OPTIONS: { key: AdRange; label: string }[] = [
 const GRID =
   "grid gap-3 items-center grid-cols-[34px_minmax(120px,1.6fr)_112px_96px_92px_22px] wide:grid-cols-[34px_minmax(190px,1.7fr)_118px_104px_100px_104px_104px_74px_22px]";
 
-/** The same, with a Bookings column after cost per result. */
-const GRID_WITH_BOOKINGS =
-  "grid gap-3 items-center grid-cols-[34px_minmax(120px,1.6fr)_112px_96px_92px_22px] wide:grid-cols-[34px_minmax(190px,1.7fr)_118px_104px_100px_104px_104px_112px_74px_22px]";
-
 export interface AdsWorkspaceProps {
   rows: AdRow[];
   businessName: string;
@@ -73,12 +69,6 @@ export interface AdsWorkspaceProps {
   /** The connection, when there is one. Never carries the token. */
   meta: MetaAdsStatus | null;
   range: AdRange;
-  /**
-   * Bookings credited to each campaign over the same days as the figures, keyed
-   * by campaign id. Null when bookings are not tracked here — sample data, or a
-   * business without the Bookings module — which hides the booking figures.
-   */
-  bookingsByCampaign: Record<string, number> | null;
 }
 
 export function AdsWorkspace({
@@ -90,7 +80,6 @@ export function AdsWorkspace({
   source,
   meta,
   range,
-  bookingsByCampaign,
 }: AdsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
@@ -99,10 +88,6 @@ export function AdsWorkspace({
   const money = (cents: number, withCents = true) =>
     formatMoneyIn(cents, currency, withCents);
   const [syncing, startSync] = useTransition();
-  const showBookings = live && bookingsByCampaign !== null;
-  const grid = showBookings ? GRID_WITH_BOOKINGS : GRID;
-  const bookingsFor = (row: AdRow) =>
-    showBookings && row.level === "campaigns" ? (bookingsByCampaign?.[row.id] ?? 0) : null;
   const [level, setLevel] = useState<AdLevel>("campaigns");
   const [state, setState] = useState<AdStateFilter>("All");
   const [search, setSearch] = useState("");
@@ -304,24 +289,6 @@ export function AdsWorkspace({
       fg: "var(--text-secondary)",
     },
   ];
-
-  if (showBookings) {
-    const booked = rowsAtLevel(optimisticRows, "campaigns").reduce(
-      (sum, row) => sum + (bookingsByCampaign?.[row.id] ?? 0),
-      0,
-    );
-    stats.push({
-      // Blended: all ad spend in the period over every booking credited to an
-      // ad. Per-campaign figures are in the table.
-      label: booked
-        ? `Bookings · ${money(Math.round(totals.spendCents / booked))} each, blended`
-        : "Bookings · none credited to an ad yet",
-      value: formatCount(booked),
-      icon: "calendar",
-      bg: "var(--status-positive-soft)",
-      fg: "var(--status-positive)",
-    });
-  }
 
   const filters: AdStateFilter[] = ["All", ...AD_STATES];
   const pacing = pacingPercent(totals);
@@ -552,13 +519,7 @@ export function AdsWorkspace({
           </span>
         </div>
 
-        <div
-          className={
-            showBookings
-              ? "grid grid-cols-2 gap-3 wide:grid-cols-5"
-              : "grid grid-cols-2 gap-3 wide:grid-cols-4"
-          }
-        >
+        <div className="grid grid-cols-2 gap-3 wide:grid-cols-4">
           {stats.map((stat) => (
             <div
               key={stat.label}
@@ -769,7 +730,7 @@ export function AdsWorkspace({
           </div>
 
           <div
-            className={grid}
+            className={GRID}
             style={{
               padding: "0 10px 8px",
               borderBottom: "1px solid var(--border-subtle)",
@@ -786,11 +747,6 @@ export function AdsWorkspace({
             <ColumnLabel className="hidden text-right wide:block">
               Cost / result
             </ColumnLabel>
-            {showBookings && (
-              <ColumnLabel className="hidden text-right wide:block">
-                Bookings
-              </ColumnLabel>
-            )}
             <ColumnLabel className="hidden text-right wide:block">
               ROAS
             </ColumnLabel>
@@ -810,7 +766,7 @@ export function AdsWorkspace({
                   aria-label={`${row.name} — ${status}`}
                   onClick={() => setOpenId(row.id)}
                   onKeyDown={activateOnKey(() => setOpenId(row.id))}
-                  className={grid}
+                  className={GRID}
                   style={{
                     padding: "10px",
                     borderRadius: "10px",
@@ -1008,14 +964,6 @@ export function AdsWorkspace({
                     {cpr ? money(cpr) : "—"}
                   </span>
 
-                  {showBookings && (
-                    <BookingsCell
-                      count={bookingsFor(row)}
-                      spendCents={row.spendCents}
-                      money={money}
-                    />
-                  )}
-
                   <span
                     className="hidden wide:block"
                     style={{
@@ -1074,51 +1022,10 @@ export function AdsWorkspace({
           accountCostPerResultCents={totals.costPerResultCents}
           currency={currency}
           live={live}
-          bookings={bookingsFor(selected)}
           onClose={() => setOpenId(null)}
         />
       )}
     </>
-  );
-}
-
-/**
- * Bookings are credited per campaign — that is what staff pick on a booking —
- * so ad sets and ads show a dash rather than a guessed split.
- */
-function BookingsCell({
-  count,
-  spendCents,
-  money,
-}: {
-  count: number | null;
-  spendCents: number;
-  money: (cents: number, withCents?: boolean) => string;
-}) {
-  if (count === null) {
-    return (
-      <span
-        className="hidden wide:block"
-        style={{ fontSize: "12.5px", textAlign: "right", color: "var(--text-muted)" }}
-        title="Bookings are credited to campaigns"
-      >
-        —
-      </span>
-    );
-  }
-  return (
-    <span className="hidden flex-col text-right leading-tight wide:flex">
-      <span style={{ fontSize: "12.5px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-        {count ? formatCount(count) : "—"}
-      </span>
-      <span style={{ fontSize: "10.5px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-        {count
-          ? `${money(Math.round(spendCents / count))} each`
-          : spendCents
-            ? "none yet"
-            : ""}
-      </span>
-    </span>
   );
 }
 

@@ -29,6 +29,8 @@ export interface FleetWorkspaceProps {
   customers: Customer[];
   /** Every service record for the business, newest first. */
   history: ServiceRecord[];
+  /** Whether owners link through to their CRM profile. */
+  crmEnabled: boolean;
   businessName: string;
   /** "Now" as the server saw it, for the date a new service log defaults to. */
   todayIso: string;
@@ -38,6 +40,7 @@ export function FleetWorkspace({
   vehicles,
   customers,
   history,
+  crmEnabled,
   businessName,
   todayIso,
 }: FleetWorkspaceProps) {
@@ -318,6 +321,7 @@ export function FleetWorkspace({
           key={selected.ref}
           vehicle={selected}
           history={selectedHistory}
+          crmEnabled={crmEnabled}
           todayIso={todayIso}
           onClose={() => setOpenRef(null)}
         />

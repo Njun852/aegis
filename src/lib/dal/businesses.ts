@@ -1,12 +1,15 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
-import { businessesCollection } from "./db";
+import { RESERVED_SLUGS } from "@/lib/data/booking-page";
+import { businessesCollection, getDb } from "./db";
+import { InputError, isDuplicateKey } from "./refs";
 import { allowedBusinessIds, requireAdmin, verifySession } from "./session";
 import type {
   Business,
   BusinessDocument,
   ModuleKey,
+  OnlineBookingStatus,
   OptionalModuleKey,
 } from "@/types";
 
@@ -171,4 +174,63 @@ export async function requireModule(key: ModuleKey): Promise<Business> {
     throw new Error(`The ${key} module is not enabled for ${business.name}.`);
   }
   return business;
+}
+
+/** The public booking page's settings and how much it has been used. Admin-only. */
+export async function readOnlineBookingStatus(businessId: string): Promise<OnlineBookingStatus> {
+  await requireAdmin();
+  const businesses = await businessesCollection();
+  const doc = await businesses.findOne({ businessId });
+  const db = await getDb();
+  const requestCount = await db
+    .collection("bookings")
+    .countDocuments({ businessId, "request.code": { $type: "string" } });
+  return {
+    enabled: doc?.onlineBooking?.enabled ?? false,
+    slug: doc?.onlineBooking?.slug ?? null,
+    hasBookings: doc?.modules.includes("bookings") ?? false,
+    requestCount,
+  };
+}
+
+/**
+ * Switches the public booking page on or off and sets its link. Admin-only,
+ * because switching it on publishes a page anyone can reach without an
+ * account. A link another business already uses is refused by the unique
+ * index as well as by the check here.
+ */
+export async function setOnlineBooking(
+  businessId: string,
+  settings: { enabled: boolean; slug: string },
+): Promise<void> {
+  await requireAdmin();
+
+  const slug = settings.slug.trim().toLowerCase();
+  if (!/^[a-z0-9-]{3,40}$/.test(slug) || slug.startsWith("-") || slug.endsWith("-")) {
+    throw new InputError(
+      "The link name needs 3 to 40 lower-case letters, digits or dashes, not starting or ending with a dash.",
+    );
+  }
+  if (RESERVED_SLUGS.includes(slug)) {
+    throw new InputError(`"${slug}" is reserved. Choose another link name.`);
+  }
+
+  const businesses = await businessesCollection();
+  const doc = await businesses.findOne({ businessId });
+  if (!doc) throw new InputError("That business is no longer on file.");
+  if (settings.enabled && !doc.modules.includes("bookings")) {
+    throw new InputError(`Grant the Bookings module to ${doc.name} before opening its booking page.`);
+  }
+
+  try {
+    await businesses.updateOne(
+      { businessId },
+      { $set: { onlineBooking: { enabled: settings.enabled, slug } } },
+    );
+  } catch (error) {
+    if (isDuplicateKey(error)) {
+      throw new InputError(`Another business already uses /book/${slug}.`);
+    }
+    throw error;
+  }
 }

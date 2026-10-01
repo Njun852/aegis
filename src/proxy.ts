@@ -30,11 +30,14 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   /**
-   * Everything except the auth endpoints, the login page, static assets, and
-   * the Meta webhook — Meta arrives with no session, and that route proves who
-   * it is by checking Meta's signature instead.
+   * Everything except the auth endpoints, the login page, static assets, the
+   * Meta webhook — Meta arrives with no session, and that route proves who it
+   * is by checking Meta's signature instead — and the public booking page,
+   * which customers use without an account. That page reaches the database
+   * only through `src/lib/dal/public-booking.ts`, by the business its link
+   * names, and its actions are rate limited per visitor.
    */
   matcher: [
-    "/((?!api/auth|api/meta/webhook|login|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|api/meta/webhook|book/|login|_next/static|_next/image|favicon.ico).*)",
   ],
 };

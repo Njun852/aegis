@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Sidebar } from "./sidebar";
-import { SyncProvider, useSync } from "./sync-provider";
+import { SyncProvider } from "./sync-provider";
 import type { MailFreshnessState } from "@/types";
 import { ToastProvider } from "./toast-provider";
 import { Topbar } from "./topbar";
@@ -41,10 +41,12 @@ export function AppShell({
 function ShellFrame({ children, unreadCount }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const { label: lastSync, tone: syncTone, connected } = useSync();
 
   return (
     <div
+      // Class hooks for the print rules in globals.css: on paper the shell
+      // stops being a fixed-height scroll box, so a long page prints in full.
+      className="aegis-shell"
       style={{
         display: "flex",
         height: "100vh",
@@ -70,13 +72,11 @@ function ShellFrame({ children, unreadCount }: AppShellProps) {
         }}
       >
         <Topbar
-          lastSync={lastSync}
-          syncTone={syncTone}
-          mailboxConnected={connected}
           hasNotifications={unreadCount > 0}
           onToggleSidebar={() => setCollapsed((isCollapsed) => !isCollapsed)}
         />
         <main
+          className="aegis-shell-main"
           style={{
             flex: 1,
             minHeight: 0,

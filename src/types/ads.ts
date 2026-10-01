@@ -105,7 +105,7 @@ export interface AdRowDocument extends Omit<AdRow, "businessId" | "source"> {
   /**
    * The Meta campaign this row belongs to, on every Meta row including ad sets
    * and ads. A Messenger chat names the ad it came from, and this is what turns
-   * that into the campaign a booking is credited to.
+   * that into the campaign the chat is credited to.
    */
   campaignId?: string;
   metrics?: Record<AdRange, AdMetrics>;
@@ -164,13 +164,6 @@ export interface AdSyncDocument {
   rowCount: number;
   /** Today's account spend at the last sync, for the pacing bar. Minor units. */
   spentTodayCents: number | null;
-}
-
-/** A synced Meta campaign, as the booking form's "Ad source" picker offers it. */
-export interface AdCampaignOption {
-  id: string;
-  name: string;
-  enabled: boolean;
 }
 
 /** What screens may know about a Meta connection. Never the token. */

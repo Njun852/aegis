@@ -7,24 +7,27 @@ import { createBookingAction } from "@/app/actions/bookings";
 import type { BookingFormState } from "@/app/actions/bookings";
 import { Button, Icon, IconButton, Select } from "@/components/ui";
 import { BOOKING_CHANNELS } from "@/lib/data/bookings";
-import type { AdCampaignOption, VehicleOption } from "@/types";
+import type { Customer, VehicleOption } from "@/types";
 
 const INITIAL: BookingFormState = { error: null };
 
-const NOT_FROM_AN_AD = "Not from an ad";
 const NO_VEHICLE = "No vehicle";
+const NOT_LINKED = "Not linked to a customer";
+const NEW_CUSTOMER = "New customer from the details below";
 
 export interface NewBookingModalProps {
-  /**
-   * The synced Meta campaigns a booking can be credited to. Empty when no Meta
-   * account is connected, which hides the field: there is nothing real to pick.
-   */
-  adCampaigns: AdCampaignOption[];
   /**
    * Fleet vehicles the booking can be for. Empty without Fleet, which hides
    * the field. Completing a booking with a vehicle adds to its service history.
    */
   vehicles: VehicleOption[];
+  /**
+   * CRM customers the booking can belong to. Null without CRM, which hides the
+   * field; the booking then keeps only the typed name, as before.
+   */
+  customers: Customer[] | null;
+  /** "2026-10-01" to start the form on that day, as from a calendar cell. */
+  initialDate?: string | null;
   onClose: () => void;
   /** Fired once the server confirms the write, so the list can refresh. */
   onCreated: (ref: string) => void;
@@ -46,25 +49,19 @@ function nextHourLocal() {
  * effect, and no stale date left over from the last booking.
  */
 export function NewBookingModal({
-  adCampaigns,
   vehicles,
+  customers,
+  initialDate,
   onClose,
   onCreated,
 }: NewBookingModalProps) {
   const [state, formAction] = useActionState(createBookingAction, INITIAL);
   const [channel, setChannel] = useState(BOOKING_CHANNELS[0]);
-  const [adSource, setAdSource] = useState(NOT_FROM_AN_AD);
-
-  // The picker shows names, the form submits ids. Two campaigns can share a
-  // name, so a repeated one gets the end of its id to tell them apart.
-  const campaignLabels = new Map<string, string>();
-  for (const campaign of adCampaigns) {
-    const taken = [...campaignLabels.keys()].includes(campaign.name);
-    const label = taken ? `${campaign.name} (…${campaign.id.slice(-4)})` : campaign.name;
-    campaignLabels.set(label, campaign.id);
-  }
-  const sourceCampaignId = campaignLabels.get(adSource) ?? "";
-  const [startsAt, setStartsAt] = useState(nextHourLocal);
+  // From the calendar the day is already chosen; 9am is a starting point the
+  // person then adjusts.
+  const [startsAt, setStartsAt] = useState(() =>
+    initialDate ? `${initialDate}T09:00` : nextHourLocal(),
+  );
 
   // Plates are unique per business, so the plate alone keys the label.
   const vehicleLabels = new Map<string, VehicleOption>();
@@ -76,14 +73,40 @@ export function NewBookingModal({
   const vehicle = vehicleLabels.get(vehicleChoice) ?? null;
   const [customer, setCustomer] = useState("");
   const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
 
-  /** Picking a car fills in its owner, without overwriting what was typed. */
+  // Names repeat, so each label carries the phone, and a label that still
+  // collides gets the ref.
+  const customerLabels = new Map<string, Customer>();
+  for (const entry of customers ?? []) {
+    let label = entry.phone ? `${entry.name} · ${entry.phone}` : entry.name;
+    if (customerLabels.has(label)) label = `${label} (${entry.ref})`;
+    customerLabels.set(label, entry);
+  }
+  const labelFor = (ref: string) =>
+    [...customerLabels.entries()].find(([, entry]) => entry.ref === ref)?.[0];
+  const [customerChoice, setCustomerChoice] = useState(NOT_LINKED);
+  // A booking for a car is its owner's, so the car decides the customer.
+  const effectiveChoice = vehicle ? (labelFor(vehicle.customerRef) ?? NOT_LINKED) : customerChoice;
+  const linkedCustomer = customerLabels.get(effectiveChoice) ?? null;
+
+  /** Fills blank fields from a picked customer or car owner; never overwrites typing. */
+  const fillFrom = (details: { name: string; email: string; company?: string }) => {
+    if (!customer.trim()) setCustomer(details.name);
+    if (!email.trim()) setEmail(details.email);
+    if (!company.trim() && details.company) setCompany(details.company);
+  };
+
   const chooseVehicle = (choice: string) => {
     setVehicleChoice(choice);
     const picked = vehicleLabels.get(choice);
-    if (!picked) return;
-    if (!customer.trim()) setCustomer(picked.ownerName);
-    if (!email.trim()) setEmail(picked.ownerEmail);
+    if (picked) fillFrom({ name: picked.ownerName, email: picked.ownerEmail });
+  };
+
+  const chooseCustomer = (choice: string) => {
+    setCustomerChoice(choice);
+    const picked = customerLabels.get(choice);
+    if (picked) fillFrom(picked);
   };
 
   useEffect(() => {
@@ -195,6 +218,31 @@ export function NewBookingModal({
             </Field>
           )}
 
+          {customers !== null && (
+            <Field label="Customer record">
+              <input type="hidden" name="customerRef" value={linkedCustomer?.ref ?? ""} />
+              <input
+                type="hidden"
+                name="newCustomer"
+                value={!vehicle && customerChoice === NEW_CUSTOMER ? "1" : ""}
+              />
+              <Select
+                size="md"
+                leadingIcon="users"
+                options={[NOT_LINKED, NEW_CUSTOMER, ...customerLabels.keys()]}
+                value={effectiveChoice}
+                onChange={chooseCustomer}
+                disabled={vehicle !== null}
+                title={vehicle ? "A booking for a car belongs to its owner." : undefined}
+              />
+              <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                {vehicle
+                  ? "Set by the vehicle: a booking for a car belongs to its owner."
+                  : "Links the booking to the customer's history in CRM."}
+              </span>
+            </Field>
+          )}
+
           <div className="grid grid-cols-1 gap-3.5 wide:grid-cols-2">
             <Field label="Customer" required>
               <input
@@ -206,7 +254,13 @@ export function NewBookingModal({
               />
             </Field>
             <Field label="Company">
-              <input name="company" style={INPUT} placeholder="Kestrel Haulage" />
+              <input
+                name="company"
+                style={INPUT}
+                placeholder="Kestrel Haulage"
+                value={company}
+                onChange={(event) => setCompany(event.target.value)}
+              />
             </Field>
           </div>
 
@@ -276,23 +330,6 @@ export function NewBookingModal({
               onChange={setChannel}
             />
           </Field>
-
-          {adCampaigns.length > 0 && (
-            <Field label="Ad source">
-              <input type="hidden" name="sourceCampaignId" value={sourceCampaignId} />
-              <Select
-                size="md"
-                leadingIcon="megaphone"
-                options={[NOT_FROM_AN_AD, ...campaignLabels.keys()]}
-                value={adSource}
-                onChange={setAdSource}
-              />
-              <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-                The campaign the customer came from, usually the ad they messaged
-                from. It is what the Ads screen counts cost per booking on.
-              </span>
-            </Field>
-          )}
 
           <Field label="Notes">
             <textarea

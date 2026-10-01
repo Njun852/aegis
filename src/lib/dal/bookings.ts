@@ -1,6 +1,7 @@
 import "server-only";
 
 import { formatDay, formatDuration, formatTimeRange } from "@/lib/bookings";
+import { dateKeyOf } from "@/lib/booking-calendar";
 import { syncBookingService } from "./fleet";
 import { postEntry, setEntryStatus } from "./ledger";
 import { tenantScope } from "./tenant";
@@ -38,6 +39,7 @@ function toBooking(doc: BookingDocument): Booking {
     service: doc.service,
     startsAt: doc.startsAt.toISOString(),
     durationMinutes: doc.durationMinutes,
+    dateKey: dateKeyOf(doc.startsAt),
     day: formatDay(doc.startsAt),
     time: formatTimeRange(doc.startsAt, doc.durationMinutes),
     duration: formatDuration(doc.durationMinutes),
@@ -46,8 +48,17 @@ function toBooking(doc: BookingDocument): Booking {
     status: doc.status,
     channel: doc.channel,
     notes: doc.notes,
-    source: doc.source ?? null,
     vehicleRef: doc.vehicleRef ?? null,
+    customerRef: doc.customerRef ?? null,
+    // The stored lookup key and timestamp stay on the server.
+    request: doc.request
+      ? {
+          code: doc.request.code,
+          mobile: doc.request.mobile,
+          heardFrom: doc.request.heardFrom,
+          vehicle: doc.request.vehicle,
+        }
+      : null,
   };
 }
 
@@ -127,8 +138,8 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
         status: "Pending",
         channel: input.channel,
         notes: input.notes,
-        ...(input.source ? { source: input.source } : {}),
         ...(input.vehicleRef ? { vehicleRef: input.vehicleRef } : {}),
+        ...(input.customerRef ? { customerRef: input.customerRef } : {}),
         createdAt: new Date(),
       });
 
@@ -153,6 +164,103 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
   }
 
   throw new Error("Could not allocate a booking reference; please retry.");
+}
+
+/** One customer's bookings, newest first, for the CRM profile. */
+export async function listBookingsForCustomer(customerRef: string): Promise<Booking[]> {
+  const collection = await bookings();
+  const docs = await collection.find({ customerRef }).sort({ startsAt: -1 }).toArray();
+  return docs.map(toBooking);
+}
+
+export interface CustomerBookingTotals {
+  bookingCount: number;
+  bookedValueCents: number;
+  lastActivityAt: Date | null;
+  lastVisitAt: Date | null;
+}
+
+/**
+ * What each customer's linked bookings add up to, for the CRM list. A cancelled
+ * booking still counts as a booking but adds no value and is not activity: it
+ * did not happen.
+ */
+export async function totalBookingsByCustomer(): Promise<Map<string, CustomerBookingTotals>> {
+  const collection = await bookings();
+  const rows = await collection
+    .aggregate([
+      { $match: { customerRef: { $type: "string" } } },
+      {
+        $group: {
+          _id: "$customerRef",
+          bookingCount: { $sum: 1 },
+          bookedValueCents: {
+            $sum: { $cond: [{ $eq: ["$status", "Cancelled"] }, 0, "$valueCents"] },
+          },
+          lastActivityAt: {
+            $max: { $cond: [{ $eq: ["$status", "Cancelled"] }, null, "$startsAt"] },
+          },
+          lastVisitAt: {
+            $max: { $cond: [{ $eq: ["$status", "Completed"] }, "$startsAt", null] },
+          },
+        },
+      },
+    ])
+    .toArray();
+
+  return new Map(
+    rows.map((row) => [
+      String(row._id),
+      {
+        bookingCount: Number(row.bookingCount),
+        bookedValueCents: Number(row.bookedValueCents),
+        lastActivityAt: row.lastActivityAt ?? null,
+        lastVisitAt: row.lastVisitAt ?? null,
+      },
+    ]),
+  );
+}
+
+/**
+ * Who does the work, what it is worth and how long it takes. Online requests
+ * arrive unassigned at zero, so staff set these when they review one; the
+ * ledger entry follows the new value.
+ */
+export async function updateBookingDetails(
+  ref: string,
+  details: { staff: string; valueCents: number; durationMinutes: number },
+): Promise<void> {
+  const collection = await bookings();
+  const result = await collection.updateOne({ ref }, { $set: details });
+  if (result.matchedCount === 0) throw new Error(`Booking ${ref} is no longer on file.`);
+  const updated = await getBooking(ref);
+  if (updated) await syncLedger(updated);
+}
+
+/**
+ * Attaches a vehicle to a booking after the fact, for an online request whose
+ * car staff have just added to Fleet. A completed booking gets its history
+ * line at once.
+ */
+export async function linkBookingVehicle(ref: string, vehicleRef: string): Promise<void> {
+  const collection = await bookings();
+  const result = await collection.updateOne({ ref }, { $set: { vehicleRef } });
+  if (result.matchedCount === 0) throw new Error(`Booking ${ref} is no longer on file.`);
+  const linked = await getBooking(ref);
+  if (linked) await syncBookingService(linked);
+}
+
+/** Sets or clears which customer a booking belongs to. */
+export async function linkBookingCustomer(
+  ref: string,
+  customerRef: string | null,
+): Promise<void> {
+  const collection = await bookings();
+  const result = await collection.updateOne(
+    { ref },
+    customerRef ? { $set: { customerRef } } : { $unset: { customerRef: "" } },
+  );
+  if (result.matchedCount === 0) throw new Error(`Booking ${ref} is no longer on file.`);
 }
 
 export async function setBookingStatus(
@@ -196,36 +304,6 @@ export async function rescheduleBooking(
 }
 
 /** Which business the current request is scoped to — handy for page headers. */
-/**
- * Bookings per Meta campaign, made (not scheduled) within `[from, to)`. A null
- * bound is open. Cancelled bookings are left out: a booking that did not happen
- * should not make an ad look cheaper per booking than it was.
- */
-export async function countBookingsByCampaign(
-  from: Date | null,
-  to: Date | null,
-): Promise<Record<string, number>> {
-  const collection = await bookings();
-  const createdAt: Record<string, Date> = {};
-  if (from) createdAt.$gte = from;
-  if (to) createdAt.$lt = to;
-
-  const rows = await collection
-    .aggregate([
-      {
-        $match: {
-          "source.campaignId": { $exists: true, $ne: "" },
-          status: { $ne: "Cancelled" },
-          ...(from || to ? { createdAt } : {}),
-        },
-      },
-      { $group: { _id: "$source.campaignId", count: { $sum: 1 } } },
-    ])
-    .toArray();
-
-  return Object.fromEntries(rows.map((row) => [String(row._id), Number(row.count)]));
-}
-
 export async function activeBusinessId(): Promise<string> {
   const { activeBusinessId: id } = await verifySession();
   return id;

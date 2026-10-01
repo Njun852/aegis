@@ -58,8 +58,8 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
     key: "crm",
     name: "CRM",
     icon: "users",
-    desc: "Customer records, pipeline stages and follow-up tasks for the sales team.",
-    href: "/modules/crm",
+    desc: "Customer records with their vehicles, bookings and value over time.",
+    href: "/crm",
   },
   {
     key: "fleet",

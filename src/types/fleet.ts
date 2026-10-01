@@ -1,26 +1,4 @@
-/**
- * A customer, in the one shape Fleet and CRM share. Kept deliberately small:
- * Fleet needs an owner to call about a car that is due, and CRM will add its
- * own fields and screens over these same records rather than a second store.
- */
-export interface Customer {
-  ref: string;
-  name: string;
-  phone: string;
-  email: string;
-  notes: string;
-}
-
-/** Stored shape. `businessId` is stamped on by `tenantScope`. */
-export interface CustomerDocument {
-  businessId: string;
-  ref: string;
-  name: string;
-  phone: string;
-  email: string;
-  notes: string;
-  createdAt: Date;
-}
+import type { Customer } from "./customers";
 
 export type ServiceSource = "manual" | "booking";
 
@@ -138,6 +116,8 @@ export interface VehicleOption {
   ref: string;
   plate: string;
   label: string;
+  /** The owner. A booking for this car belongs to them. */
+  customerRef: string;
   ownerName: string;
   ownerEmail: string;
 }

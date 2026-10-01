@@ -1,15 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  linkBookingCustomerAction,
   rescheduleBookingAction,
   setBookingStatusAction,
+  updateBookingDetailsAction,
 } from "@/app/actions/bookings";
-import { Badge, Avatar, Button, Icon, IconButton } from "@/components/ui";
+import { Badge, Avatar, Button, Icon, IconButton, Select } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
 import { bookingTimeline, formatMoney, getStatusStyle } from "@/lib/bookings";
-import type { Booking, BookingStatus, VehicleOption } from "@/types";
+import type { Booking, BookingStatus, Customer, RequestMatches, VehicleOption } from "@/types";
+import { RequestPanel } from "./request-panel";
+
+const NOT_LINKED = "Not linked";
 
 /** `<input type="datetime-local">` wants local wall-clock, not an ISO Z time. */
 function toLocalInput(iso: string) {
@@ -24,11 +30,23 @@ export interface BookingDrawerProps {
   booking: Booking;
   /** The linked Fleet vehicle, when the booking has one and Fleet is on. */
   vehicle: VehicleOption | null;
+  /** CRM customers. Null without CRM, which hides the customer row and link. */
+  customers: Customer[] | null;
+  fleetEnabled: boolean;
+  /** For an online request still being linked: what its mobile and plate match. */
+  matches: RequestMatches | null;
   onClose: () => void;
 }
 
 /** The right-hand detail panel for one booking. */
-export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps) {
+export function BookingDrawer({
+  booking,
+  vehicle,
+  customers,
+  fleetEnabled,
+  matches,
+  onClose,
+}: BookingDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -36,6 +54,21 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
   const [startsAt, setStartsAt] = useState(() => toLocalInput(booking.startsAt));
   const [minutes, setMinutes] = useState(booking.durationMinutes);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [staff, setStaff] = useState(booking.staff === "Unassigned" ? "" : booking.staff);
+  const [value, setValue] = useState((booking.valueCents / 100).toFixed(2));
+  const [duration, setDuration] = useState(booking.durationMinutes);
+
+  const linked = customers?.find((entry) => entry.ref === booking.customerRef) ?? null;
+  const customerLabels = new Map<string, string>();
+  for (const entry of customers ?? []) {
+    let label = entry.phone ? `${entry.name} · ${entry.phone}` : entry.name;
+    if (customerLabels.has(label)) label = `${label} (${entry.ref})`;
+    customerLabels.set(label, entry.ref);
+  }
+  const linkedLabel =
+    [...customerLabels.entries()].find(([, ref]) => ref === booking.customerRef)?.[0] ?? NOT_LINKED;
+  const [linkChoice, setLinkChoice] = useState(linkedLabel);
 
   const status = getStatusStyle(booking.status);
 
@@ -76,6 +109,35 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
           ? `${booking.ref} cancelled`
           : `${booking.ref} moved to ${next}`,
     });
+
+  const saveLink = () => {
+    const customerRef = customerLabels.get(linkChoice) ?? null;
+    run(
+      async () => {
+        const result = await linkBookingCustomerAction(booking.ref, customerRef);
+        if (!result.ok) throw new Error(result.error);
+      },
+      {
+        done: customerRef
+          ? `${booking.ref} linked to ${linkChoice.split(" · ")[0]}`
+          : `${booking.ref} unlinked from its customer`,
+      },
+    );
+  };
+
+  const saveDetails = () =>
+    run(
+      async () => {
+        const result = await updateBookingDetailsAction(booking.ref, {
+          staff,
+          value,
+          durationMinutes: Number(duration),
+        });
+        if (!result.ok) throw new Error(result.error);
+        setEditing(false);
+      },
+      { done: `${booking.ref} details saved`, inline: true },
+    );
 
   const saveReschedule = () =>
     run(
@@ -122,14 +184,27 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
       label: "When",
       value: `${booking.day}, ${new Date(booking.startsAt).getFullYear()} · ${booking.time}`,
     },
+    ...(linked
+      ? [
+          {
+            icon: "users",
+            label: "Customer",
+            value: (
+              <Link
+                href={`/crm?customer=${encodeURIComponent(linked.ref)}`}
+                style={{ color: "var(--accent-primary)", textDecoration: "none" }}
+              >
+                {linked.name} · {linked.ref}
+              </Link>
+            ) as React.ReactNode,
+          },
+        ]
+      : []),
     ...(vehicle
       ? [{ icon: "car", label: "Vehicle", value: `${vehicle.plate} · ${vehicle.label}` }]
       : []),
     { icon: "user", label: "Assigned to", value: booking.staff },
-    { icon: "mail", label: "Contact", value: booking.email },
-    ...(booking.source
-      ? [{ icon: "megaphone", label: "Ad source", value: booking.source.campaignName }]
-      : []),
+    { icon: "mail", label: "Contact", value: booking.email || booking.request?.mobile || "—" },
     {
       icon: "wallet",
       label: "Value",
@@ -223,6 +298,17 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
             gap: "14px",
           }}
         >
+          {booking.request && (
+            <RequestPanel
+              booking={{ ...booking, request: booking.request }}
+              crmEnabled={customers !== null}
+              fleetEnabled={fleetEnabled}
+              matches={matches}
+              pending={pending}
+              run={run}
+            />
+          )}
+
           <div
             style={{
               display: "flex",
@@ -272,6 +358,35 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
               </div>
             ))}
           </div>
+
+          {customers !== null && !booking.vehicleRef && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <SectionLabel>Customer record</SectionLabel>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Select
+                  size="sm"
+                  leadingIcon="users"
+                  options={[NOT_LINKED, ...customerLabels.keys()]}
+                  value={linkChoice}
+                  onChange={setLinkChoice}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <Button
+                  size="sm"
+                  icon="check"
+                  onClick={saveLink}
+                  disabled={pending || linkChoice === linkedLabel}
+                >
+                  {linked && linkChoice === NOT_LINKED ? "Unlink" : "Link"}
+                </Button>
+              </div>
+              {customers.length === 0 && (
+                <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                  No customers yet. Add them in CRM first.
+                </span>
+              )}
+            </div>
+          )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             <SectionLabel>Notes</SectionLabel>
@@ -329,7 +444,7 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
           </div>
         </div>
 
-        {(error || rescheduling) && (
+        {(error || rescheduling || editing) && (
           <div
             style={{
               flex: "0 0 auto",
@@ -356,6 +471,46 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
               >
                 <Icon name="circle-alert" size={14} />
                 {error}
+              </div>
+            )}
+
+            {editing && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <SectionLabel>Edit details</SectionLabel>
+                <input
+                  value={staff}
+                  onChange={(event) => setStaff(event.target.value)}
+                  placeholder="Assigned to"
+                  aria-label="Assigned to"
+                  style={EDITOR_INPUT}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <input
+                    inputMode="decimal"
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    aria-label="Value"
+                    placeholder="Value"
+                    style={EDITOR_INPUT}
+                  />
+                  <input
+                    type="number"
+                    min={5}
+                    step={5}
+                    value={duration}
+                    onChange={(event) => setDuration(Number(event.target.value))}
+                    aria-label="Duration in minutes"
+                    style={{ ...EDITOR_INPUT, width: 84, flex: "0 0 auto" }}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <Button size="sm" icon="check" onClick={saveDetails} disabled={pending}>
+                    {pending ? "Saving…" : "Save details"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
+                    Cancel
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -425,10 +580,23 @@ export function BookingDrawer({ booking, vehicle, onClose }: BookingDrawerProps)
             variant="outline"
             icon="clock"
             disabled={pending || closed}
-            onClick={() => setRescheduling((open) => !open)}
+            onClick={() => {
+              setEditing(false);
+              setRescheduling((open) => !open);
+            }}
           >
             Reschedule
           </Button>
+          <IconButton
+            icon="pen-line"
+            size={36}
+            label="Edit details"
+            disabled={pending}
+            onClick={() => {
+              setRescheduling(false);
+              setEditing((open) => !open);
+            }}
+          />
           <IconButton
             icon="trash-2"
             size={36}

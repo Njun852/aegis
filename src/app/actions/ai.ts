@@ -17,7 +17,8 @@ import { explainFailure } from "@/lib/ai/failures";
 import { requireModule } from "@/lib/dal/businesses";
 import { applyReplyDraft, findMessage } from "@/lib/dal/mail";
 import { DATE_RANGES } from "@/lib/data/dashboard";
-import type { DateRange } from "@/types";
+import { generateReportSummary } from "@/lib/ai/report";
+import type { DateRange, ReportSummary } from "@/types";
 
 /**
  * The only entry points to the model from the browser. Each one asserts the
@@ -49,6 +50,37 @@ export async function generateInsightAction(
   return result.ok
     ? { text: result.data, note: null }
     : { text: null, note: explainFailure(result.reason) };
+}
+
+export interface ReportSummaryState {
+  summary: ReportSummary | null;
+  /** Why there is no summary, worded for a person. */
+  note: string | null;
+}
+
+/**
+ * Writes the full report's AI summary. This is the only thing that can start
+ * that generation: opening the report reads the cache and nothing else. A
+ * repeat for unchanged figures is served from the cache at no cost.
+ */
+export async function generateReportSummaryAction(
+  range: DateRange,
+): Promise<ReportSummaryState> {
+  await requireModule("dashboard");
+
+  // The range is the only thing taken from the browser; the figures are
+  // rebuilt on the server.
+  if (!DATE_RANGES.includes(range)) {
+    return { summary: null, note: "That report range is not one AEGIS offers." };
+  }
+  if (!isAiConfigured()) {
+    return { summary: null, note: "AI is not configured on this install." };
+  }
+
+  const result = await generateReportSummary(range);
+  return result.ok
+    ? { summary: result.data, note: null }
+    : { summary: null, note: explainFailure(result.reason) };
 }
 
 export interface SyncInboxState {

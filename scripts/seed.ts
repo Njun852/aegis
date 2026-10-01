@@ -18,6 +18,8 @@ import { generatePassword } from "../src/lib/auth/generate-password.ts";
 import { BUSINESSES } from "../src/lib/data/businesses.ts";
 import { BOOKING_SEEDS } from "../src/lib/data/bookings.ts";
 import { AD_ROW_SEEDS } from "../src/lib/data/ads.ts";
+import { BOOKING_PAGE_INDEXES } from "../src/lib/data/booking-page.ts";
+import { CRM_INDEXES } from "../src/lib/data/crm.ts";
 import { FLEET_INDEXES } from "../src/lib/data/fleet.ts";
 import {
   INVENTORY_SEEDS,
@@ -145,6 +147,8 @@ async function main() {
     await seedMail(db, BUSINESSES[0].id);
     await seedAds(db, BUSINESSES[0].id);
     await seedFleetIndexes(db);
+    await seedCrmIndexes(db);
+    await seedBookingPageIndexes(db);
 
     // Without an administrator nobody can sign in to create one, so say so
     // plainly rather than leaving a fresh install unusable and silent.
@@ -508,6 +512,25 @@ async function seedFleetIndexes(db: Db) {
     await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
   }
   console.log(`✓ fleet indexes (${FLEET_INDEXES.length}), no sample vehicles`);
+}
+
+/** CRM likewise gets indexes only: no sample customers in a live database. */
+async function seedCrmIndexes(db: Db) {
+  for (const index of CRM_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys);
+  }
+  console.log(`✓ crm indexes (${CRM_INDEXES.length}), no sample customers`);
+}
+
+/**
+ * The public booking page's indexes. Every business starts with the page
+ * switched off; an admin opens it in Business Management.
+ */
+async function seedBookingPageIndexes(db: Db) {
+  for (const index of BOOKING_PAGE_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options);
+  }
+  console.log(`✓ booking page indexes (${BOOKING_PAGE_INDEXES.length}), page off for every business`);
 }
 
 main().catch((error) => {

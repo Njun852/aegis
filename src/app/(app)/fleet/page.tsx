@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { FleetWorkspace } from "@/components/fleet/fleet-workspace";
 import { ModulePage } from "@/components/modules/module-page";
 import { getActiveBusiness } from "@/lib/dal/businesses";
-import { listCustomers, listServiceRecords, listVehicles } from "@/lib/dal/fleet";
+import { listCustomers } from "@/lib/dal/customers";
+import { listServiceRecords, listVehicles } from "@/lib/dal/fleet";
 
 export default async function FleetPage() {
   const business = await getActiveBusiness();
@@ -26,6 +27,7 @@ export default async function FleetPage() {
       vehicles={vehicles}
       customers={customers}
       history={history}
+      crmEnabled={business.modules.includes("crm")}
       businessName={business.name}
       todayIso={today.toISOString()}
     />

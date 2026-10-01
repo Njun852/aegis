@@ -58,6 +58,26 @@ function toMessage(doc: MailMessageDocument): MailMessage {
   };
 }
 
+/**
+ * The latest messages sent from one address, for a customer's CRM profile.
+ * Matched on the whole address, ignoring case; nothing is inferred from names.
+ */
+export async function listMessagesFromAddress(
+  address: string,
+  limit = 10,
+): Promise<MailMessage[]> {
+  const trimmed = address.trim();
+  if (!trimmed) return [];
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const collection = await messages();
+  const docs = await collection
+    .find({ email: { $regex: `^${escaped}$`, $options: "i" } })
+    .sort({ receivedAt: -1 })
+    .limit(limit)
+    .toArray();
+  return docs.map(toMessage);
+}
+
 /** The whole inbox for the active business, newest first. */
 export async function listMessages(): Promise<MailMessage[]> {
   const collection = await messages();
@@ -189,6 +209,27 @@ export async function findMessage(
 export async function unreadCount(): Promise<number> {
   const collection = await messages();
   return collection.countDocuments({ unread: true });
+}
+
+/**
+ * What arrived in `[from, to)`, as the fields the report counts. Only the
+ * triage labels are read; no subject, sender or body leaves this function.
+ */
+export async function mailStatsBetween(
+  from: Date,
+  to: Date,
+): Promise<Pick<MailMessageDocument, "priority" | "category" | "needsApproval" | "unread">[]> {
+  const collection = await messages();
+  return collection
+    .find({ receivedAt: { $gte: from, $lt: to } })
+    .project<Pick<MailMessageDocument, "priority" | "category" | "needsApproval" | "unread">>({
+      _id: 0,
+      priority: 1,
+      category: 1,
+      needsApproval: 1,
+      unread: 1,
+    })
+    .toArray();
 }
 
 /**

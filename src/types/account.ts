@@ -69,6 +69,28 @@ export interface BusinessDocument {
   mailbox?: MailboxConfig;
   /** Absent until an admin connects a Meta ad account for this business. */
   metaAds?: MetaAdsConfig;
+  /** Absent until an admin turns on the public booking page. */
+  onlineBooking?: OnlineBookingConfig;
+}
+
+/**
+ * The public booking page at /book/<slug>. Anyone can open it without an
+ * account, so it is off until an admin switches it on.
+ */
+export interface OnlineBookingConfig {
+  enabled: boolean;
+  /** Lower case letters, digits and dashes. Unique across businesses. */
+  slug: string;
+}
+
+/** What the admin panel shows about the public page. */
+export interface OnlineBookingStatus {
+  enabled: boolean;
+  slug: string | null;
+  /** Whether the business holds Bookings, without which the page stays closed. */
+  hasBookings: boolean;
+  /** Requests received through the page so far. */
+  requestCount: number;
 }
 
 /** What the admin screen may safely know about a mailbox. Never the password. */

@@ -5,11 +5,9 @@ import { isAiConfigured } from "@/lib/ai/client";
 import { cachedAdsInsight } from "@/lib/ai/ads-insight";
 import { readActiveMetaAdsStatus } from "@/lib/dal/ad-account";
 import { listAdRows } from "@/lib/dal/ads";
-import { countBookingsByCampaign } from "@/lib/dal/bookings";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { AD_FALLBACK_INSIGHT } from "@/lib/data/ads";
 import { AD_RANGE_KEYS, DEFAULT_AD_RANGE } from "@/lib/meta/mapping";
-import { windowForRange } from "@/lib/meta/ranges";
 import type { AdRange } from "@/types";
 
 export const metadata: Metadata = {
@@ -38,15 +36,6 @@ export default async function AdsPage(props: PageProps<"/ads">) {
     cachedAdsInsight(),
   ]);
 
-  // Bookings credited to each campaign, over exactly the days Meta's figures
-  // cover, so cost per booking divides like by like. Only for a connected
-  // account on a business that keeps its bookings in AEGIS.
-  const tracksBookings = meta.connected && business.modules.includes("bookings");
-  const period = windowForRange(range, meta.timezone ?? "UTC");
-  const bookingsByCampaign = tracksBookings
-    ? await countBookingsByCampaign(period.from, period.to)
-    : null;
-
   return (
     <AdsWorkspace
       rows={rows}
@@ -57,7 +46,6 @@ export default async function AdsPage(props: PageProps<"/ads">) {
       source={meta.connected ? "meta" : "sample"}
       meta={meta.connected ? meta : null}
       range={range}
-      bookingsByCampaign={bookingsByCampaign}
     />
   );
 }

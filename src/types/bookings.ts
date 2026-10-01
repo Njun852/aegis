@@ -18,15 +18,32 @@ export type BookingRange =
   | "All time";
 
 /**
- * Which Meta campaign a booking came from. Recorded by staff when they create
- * the booking, from the campaigns AEGIS has synced; the Messenger integration
- * will fill the same field automatically once Meta approves it. Absent means
- * "not from an ad".
+ * What a customer sent from the public booking page. Kept apart from the
+ * booking's own fields because it is exactly what a stranger typed: staff turn
+ * it into a customer and a vehicle only after reading it.
  */
-export interface BookingSource {
-  campaignId: string;
-  /** Kept on the booking so it still reads correctly if the campaign is later removed. */
-  campaignName: string;
+export interface BookingRequest {
+  /** "AB7K3Q9P". Shown to the customer as AB7K-3Q9P; with the mobile, it retrieves the booking. */
+  code: string;
+  mobile: string;
+  heardFrom: string;
+  vehicle: {
+    make: string;
+    model: string;
+    plate: string;
+    year: number | null;
+  };
+}
+
+/**
+ * What an online request's details already match on file, so staff can link
+ * rather than create a duplicate. Worked out on the server when the book loads.
+ */
+export interface RequestMatches {
+  /** Customers with the request's mobile. Empty without CRM. */
+  customers: { ref: string; name: string; reason: string }[];
+  /** The car already on file with the request's plate, and its owner. */
+  vehicle: { ref: string; plate: string; label: string; customerRef: string; ownerName: string } | null;
 }
 
 /**
@@ -44,6 +61,12 @@ export interface Booking {
   /** ISO 8601. The source of truth for ordering and range filtering. */
   startsAt: string;
   durationMinutes: number;
+  /**
+   * "2026-08-24", the calendar day `day` and `time` below were formatted for.
+   * The calendar view places bookings by this rather than re-deriving a day
+   * from `startsAt` in the browser's timezone.
+   */
+  dateKey: string;
   /** "Aug 24" */
   day: string;
   /** "09:00 – 09:45" */
@@ -56,9 +79,12 @@ export interface Booking {
   status: BookingStatus;
   channel: string;
   notes: string;
-  source: BookingSource | null;
   /** The Fleet vehicle this booking is for. Null when none was picked. */
   vehicleRef: string | null;
+  /** The CRM customer this booking belongs to. Null until someone links it. */
+  customerRef: string | null;
+  /** Present when the booking came from the public booking page. */
+  request: BookingRequest | null;
 }
 
 /** What the New Booking form submits. `ref` and status are server-assigned. */
@@ -73,8 +99,8 @@ export interface BookingInput {
   valueCents: number;
   channel: string;
   notes: string;
-  source?: BookingSource | null;
   vehicleRef?: string | null;
+  customerRef?: string | null;
 }
 
 /** Stored shape. `businessId` is stamped on by `tenantScope`. */
@@ -92,10 +118,20 @@ export interface BookingDocument {
   status: BookingStatus;
   channel: string;
   notes: string;
-  /** Absent on bookings made before ad attribution existed, and on those not from an ad. */
-  source?: BookingSource | null;
   /** Absent on bookings made before Fleet existed, and on those with no vehicle. */
   vehicleRef?: string | null;
+  /**
+   * Set when the booking is made for a known customer, or linked to one later.
+   * Absent on bookings made before CRM; they are never matched up automatically,
+   * because a name or email typed on a booking is not proof of who it was.
+   */
+  customerRef?: string | null;
+  /** Present only on bookings made from the public booking page. */
+  request?: BookingRequest & {
+    /** `phoneKey` of the mobile; what retrieval matches on. */
+    mobileKey: string;
+    submittedAt: Date;
+  };
   createdAt: Date;
 }
 

@@ -1,0 +1,487 @@
+/*
+ * The public booking page, drawn with the AEGIS design system's own tokens
+ * (colour, type, radius, elevation, motion) so it reads as the same product as
+ * the app and the sign-in screen. Kept in a module because inputs need :focus
+ * and :hover states, and the layout needs a phone breakpoint, which inline
+ * styles cannot express.
+ */
+.page {
+  min-height: 100%;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+/* ---- Header ------------------------------------------------------------ */
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.headerInner {
+  max-width: 900px;
+  margin: 0 auto;
+  min-height: 60px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  color: inherit;
+  text-decoration: none;
+}
+.brand:hover {
+  color: inherit;
+}
+
+.brandMark {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: var(--grad-primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.brandName {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.brandSub {
+  display: block;
+  font-size: var(--text-caption-size);
+  color: var(--text-muted);
+}
+
+.navLink {
+  font-size: var(--text-label-size);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+}
+.navLink:hover {
+  color: var(--text-primary);
+  background: var(--surface-inset);
+}
+
+/* A link dressed as the design system's small primary Button. */
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--control-height-sm);
+  padding: 0 12px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-primary);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+.linkButton:hover {
+  color: #fff;
+  background: var(--accent-primary-hover);
+}
+.linkButtonLarge {
+  height: var(--control-height);
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.navLink:focus-visible,
+.linkButton:focus-visible,
+.link:focus-visible,
+.brand:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* ---- Page -------------------------------------------------------------- */
+
+.main {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: var(--space-8) 16px var(--space-9);
+}
+
+.eyebrow {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-overline-size);
+  line-height: var(--text-overline-lh);
+  font-weight: var(--text-overline-weight);
+  letter-spacing: var(--text-overline-ls);
+  text-transform: uppercase;
+  color: var(--text-accent);
+}
+
+.title {
+  margin: 10px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--text-display-size);
+  line-height: var(--text-display-lh);
+  font-weight: var(--text-display-weight);
+  letter-spacing: var(--text-display-ls);
+  text-wrap: balance;
+}
+
+.lead {
+  margin: 10px 0 0;
+  max-width: 560px;
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-lh);
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.small {
+  margin: 12px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-lh);
+  color: var(--text-muted);
+}
+
+.card {
+  margin-top: var(--space-6);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  padding: 26px;
+}
+
+.section + .section {
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: 18px;
+}
+
+.sectionIcon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-h3-size);
+  line-height: var(--text-h3-lh);
+  font-weight: 700;
+  letter-spacing: var(--text-h3-ls);
+}
+
+.sectionHelp {
+  margin: 2px 0 0;
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-lh);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4) 14px;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+/* ---- Fields ------------------------------------------------------------ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--text-label-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.required {
+  color: var(--status-negative);
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 13px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
+}
+.input::placeholder {
+  color: var(--gray-400);
+}
+.input:hover {
+  border-color: var(--border-strong);
+}
+.input:focus {
+  border-color: var(--border-focus);
+  box-shadow: var(--ring-focus);
+}
+.input:disabled {
+  background: var(--surface-inset);
+  color: var(--text-muted);
+  border-color: var(--border-default);
+  cursor: not-allowed;
+}
+
+.select {
+  appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2378839A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.textarea {
+  height: auto;
+  min-height: 92px;
+  padding: 10px 13px;
+  line-height: 20px;
+  resize: vertical;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hint {
+  font-size: var(--text-caption-size);
+  color: var(--text-muted);
+}
+
+.hintWarn {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-lh);
+  color: var(--status-warning);
+}
+
+/* ---- Footer and notices ------------------------------------------------ */
+
+.footer {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.footerNote {
+  margin: 0;
+  max-width: 440px;
+  font-size: var(--text-label-size);
+  line-height: 18px;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.after {
+  margin: var(--space-5) 0 0;
+  text-align: center;
+  font-size: var(--text-body-sm-size);
+  color: var(--text-secondary);
+}
+
+.link {
+  font-weight: 600;
+  color: var(--text-accent);
+  border-radius: 4px;
+}
+
+.error {
+  margin-bottom: var(--space-5);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid #f5c6c1;
+  background: var(--status-negative-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--text-label-size);
+  line-height: 18px;
+  color: #912018;
+  overflow-wrap: anywhere;
+}
+.errorIcon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--status-negative);
+}
+
+.honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* ---- Confirmation and lookup result ------------------------------------ */
+
+.successIcon {
+  background: var(--status-positive-soft);
+  color: var(--status-positive);
+}
+
+.codeBox {
+  margin: var(--space-5) 0;
+  padding: var(--space-4) 18px;
+  border-radius: var(--radius-lg);
+  background: var(--grad-upsell);
+  border: 1px solid var(--blue-100);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.codeLabel {
+  display: block;
+  font-size: var(--text-overline-size);
+  font-weight: var(--text-overline-weight);
+  letter-spacing: var(--text-overline-ls);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.code {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 10px var(--space-5);
+  margin: 0;
+  padding: 14px var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--text-body-sm-size);
+  line-height: var(--text-body-sm-lh);
+}
+.summary dt {
+  color: var(--text-muted);
+}
+.summary dd {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.resultHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+/* ---- Phones ------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .main {
+    padding-top: var(--space-6);
+  }
+  .title {
+    font-size: var(--text-h1-size);
+    line-height: var(--text-h1-lh);
+  }
+  .card {
+    padding: 20px 16px;
+    border-radius: var(--radius-lg);
+  }
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .footer > button,
+  .footer > a {
+    width: 100%;
+  }
+  .hideNarrow {
+    display: none;
+  }
+}

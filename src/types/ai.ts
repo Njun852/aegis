@@ -6,6 +6,7 @@ import type { MailCategory, MailPriority } from "./mail";
  */
 export type AiKind =
   | "dashboard-insight"
+  | "dashboard-report"
   | "ads-insight"
   | "mail-triage"
   | "compose-draft"

@@ -7,7 +7,9 @@ import {
   getBusinessForUser,
   renameBusiness,
   setModuleGrants,
+  setOnlineBooking,
 } from "@/lib/dal/businesses";
+import { InputError } from "@/lib/dal/refs";
 import {
   ACTIVE_BUSINESS_COOKIE,
   allowedBusinessIds,
@@ -101,4 +103,23 @@ export async function renameBusinessAction(
   await renameBusiness(businessId, name.trim(), meta.trim());
   revalidatePath("/", "layout");
   return { error: null, businessId };
+}
+
+/**
+ * Opens or closes the public booking page. Admin-only; `setOnlineBooking`
+ * asserts the role. Refusals come back as a message rather than a throw, so
+ * the panel can show why.
+ */
+export async function setOnlineBookingAction(
+  businessId: string,
+  settings: { enabled: boolean; slug: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await setOnlineBooking(businessId, settings);
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, error: error.message };
+    throw error;
+  }
+  revalidatePath(`/admin/businesses/${businessId}`);
+  return { ok: true };
 }

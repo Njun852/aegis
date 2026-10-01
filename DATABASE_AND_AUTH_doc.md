@@ -165,18 +165,44 @@ valueCents       number
 status           "Confirmed" | "Pending" | "In progress" | "Completed" | "Cancelled"
 channel          string
 notes            string
-source           { campaignId, campaignName } | absent   the Meta campaign it came from
+vehicleRef       string | absent   the Fleet vehicle it is for
+customerRef      string | absent   the CRM customer it belongs to
 createdAt        Date
 ```
 
-Indexes: `{ businessId: 1, ref: 1 }` unique, and `{ businessId: 1, startsAt: 1 }`
-for range queries.
+Indexes: `{ businessId: 1, ref: 1 }` unique, `{ businessId: 1, startsAt: 1 }`
+for range queries, and `{ businessId: 1, customerRef: 1 }` for a customer's
+history.
 
-`source` is the **Ad source** picked on the New Booking form, from the Meta
-campaigns AEGIS has synced; absent means "not from an ad". The server checks the
-id against the synced account before storing it. The campaign name is copied on
-so a booking still reads correctly if the campaign is later removed from Meta.
-It is what the Ads screen counts bookings and cost per booking on.
+A booking made on the public booking page also carries `request`:
+
+```
+request.code         string   8 characters, no 0/O/1/I; shown as AB7K-3Q9P
+request.mobile       string   as typed
+request.mobileKey    string   phoneKey(mobile); what retrieval matches on
+request.heardFrom    string   one of the page's options
+request.vehicle      { make, model, plate, year|null }   as typed, not a Fleet record
+request.submittedAt  Date
+```
+
+Index: `{ businessId: 1, "request.code": 1 }` unique, partial (only where the
+code exists). A request arrives as `Pending`, `channel: "Website form"`,
+`staff: "Unassigned"`, `valueCents: 0`, 60 minutes, with a 0-value ledger entry
+posted by `postEntryFor` (the ledger post for an explicit business, since the
+page has no session). Nothing a visitor types creates a customer or vehicle;
+staff do that from the booking drawer.
+
+`vehicleRef` and `customerRef` are checked against this business's records by
+the server before they are stored. A booking for a vehicle always belongs to
+that vehicle's owner; the server refuses a different customer alongside it and
+refuses relinking it later. Bookings made before CRM carry no `customerRef` and
+are **never matched up automatically** by name or email: most of the early
+bookings are seed fixtures or tests, and a typed name is not proof of who it
+was. Staff link them by hand from the booking drawer.
+
+When a booking with a `vehicleRef` is set to Completed, `syncBookingService`
+(`src/lib/dal/fleet.ts`) writes one `serviceRecords` line for it; moving it off
+Completed deletes the line, and rescheduling moves its date.
 
 Times are stored as real `Date`s. The display strings the UI renders (`day`,
 `time`, `duration`) are derived **on the server** in `src/lib/dal/bookings.ts` —
@@ -494,6 +520,87 @@ administrator inspects a business other than the one they are switched to. Every
 caller is gated by `requireAdmin` or by the active session — see
 `src/lib/dal/mailbox.ts`.
 
+#### `customers` — tenant-owned, shared by CRM and Fleet
+
+One record per customer. CRM owns the screens; Fleet creates owners through the
+same functions. `src/lib/dal/customers.ts` is the only writer, so the match keys
+are always computed the same way.
+
+```
+_id          ObjectId
+businessId   string
+ref          string        "CU-1001", unique per business
+name         string
+phone        string        as typed
+email        string        as typed
+company      string|absent absent on owners Fleet wrote before CRM
+notes        string
+phoneKey     string|absent digits only, leading 63 read as 0: "+63 917…" = "0917…"
+emailKey     string|absent lower case
+createdAt    Date
+updatedAt    Date|absent
+```
+
+Indexes: `{ businessId: 1, ref: 1 }` unique, `{ businessId: 1, name: 1 }`,
+`{ businessId: 1, phoneKey: 1 }`, `{ businessId: 1, emailKey: 1 }`. The key
+indexes are **not** unique: families share a phone and small firms share an
+inbox, so the New customer form warns about a match and lets a person create
+anyway.
+
+The CRM profile shows recent `messages` whose sender address equals the
+customer's email, matched on the whole address ignoring case. Read-only; no
+model call.
+
+#### `vehicles` — tenant-owned (Fleet)
+
+```
+_id             ObjectId
+businessId      string
+ref             string       "VH-1001", unique per business
+customerRef     string       the owner, in customers
+plate           string       as typed, upper-cased
+plateKey        string       letters and digits only; what uniqueness is on
+make, model     string
+year            number|null
+colour          string
+odometerKm      number|null  latest reading; only ever moves forward
+odometerAt      Date|null
+intervalMonths  number       default 6
+intervalKm      number       default 5000
+notes           string
+createdAt       Date
+```
+
+Indexes: `{ businessId: 1, ref: 1 }` unique, `{ businessId: 1, plateKey: 1 }`
+unique (so "ABC 1234" and "abc-1234" cannot become two cars), and
+`{ businessId: 1, customerRef: 1 }`.
+
+#### `serviceRecords` — tenant-owned (Fleet)
+
+```
+_id          ObjectId
+businessId   string
+ref          string        "SR-1001", unique per business
+vehicleRef   string
+performedAt  Date
+odometerKm   number|null   null when nobody read it
+work         string
+source       "manual" | "booking"
+bookingRef   string|absent set when mirrored from a completed booking
+createdAt    Date
+```
+
+Indexes: `{ businessId: 1, ref: 1 }` unique,
+`{ businessId: 1, vehicleRef: 1, performedAt: -1 }`, and
+`{ businessId: 1, bookingRef: 1 }` unique **partial** (only where `bookingRef`
+is a string), so a booking gives exactly one history line and manual lines are
+not held to it.
+
+The next service due is computed on read (`computeDue`, `src/lib/fleet.ts`) from
+the latest record and the vehicle's schedule, never stored. The km basis needs a
+reading at that service and a current reading; with either missing it stays
+unknown rather than estimated.
+
 ### Index summary
 
 Every index the system relies on, all created by `npm run seed`
@@ -506,6 +613,19 @@ businesses      { businessId: 1 }                            unique
 memberships     { userId: 1, businessId: 1 }                 unique
 bookings        { businessId: 1, ref: 1 }                    unique
 bookings        { businessId: 1, startsAt: 1 }
+bookings        { businessId: 1, customerRef: 1 }
+bookings        { businessId: 1, "request.code": 1 }         unique, partial
+businesses      { "onlineBooking.slug": 1 }                  unique, partial
+customers       { businessId: 1, ref: 1 }                    unique
+customers       { businessId: 1, name: 1 }
+customers       { businessId: 1, phoneKey: 1 }
+customers       { businessId: 1, emailKey: 1 }
+vehicles        { businessId: 1, ref: 1 }                    unique
+vehicles        { businessId: 1, plateKey: 1 }               unique
+vehicles        { businessId: 1, customerRef: 1 }
+serviceRecords  { businessId: 1, ref: 1 }                    unique
+serviceRecords  { businessId: 1, vehicleRef: 1, performedAt: -1 }
+serviceRecords  { businessId: 1, bookingRef: 1 }             unique, partial
 transactions    { businessId: 1, source: 1, sourceRef: 1 }   unique
 transactions    { businessId: 1, status: 1, occurredAt: 1 }
 inventoryItems  { businessId: 1, sku: 1 }                    unique
@@ -818,7 +938,22 @@ flowchart LR
 **`src/proxy.ts`** — Next 16 renamed `middleware.ts` to `proxy.ts`. This is an
 *optimistic* check only: it tests for the presence of the session cookie so
 signed-out visitors bounce without a database round trip. It does **not**
-verify the token. The matcher excludes `api/auth`, `login`, and static assets.
+verify the token. The matcher excludes `api/auth`, `login`, static assets, and
+the two routes that must work without an account:
+
+- **`/api/meta/webhook`**, which proves who is calling by Meta's signature.
+- **`/book/<link>`**, the public booking page (only paths under `book/`; a
+  path such as `/bookings` still needs a session). It reaches the database only
+  through `src/lib/dal/public-booking.ts`, by the business its own link names
+  (`findBookableBusiness`: page switched on, Bookings granted, business active;
+  anything else reads "not available" so the page cannot reveal which
+  businesses exist). Its actions (`src/app/book/actions.ts`) check every field
+  on the server, drop submissions that fill a hidden honeypot field, and are
+  rate limited per visitor address (`src/lib/rate-limit.ts`: 5 requests and 10
+  lookups per 10 minutes, held in memory, so reset by a restart and not shared
+  between instances). A lookup needs the booking code **and** the mobile it was
+  made with, returns only status, service, time and vehicle, and gives the
+  same message for every miss.
 
 **The DAL** — where every real decision is made, as the Next docs recommend.
 Hiding a link is not access control: `/admin/businesses` calls `requireAdmin()`
@@ -953,16 +1088,6 @@ no cost per result, and the account-level totals are withheld when campaigns
 count different kinds of result. Cost per result is spend divided by results,
 computed by AEGIS.
 
-**Bookings and cost per booking.** Where a Meta account is connected and the
-business uses Bookings, the Ads screen shows bookings credited to each campaign
-and cost per booking (campaign spend ÷ bookings), plus a blended figure for the
-account (all ad spend ÷ all ad-credited bookings). Bookings are counted by when
-they were **made**, not when the appointment is, over exactly the days Meta's
-figures cover (`src/lib/meta/ranges.ts`: whole days in the ad account's time
-zone, today excluded, except for Maximum). Cancelled bookings are not counted.
-Credit is per campaign, because that is what staff record; ad sets and ads show
-a dash. The AI Ads commentary receives the same figures.
-
 **Rehearsal.** `npm run ads:check` asserts the arithmetic on recorded Meta
 responses. Add a business id to read that business's connected account, or
 `--env` to use the variables in `.env.local`. Nothing is written in either case,
@@ -1017,9 +1142,8 @@ re-run `npm run ads:check`.
   data only; live rows show the placements configured, not the spend split.
 - **Ad set budgets are matched to their campaign by name** when totalling the
   daily budget. Two campaigns with the same name would confuse it.
-- **Ad credit for a booking is recorded by staff**, on the New Booking form. It
-  is as accurate as that choice. The Messenger integration, once Meta approves
-  it, will fill the same field from the ad the customer actually tapped.
-- **Bookings are credited to campaigns only**, not to individual ad sets or ads.
+- **Bookings are not linked to ads.** The Ad source picker and the cost per
+  booking figures were removed on 1 Oct 2026; AEGIS reports ad results as Meta
+  counts them and bookings as staff record them, without joining the two.
 - **Meta rows cannot be switched on or off from AEGIS.** By design: changes are
   made in Meta Ads Manager and picked up on the next sync.

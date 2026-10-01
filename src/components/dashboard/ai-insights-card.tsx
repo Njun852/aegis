@@ -1,9 +1,11 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { generateInsightAction } from "@/app/actions/ai";
 import { InsightPanel } from "@/components/ui";
 import { useTypewriter } from "@/hooks/use-typewriter";
+import { REPORT_RANGE_SLUGS } from "@/lib/report";
 import type { DateRange } from "@/types";
 import { useDashboardRange } from "./dashboard-range-provider";
 
@@ -34,6 +36,7 @@ export interface AiInsightsCardProps {
  * appears whole, because it was not written in front of anyone.
  */
 export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
+  const router = useRouter();
   const { range, data } = useDashboardRange();
   const [generated, setGenerated] =
     useState<Partial<Record<DateRange, string>>>(cached);
@@ -81,6 +84,9 @@ export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
       body={shown || data.insight}
       loading={pending === range}
       action="View Full Report"
+      // The report opens for the range being looked at, so its revenue total
+      // is the one on the tile above.
+      onAction={() => router.push(`/dashboard/report?range=${REPORT_RANGE_SLUGS[range]}`)}
     />
   );
 }

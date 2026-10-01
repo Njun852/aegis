@@ -7,11 +7,12 @@ import {
   plateKey,
   vehicleLabel,
 } from "@/lib/fleet";
+import { customersCollection, toCustomer } from "./customers";
+import { InputError, insertWithRef, isDuplicateKey, nextRef } from "./refs";
 import { tenantScope } from "./tenant";
 import type {
   Booking,
   Customer,
-  CustomerDocument,
   ServiceRecord,
   ServiceRecordDocument,
   Vehicle,
@@ -21,92 +22,19 @@ import type {
 } from "@/types";
 
 /**
- * Customers, vehicles and service history. All three are tenant-owned and go
- * through `tenantScope`, like bookings.
- *
- * `customers` is shared ground: Fleet writes it today because a vehicle needs
- * an owner, and CRM will add its screens over the same records.
+ * Vehicles and service history. Both are tenant-owned and go through
+ * `tenantScope`, like bookings. A vehicle's owner lives in the shared
+ * `customers` collection, which `./customers.ts` owns.
  */
-const CUSTOMERS = "customers";
 const VEHICLES = "vehicles";
 const SERVICE_RECORDS = "serviceRecords";
 
-const customers = () => tenantScope<CustomerDocument>(CUSTOMERS);
+const customers = customersCollection;
 const vehicles = () => tenantScope<VehicleDocument>(VEHICLES);
 const serviceRecords = () => tenantScope<ServiceRecordDocument>(SERVICE_RECORDS);
 
-/**
- * A refusal the person can act on: a taken plate, a reading that goes
- * backwards. Actions return its message to the screen; any other error is a
- * fault and is reported generically.
- */
-export class FleetInputError extends Error {}
-
-function isDuplicateKey(error: unknown, field?: string): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const { code, keyPattern } = error as {
-    code?: number;
-    keyPattern?: Record<string, unknown>;
-  };
-  if (code !== 11000) return false;
-  return field ? Boolean(keyPattern && field in keyPattern) : true;
-}
-
-/**
- * Next free ref. The highest number is found numerically rather than by
- * sorting the strings, which would put "VH-999" after "VH-1000". Two creates
- * at once can still pick the same number; the unique `{ businessId, ref }`
- * index turns that into error 11000, and `insertWithRef` retries.
- */
-/** The one read ref allocation needs, which every scoped collection offers. */
-interface RefSource {
-  find: (filter?: object) => {
-    project: (projection: object) => { toArray: () => Promise<{ ref?: string }[]> };
-  };
-}
-
-async function nextRef(
-  collection: RefSource,
-  prefix: string,
-  first: number,
-): Promise<string> {
-  const docs = await collection.find({}).project({ ref: 1, _id: 0 }).toArray();
-  const highest = docs.reduce((max, doc) => {
-    const parsed = Number.parseInt(String(doc.ref ?? "").replace(prefix, ""), 10);
-    return Number.isFinite(parsed) && parsed > max ? parsed : max;
-  }, first - 1);
-  return `${prefix}${highest + 1}`;
-}
-
-async function insertWithRef(
-  collection: RefSource,
-  prefix: string,
-  first: number,
-  insert: (ref: string) => Promise<unknown>,
-): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const ref = await nextRef(collection, prefix, first);
-    try {
-      await insert(ref);
-      return ref;
-    } catch (error) {
-      // Only a lost race for the ref is worth another go. Any other duplicate
-      // (a taken plate) is the caller's to explain.
-      if (!isDuplicateKey(error, "ref")) throw error;
-    }
-  }
-  throw new Error(`Could not allocate a ${prefix} reference; please retry.`);
-}
-
-function toCustomer(doc: CustomerDocument): Customer {
-  return {
-    ref: doc.ref,
-    name: doc.name,
-    phone: doc.phone,
-    email: doc.email,
-    notes: doc.notes,
-  };
-}
+/** Kept under its Fleet name for the actions that already catch it. */
+export { InputError as FleetInputError };
 
 function toServiceRecord(doc: ServiceRecordDocument): ServiceRecord {
   return {
@@ -155,35 +83,6 @@ function toVehicle(
   };
 }
 
-// ---- Customers -------------------------------------------------------------
-
-export async function listCustomers(): Promise<Customer[]> {
-  const collection = await customers();
-  const docs = await collection.find().sort({ name: 1 }).toArray();
-  return docs.map(toCustomer);
-}
-
-export async function createCustomer(input: {
-  name: string;
-  phone: string;
-  email: string;
-}): Promise<Customer> {
-  const collection = await customers();
-  const ref = await insertWithRef(collection, "CU-", 1001, (next) =>
-    collection.insertOne({
-      ref: next,
-      name: input.name,
-      phone: input.phone,
-      email: input.email,
-      notes: "",
-      createdAt: new Date(),
-    }),
-  );
-  const created = await collection.findOne({ ref });
-  if (!created) throw new Error(`Customer ${ref} was written but could not be read back.`);
-  return toCustomer(created);
-}
-
 // ---- Vehicles --------------------------------------------------------------
 
 /**
@@ -224,6 +123,40 @@ export async function listVehicles(today = new Date()): Promise<Vehicle[]> {
   );
 }
 
+/** One customer's cars, with their schedules resolved, for the CRM profile. */
+export async function listVehiclesForCustomer(
+  customerRef: string,
+  today = new Date(),
+): Promise<Vehicle[]> {
+  const [vehicleCollection, recordCollection] = await Promise.all([vehicles(), serviceRecords()]);
+  const docs = await vehicleCollection.find({ customerRef }).sort({ plateKey: 1 }).toArray();
+  if (docs.length === 0) return [];
+
+  const latest = await recordCollection
+    .aggregate([
+      { $match: { vehicleRef: { $in: docs.map((doc) => doc.ref) } } },
+      { $sort: { performedAt: -1, createdAt: -1 } },
+      { $group: { _id: "$vehicleRef", last: { $first: "$$ROOT" } } },
+    ])
+    .toArray();
+  const lastByVehicle = new Map(
+    latest.map((row) => [String(row._id), row.last as ServiceRecordDocument]),
+  );
+
+  const ownerDoc = await (await customers()).findOne({ ref: customerRef });
+  const owner = ownerDoc ? toCustomer(ownerDoc) : null;
+  return docs.map((doc) => toVehicle(doc, owner, lastByVehicle.get(doc.ref) ?? null, today));
+}
+
+/** How many cars each customer has on file, for the CRM list. */
+export async function countVehiclesByCustomer(): Promise<Map<string, number>> {
+  const collection = await vehicles();
+  const rows = await collection
+    .aggregate([{ $group: { _id: "$customerRef", count: { $sum: 1 } } }])
+    .toArray();
+  return new Map(rows.map((row) => [String(row._id), Number(row.count)]));
+}
+
 /** Every service record for the business, newest first, for the drawers. */
 export async function listServiceRecords(): Promise<ServiceRecord[]> {
   const collection = await serviceRecords();
@@ -251,6 +184,7 @@ export async function listVehicleOptions(): Promise<VehicleOption[]> {
       ref: doc.ref,
       plate: doc.plate,
       label: vehicleLabel(doc),
+      customerRef: doc.customerRef,
       ownerName: owner?.name ?? "",
       ownerEmail: owner?.email ?? "",
     };
@@ -268,9 +202,19 @@ export async function findVehicleOption(ref: string): Promise<VehicleOption | nu
     ref: doc.ref,
     plate: doc.plate,
     label: vehicleLabel(doc),
+    customerRef: doc.customerRef,
     ownerName: owner?.name ?? "",
     ownerEmail: owner?.email ?? "",
   };
+}
+
+/** The vehicle on file with this plate, however it was spelled, or null. */
+export async function findVehicleByPlate(plate: string): Promise<VehicleOption | null> {
+  const key = plateKey(plate);
+  if (!key) return null;
+  const collection = await vehicles();
+  const doc = await collection.findOne({ plateKey: key });
+  return doc ? findVehicleOption(doc.ref) : null;
 }
 
 /**
@@ -280,14 +224,14 @@ export async function findVehicleOption(ref: string): Promise<VehicleOption | nu
  */
 export async function assertPlateFree(plate: string, exceptRef?: string): Promise<string> {
   const key = plateKey(plate);
-  if (!key) throw new FleetInputError("The plate needs at least one letter or digit.");
+  if (!key) throw new InputError("The plate needs at least one letter or digit.");
   const collection = await vehicles();
   const taken = await collection.findOne({
     plateKey: key,
     ...(exceptRef ? { ref: { $ne: exceptRef } } : {}),
   });
   if (taken) {
-    throw new FleetInputError(`That plate is already on file as ${taken.ref}.`);
+    throw new InputError(`That plate is already on file as ${taken.ref}.`);
   }
   return key;
 }
@@ -295,7 +239,7 @@ export async function assertPlateFree(plate: string, exceptRef?: string): Promis
 export async function createVehicle(input: VehicleInput): Promise<string> {
   const customerCollection = await customers();
   const owner = await customerCollection.findOne({ ref: input.customerRef });
-  if (!owner) throw new FleetInputError("That owner is no longer on file.");
+  if (!owner) throw new InputError("That owner is no longer on file.");
 
   const key = await assertPlateFree(input.plate);
   const collection = await vehicles();
@@ -323,7 +267,7 @@ export async function createVehicle(input: VehicleInput): Promise<string> {
   } catch (error) {
     // The check above passed, so someone added the same plate in between.
     if (isDuplicateKey(error, "plateKey")) {
-      throw new FleetInputError("That plate was just added by someone else.");
+      throw new InputError("That plate was just added by someone else.");
     }
     throw error;
   }
@@ -353,10 +297,10 @@ export async function updateVehicle(
         },
       },
     );
-    if (result.matchedCount === 0) throw new FleetInputError(`${ref} is no longer on file.`);
+    if (result.matchedCount === 0) throw new InputError(`${ref} is no longer on file.`);
   } catch (error) {
     if (isDuplicateKey(error, "plateKey")) {
-      throw new FleetInputError("That plate was just added by someone else.");
+      throw new InputError("That plate was just added by someone else.");
     }
     throw error;
   }
@@ -369,9 +313,9 @@ export async function updateVehicle(
 export async function updateOdometer(ref: string, km: number): Promise<void> {
   const collection = await vehicles();
   const doc = await collection.findOne({ ref });
-  if (!doc) throw new FleetInputError(`${ref} is no longer on file.`);
+  if (!doc) throw new InputError(`${ref} is no longer on file.`);
   if (doc.odometerKm !== null && km < doc.odometerKm) {
-    throw new FleetInputError(
+    throw new InputError(
       `Readings only go forward. The last one was ${formatKm(doc.odometerKm)}.`,
     );
   }
@@ -404,7 +348,7 @@ export async function logService(input: {
 }): Promise<string> {
   const vehicleCollection = await vehicles();
   const vehicle = await vehicleCollection.findOne({ ref: input.vehicleRef });
-  if (!vehicle) throw new FleetInputError(`${input.vehicleRef} is no longer on file.`);
+  if (!vehicle) throw new InputError(`${input.vehicleRef} is no longer on file.`);
 
   const collection = await serviceRecords();
   const ref = await insertWithRef(collection, "SR-", 1001, (next) =>
@@ -432,7 +376,7 @@ export async function logService(input: {
 export async function setServiceOdometer(ref: string, km: number): Promise<void> {
   const collection = await serviceRecords();
   const record = await collection.findOne({ ref });
-  if (!record) throw new FleetInputError(`${ref} is no longer on file.`);
+  if (!record) throw new InputError(`${ref} is no longer on file.`);
   await collection.updateOne({ ref }, { $set: { odometerKm: km } });
   await raiseOdometer(record.vehicleRef, km, record.performedAt);
 }

@@ -133,3 +133,47 @@ body {
     animation: none;
   }
 }
+
+/*
+ * Printing. On screen the app shell is a fixed-height box whose main region
+ * scrolls; printed as-is, that clips every page to one screenful and prints the
+ * sidebar beside it. These rules drop the chrome and let the page flow, so the
+ * full report (and any other screen) prints whole. `!important` is needed
+ * because the shell sets these properties inline.
+ */
+@media print {
+  .aegis-no-print {
+    display: none !important;
+  }
+
+  .aegis-shell,
+  .aegis-shell-main {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .aegis-shell-main {
+    padding: 0 !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    background: #fff !important;
+  }
+
+  /* Keep a card, a table row or a stat tile from being cut across two pages. */
+  .aegis-report section,
+  .aegis-report tr {
+    break-inside: avoid;
+  }
+
+  /* Browsers drop backgrounds by default; the DEMO DATA badge and the revenue
+     bars are meaning, not decoration, so they are kept. */
+  .aegis-report {
+    max-width: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
