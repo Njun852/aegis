@@ -2,7 +2,14 @@
 export type CoreModuleKey = "dashboard" | "mail" | "ads";
 
 /** Modules a business buys individually. An admin grants these per business. */
-export type OptionalModuleKey = "bookings" | "inventory" | "crm" | "fleet";
+export type OptionalModuleKey =
+  | "bookings"
+  | "inventory"
+  | "crm"
+  | "fleet"
+  | "sms"
+  | "quotes"
+  | "suppliers";
 
 export type ModuleKey = CoreModuleKey | OptionalModuleKey;
 

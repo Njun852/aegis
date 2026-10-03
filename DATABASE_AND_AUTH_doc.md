@@ -601,6 +601,46 @@ the latest record and the vehicle's schedule, never stored. The km basis needs a
 reading at that service and a current reading; with either missing it stays
 unknown rather than estimated.
 
+#### `smsMessages` — tenant-owned (Text Blast)
+
+One document per reminder text. Written by the Text Blast sweep, which runs on
+a timer with no session, so `src/lib/dal/text-blast.ts` reaches it by an
+explicit `businessId` (from the list of businesses with the module on, or from
+`requireModule("sms")` for the screen's actions), like `messengerConversations`.
+
+```
+_id                ObjectId
+businessId         string
+ref                string        "SM-1001", unique per business
+kind               "service-due" | "manual"
+vehicleRef         string
+customerRef        string
+to                 string        E.164, "+639171234567"
+body               string        the text as rendered from the template
+segments           number        SMS parts, which is what a provider bills
+dueKey             string        "2026-10-02", the due date it is for
+status             "queued" | "sent" | "failed" | "expired"
+statusNote         string        why, in words: "No SMS provider connected"
+provider           string|null
+providerMessageId  string|null
+createdAt          Date
+sentAt             Date|null
+```
+
+Indexes: `{ businessId: 1, ref: 1 }` unique;
+`{ businessId: 1, vehicleRef: 1, dueKey: 1 }` unique, which is the rule that
+makes automatic sending safe (one text per car per due date however often the
+sweep runs); `{ businessId: 1, status: 1, createdAt: -1 }`.
+
+No SMS provider is connected, so every message is `queued`. `sent` is written
+only when a provider reports it accepted the text. A queued message older than
+14 days becomes `expired`, so connecting a provider later cannot release stale
+reminders.
+
+Settings live on the business as `textBlast: { enabled, template, leadDays,
+updatedAt, lastRunAt, lastRunNote }` (absent means off), and a customer's
+opt-out as `customers.smsOptOut` (absent means not opted out).
+
 ### Index summary
 
 Every index the system relies on, all created by `npm run seed`
@@ -626,6 +666,9 @@ vehicles        { businessId: 1, customerRef: 1 }
 serviceRecords  { businessId: 1, ref: 1 }                    unique
 serviceRecords  { businessId: 1, vehicleRef: 1, performedAt: -1 }
 serviceRecords  { businessId: 1, bookingRef: 1 }             unique, partial
+smsMessages     { businessId: 1, ref: 1 }                    unique
+smsMessages     { businessId: 1, vehicleRef: 1, dueKey: 1 }  unique
+smsMessages     { businessId: 1, status: 1, createdAt: -1 }
 transactions    { businessId: 1, source: 1, sourceRef: 1 }   unique
 transactions    { businessId: 1, status: 1, occurredAt: 1 }
 inventoryItems  { businessId: 1, sku: 1 }                    unique

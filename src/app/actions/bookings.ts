@@ -5,9 +5,10 @@ import { requireModule } from "@/lib/dal/businesses";
 import {
   assertPlateFree,
   createVehicle,
+  findVehicleByPlate,
   findVehicleOption,
 } from "@/lib/dal/fleet";
-import { createCustomer, findCustomer } from "@/lib/dal/customers";
+import { createCustomer, findCustomer, findDuplicates } from "@/lib/dal/customers";
 import {
   createBooking,
   getBooking,
@@ -18,68 +19,52 @@ import {
   updateBookingDetails,
 } from "@/lib/dal/bookings";
 import { InputError } from "@/lib/dal/refs";
+import { phoneKey } from "@/lib/crm";
 import { DEFAULT_INTERVAL_KM, DEFAULT_INTERVAL_MONTHS } from "@/lib/fleet";
-import { BOOKING_CHANNELS } from "@/lib/data/bookings";
+import { BOOKING_CHANNELS, DEFAULT_STAFF_CHANNEL } from "@/lib/data/bookings";
 import { parseCents } from "@/lib/format";
 import type { BookingStatus } from "@/types";
 
 export interface BookingFormState {
   error: string | null;
   createdRef?: string;
+  /** What else the save wrote, for the confirmation: "Juan Dela Cruz added to CRM". */
+  createdNote?: string;
 }
 
+/** "juan  dela cruz" and "Juan Dela Cruz" are the same person for matching. */
+function sameName(left: string, right: string) {
+  const key = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+  return key(left) === key(right);
+}
+
+/**
+ * A booking typed in by staff. It asks for what the public booking page asks
+ * for, and turns it into records straight away, because here staff have already
+ * read what they are typing: the customer is linked or added to CRM, and the car
+ * is linked or added to Fleet under them.
+ */
 export async function createBookingAction(
   _previous: BookingFormState,
   formData: FormData,
 ): Promise<BookingFormState> {
   const business = await requireModule("bookings");
+  const crm = business.modules.includes("crm");
+  const fleet = business.modules.includes("fleet");
 
   const text = (key: string) => String(formData.get(key) ?? "").trim();
 
-  // Checked against this business's vehicles rather than trusted from the
-  // form, like the campaign below: completing the booking writes that car's
-  // service history.
-  const vehicleRef = text("vehicleRef");
-  let vehicle: Awaited<ReturnType<typeof findVehicleOption>> = null;
-  if (vehicleRef) {
-    if (!business.modules.includes("fleet")) {
-      return { error: "Fleet is not enabled for this business, so a vehicle cannot be attached." };
-    }
-    vehicle = await findVehicleOption(vehicleRef);
-    if (!vehicle) {
-      return { error: "That vehicle is no longer on file. Choose it again." };
-    }
-  }
-
-  // Who the booking belongs to. A car decides it: a booking for a vehicle is
-  // its owner's, and a different customer picked alongside it is a mistake.
-  const crm = business.modules.includes("crm");
-  const pickedRef = text("customerRef");
-  let linked: Awaited<ReturnType<typeof findCustomer>> = null;
-  if (vehicle) {
-    if (pickedRef && pickedRef !== vehicle.customerRef) {
-      return {
-        error: `${vehicle.plate} belongs to ${vehicle.ownerName || vehicle.customerRef}. Choose that customer, or no vehicle.`,
-      };
-    }
-    linked = await findCustomer(vehicle.customerRef);
-  } else if (pickedRef) {
-    if (!crm) {
-      return { error: "CRM is not enabled for this business, so a customer cannot be linked." };
-    }
-    linked = await findCustomer(pickedRef);
-    if (!linked) return { error: "That customer is no longer on file. Choose again." };
-  }
-  const addCustomer = crm && !vehicle && !pickedRef && text("newCustomer") === "1";
-
-  // The linked customer fills a blank name and email, so picking them is enough.
-  const customer = text("customer") || linked?.name || vehicle?.ownerName || "";
+  const customer = text("customer");
+  const mobile = text("mobile");
   const service = text("service");
   const startsAt = text("startsAt");
   const staff = text("staff");
 
-  if (!customer || !service || !startsAt || !staff) {
-    return { error: "Customer, service, date and assignee are all required." };
+  if (!customer || !mobile || !service || !startsAt || !staff) {
+    return { error: "Customer, mobile number, service, date and assignee are all required." };
+  }
+  if (phoneKey(mobile).length < 7) {
+    return { error: "Enter the number the customer can be reached on." };
   }
 
   const when = new Date(startsAt);
@@ -97,36 +82,112 @@ export async function createBookingAction(
     return { error: "Value must be an amount like 240 or 240.00." };
   }
 
-  const channel = text("channel");
-
-  const email = text("email") || linked?.email || vehicle?.ownerEmail || "";
-  const company = text("company") || linked?.company || "";
-
-  // Written last, once everything else has passed, so a refused booking never
-  // leaves a customer behind.
-  if (addCustomer) {
-    linked = await createCustomer({ name: customer, email, company });
+  // The car, as typed. A plate already on file is that car; a new plate needs
+  // a make and model to be kept.
+  const plate = fleet ? text("plate").toUpperCase() : "";
+  const make = fleet ? text("make") : "";
+  const model = fleet ? text("model") : "";
+  const yearText = fleet ? text("year") : "";
+  let year: number | null = null;
+  if (yearText) {
+    year = Number(yearText);
+    const latest = new Date().getFullYear() + 1;
+    if (!Number.isInteger(year) || year < 1950 || year > latest) {
+      return { error: `Year should be between 1950 and ${latest}, or left blank.` };
+    }
+  }
+  const onFile = plate ? await findVehicleByPlate(plate) : null;
+  const newCar = plate !== "" && !onFile;
+  if (newCar && (!make || !model)) {
+    return { error: `${plate} is not on file yet. Enter its make and model to add it.` };
   }
 
+  // Who the booking belongs to: the customer picked from the matches, else the
+  // car's owner, else someone on file with this name and number.
+  const pickedRef = text("customerRef");
+  let linked: Awaited<ReturnType<typeof findCustomer>> = null;
+  if (pickedRef) {
+    linked = await findCustomer(pickedRef);
+    if (!linked) return { error: "That customer is no longer on file. Choose again." };
+  }
+  if (onFile) {
+    // A booking for a car is its owner's.
+    if (linked && linked.ref !== onFile.customerRef) {
+      return {
+        error: `${onFile.plate} is on file under ${onFile.ownerName || onFile.customerRef}. Pick that customer, or check the plate.`,
+      };
+    }
+    linked ??= await findCustomer(onFile.customerRef);
+  }
+  if (!linked && crm) {
+    const matches = await findDuplicates({ phone: mobile, email: "" });
+    const same = matches.find((match) => sameName(match.name, customer));
+    if (same) linked = await findCustomer(same.ref);
+  }
+
+  // The form no longer asks for a company; a booking carries the one on the
+  // linked customer's record, which is edited in CRM.
+  const company = linked?.company ?? "";
+  const notes = [
+    text("notes"),
+    // A car with no plate cannot be kept in Fleet, so what was typed stays here.
+    !plate && (make || model) ? `Car: ${[make, model, year ?? ""].filter(Boolean).join(" ")} (no plate given)` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // Written last, once everything else has passed, so a refused booking never
+  // leaves a customer or a car behind. A new car needs an owner even without
+  // CRM, as it does in Fleet.
+  const written: string[] = [];
+  let vehicleRef = onFile?.ref ?? null;
+  try {
+    if (newCar) await assertPlateFree(plate);
+    if (!linked && (crm || newCar)) {
+      linked = await createCustomer({ name: customer, phone: mobile, company });
+      written.push(`${linked.name} added to CRM`);
+    }
+    if (newCar && linked) {
+      vehicleRef = await createVehicle({
+        customerRef: linked.ref,
+        plate,
+        make,
+        model,
+        year,
+        colour: "",
+        odometerKm: null,
+        intervalMonths: DEFAULT_INTERVAL_MONTHS,
+        intervalKm: DEFAULT_INTERVAL_KM,
+        notes: "",
+      });
+      written.push(`${plate} added to Fleet`);
+    }
+  } catch (error) {
+    if (error instanceof InputError) return { error: error.message };
+    throw error;
+  }
+
+  const channel = text("channel");
   const booking = await createBooking({
     customer,
     company,
-    email,
+    email: linked?.email ?? "",
+    phone: mobile,
     service,
     startsAt: when.toISOString(),
     durationMinutes,
     staff,
     valueCents,
-    channel: BOOKING_CHANNELS.includes(channel) ? channel : BOOKING_CHANNELS[0],
-    notes: text("notes"),
-    vehicleRef: vehicle?.ref ?? null,
-    customerRef: linked?.ref ?? vehicle?.customerRef ?? null,
+    channel: BOOKING_CHANNELS.includes(channel) ? channel : DEFAULT_STAFF_CHANNEL,
+    notes,
+    vehicleRef,
+    customerRef: linked?.ref ?? null,
   });
 
   revalidatePath("/bookings");
-  if (vehicle) revalidatePath("/fleet");
-  if (linked || vehicle) revalidatePath("/crm");
-  return { error: null, createdRef: booking.ref };
+  if (vehicleRef) revalidatePath("/fleet");
+  if (linked) revalidatePath("/crm");
+  return { error: null, createdRef: booking.ref, createdNote: written.join(" · ") || undefined };
 }
 
 export async function setBookingStatusAction(
@@ -314,3 +375,4 @@ export async function linkBookingVehicleAction(ref: string, vehicleRef: string):
   revalidatePath("/crm");
   return { ok: true };
 }
+

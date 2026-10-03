@@ -7,6 +7,7 @@ import { classifyMailError } from "./failures";
 import type {
   FetchResult,
   FetchedMessage,
+  MailAttachment,
   MailCursor,
   MailOutcome,
   MailSource,
@@ -266,7 +267,7 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
       return result.ok ? { ok: true as const, data: true as const } : result;
     },
 
-    async send(to: string, subject: string, body: string) {
+    async send(to: string, subject: string, body: string, attachments: MailAttachment[] = []) {
       try {
         const transport = nodemailer.createTransport({
           host: SMTP_HOST,
@@ -285,6 +286,13 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
           to,
           subject,
           text: body,
+          // Buffers AEGIS built itself, never a path or URL: nodemailer would
+          // read a file or fetch an address named there.
+          attachments: attachments.map((file) => ({
+            filename: file.filename,
+            content: file.content,
+            contentType: file.contentType,
+          })),
         });
 
         return { ok: true, data: true as const };

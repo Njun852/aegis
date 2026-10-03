@@ -55,6 +55,14 @@ export const AI_TIMEOUT_MS = 20_000;
 export const AI_MODELS = {
   fast: process.env.OPENAI_MODEL_FAST?.trim() || "gpt-4o-mini",
   reasoning: process.env.OPENAI_MODEL_REASONING?.trim() || "gpt-4o-mini",
+  /**
+   * Reading photos. Not the fast tier: gpt-4o-mini bills an image at about
+   * 33 times its token count, roughly 25,000 tokens a photo, which would spend
+   * a month of budget in a handful of quotations. The gpt-4.1-mini family
+   * bills images by 32px patch at a small multiplier, about 2,500 tokens for
+   * the 1400px photos the browser uploads.
+   */
+  vision: process.env.OPENAI_MODEL_VISION?.trim() || "gpt-4.1-mini",
 } as const;
 
 /**

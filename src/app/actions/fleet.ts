@@ -2,12 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/dal/businesses";
-import { createCustomer } from "@/lib/dal/customers";
+import { createBooking, findOpenBookingNear, setBookingStatus } from "@/lib/dal/bookings";
+import { createCustomer, findCustomer } from "@/lib/dal/customers";
 import {
   FleetInputError,
   assertPlateFree,
   createVehicle,
+  findVehicleOption,
   logService,
+  setBookingServiceOdometer,
   setServiceOdometer,
   updateOdometer,
   updateVehicle,
@@ -24,7 +27,9 @@ import {
  * already on file" is exactly what the person needs to read. Faults still
  * throw, and the screen reports them as a failed save.
  */
-export type FleetResult = { ok: true } | { ok: false; error: string };
+export type FleetResult =
+  | { ok: true; /** Anything else worth telling the person, for the toast. */ note?: string }
+  | { ok: false; error: string };
 
 async function attempt(work: () => Promise<void>): Promise<FleetResult> {
   try {
@@ -216,11 +221,17 @@ export interface ServiceLogInput {
   work: string;
 }
 
+/**
+ * A service that has already happened. With Bookings on, it is saved as a
+ * completed booking, which writes the history line, so every job is one
+ * booking and Bookings stays the one place work is recorded. Without Bookings
+ * it is a plain history line, as before.
+ */
 export async function logServiceAction(
   vehicleRef: string,
   input: ServiceLogInput,
 ): Promise<FleetResult> {
-  await requireModule("fleet");
+  const business = await requireModule("fleet");
 
   const work = input.work.trim();
   if (!work) return { ok: false, error: "Say what work was done." };
@@ -245,11 +256,52 @@ export async function logServiceAction(
   if ("error" in km) return { ok: false, error: km.error };
   const odometerKm = km.value;
 
-  const result = await attempt(async () => {
-    await logService({ vehicleRef, performedAt, odometerKm, work });
+  if (!business.modules.includes("bookings")) {
+    const result = await attempt(async () => {
+      await logService({ vehicleRef, performedAt, odometerKm, work });
+    });
+    if (result.ok) revalidatePath("/fleet");
+    return result;
+  }
+
+  const vehicle = await findVehicleOption(vehicleRef);
+  if (!vehicle) return { ok: false, error: `${vehicleRef} is no longer on file.` };
+
+  // The job may already be in the book, waiting to be completed.
+  const open = await findOpenBookingNear(vehicleRef, performedAt);
+  if (open) {
+    return {
+      ok: false,
+      error: `${vehicle.plate} has ${open.ref} booked for ${open.day}. Complete that booking instead, so the job is recorded once.`,
+    };
+  }
+
+  const owner = await findCustomer(vehicle.customerRef);
+  const booking = await createBooking({
+    customer: owner?.name || vehicle.ownerName || vehicle.plate,
+    company: owner?.company ?? "",
+    email: owner?.email ?? "",
+    phone: owner?.phone ?? "",
+    service: work,
+    startsAt: performedAt.toISOString(),
+    durationMinutes: 60,
+    staff: "Unassigned",
+    valueCents: 0,
+    channel: "Internal",
+    notes: "Past service added from Fleet.",
+    vehicleRef,
+    customerRef: vehicle.customerRef,
   });
-  if (result.ok) revalidatePath("/fleet");
-  return result;
+  // Completing it is what writes the car's history line.
+  await setBookingStatus(booking.ref, "Completed");
+  if (odometerKm !== null) await setBookingServiceOdometer(booking.ref, odometerKm);
+
+  refresh();
+  revalidatePath("/crm");
+  return {
+    ok: true,
+    note: `Saved as completed booking ${booking.ref}. Set its value and who did it in Bookings.`,
+  };
 }
 
 export async function setServiceOdometerAction(

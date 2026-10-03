@@ -57,6 +57,8 @@ export interface Booking {
   customer: string;
   company: string;
   email: string;
+  /** The mobile typed on a staff-made booking. Empty on older ones and on online requests, which keep theirs in `request`. */
+  phone: string;
   service: string;
   /** ISO 8601. The source of truth for ordering and range filtering. */
   startsAt: string;
@@ -92,6 +94,7 @@ export interface BookingInput {
   customer: string;
   company: string;
   email: string;
+  phone?: string;
   service: string;
   startsAt: string;
   durationMinutes: number;
@@ -110,6 +113,8 @@ export interface BookingDocument {
   customer: string;
   company: string;
   email: string;
+  /** Absent on bookings made before the form asked for a mobile. */
+  phone?: string;
   service: string;
   startsAt: Date;
   durationMinutes: number;

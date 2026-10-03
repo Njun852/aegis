@@ -29,6 +29,13 @@ export const BOOKING_RANGES: BookingRange[] = [
 
 export const DEFAULT_BOOKING_RANGE: BookingRange = "Next 30 days";
 
+/**
+ * What the New Booking form starts on. Staff type in bookings that reached the
+ * shop by phone, chat or at the counter; "Website form" is what the public
+ * booking page stamps on its own requests, so it is the wrong default here.
+ */
+export const DEFAULT_STAFF_CHANNEL = "Walk-in";
+
 /** How a booking reached us. Offered in the New Booking form. */
 export const BOOKING_CHANNELS = [
   "Website form",

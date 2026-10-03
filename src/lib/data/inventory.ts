@@ -484,3 +484,14 @@ export const STOCK_MOVE_SEEDS: StockMoveSeed[] = [
     minute: 30,
   },
 ];
+
+/**
+ * Indexes the batch layer relies on, kept in one place so `scripts/seed.ts`
+ * (a fresh database) and `scripts/supplier-check.ts` (an existing one) create
+ * the same set. The unique ref is also what makes the opening-stock
+ * conversion safe to run twice at once.
+ */
+export const STOCK_BATCH_INDEXES: { keys: Record<string, 1 | -1>; options?: { unique?: boolean } }[] = [
+  { keys: { businessId: 1, ref: 1 }, options: { unique: true } },
+  { keys: { businessId: 1, sku: 1, remaining: 1, receivedAt: 1 } },
+];

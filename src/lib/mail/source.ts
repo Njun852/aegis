@@ -77,5 +77,17 @@ export interface MailSource {
     uidValidity: string,
     seen: boolean,
   ): Promise<MailOutcome<true>>;
-  send(to: string, subject: string, body: string): Promise<MailOutcome<true>>;
+  send(
+    to: string,
+    subject: string,
+    body: string,
+    attachments?: MailAttachment[],
+  ): Promise<MailOutcome<true>>;
+}
+
+/** A file sent with a message, built on the server: a quotation PDF. */
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
 }

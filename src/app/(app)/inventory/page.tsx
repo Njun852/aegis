@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { InventoryWorkspace } from "@/components/inventory/inventory-workspace";
 import { ModulePage } from "@/components/modules/module-page";
 import { getActiveBusiness } from "@/lib/dal/businesses";
-import { listInventory, listMoves } from "@/lib/dal/inventory";
+import { listBatches, listInventory, listMoves } from "@/lib/dal/inventory";
 
 export default async function InventoryPage() {
   const business = await getActiveBusiness();
@@ -14,12 +14,16 @@ export default async function InventoryPage() {
     return <ModulePage moduleKey="inventory" />;
   }
 
-  const [items, moves] = await Promise.all([listInventory(), listMoves()]);
+  // Inventory first: it converts any stock still without batches, which the
+  // batch list then includes.
+  const items = await listInventory();
+  const [moves, batches] = await Promise.all([listMoves(), listBatches()]);
 
   return (
     <InventoryWorkspace
       items={items}
       moves={moves}
+      batches={batches}
       businessName={business.name}
       todayIso={new Date().toISOString()}
     />

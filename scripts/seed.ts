@@ -21,9 +21,13 @@ import { AD_ROW_SEEDS } from "../src/lib/data/ads.ts";
 import { BOOKING_PAGE_INDEXES } from "../src/lib/data/booking-page.ts";
 import { CRM_INDEXES } from "../src/lib/data/crm.ts";
 import { FLEET_INDEXES } from "../src/lib/data/fleet.ts";
+import { TEXT_BLAST_INDEXES } from "../src/lib/data/text-blast.ts";
+import { QUOTATION_INDEXES } from "../src/lib/data/quotations.ts";
+import { SUPPLIER_INDEXES } from "../src/lib/data/suppliers.ts";
 import {
   INVENTORY_SEEDS,
   MOVE_REASONS,
+  STOCK_BATCH_INDEXES,
   STOCK_MOVE_SEEDS,
 } from "../src/lib/data/inventory.ts";
 
@@ -149,6 +153,9 @@ async function main() {
     await seedFleetIndexes(db);
     await seedCrmIndexes(db);
     await seedBookingPageIndexes(db);
+    await seedTextBlastIndexes(db);
+    await seedQuotationIndexes(db);
+    await seedSupplierIndexes(db);
 
     // Without an administrator nobody can sign in to create one, so say so
     // plainly rather than leaving a fresh install unusable and silent.
@@ -309,6 +316,15 @@ async function seedInventory(db: Db, businessId: string) {
   await db
     .collection("stockMoves")
     .createIndex({ businessId: 1, sku: 1, occurredAt: -1 });
+  for (const index of STOCK_BATCH_INDEXES) {
+    await db.collection("stockBatches").createIndex(index.keys, index.options ?? {});
+  }
+  // The levels below are reset to the fixture, so the batches behind them go
+  // too; the app rebuilds one opening batch per item the next time Inventory
+  // is opened, at the seeded level and cost.
+  await db
+    .collection("stockBatches")
+    .deleteMany({ businessId, sku: { $in: INVENTORY_SEEDS.map((seed) => seed.sku) } });
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -531,6 +547,33 @@ async function seedBookingPageIndexes(db: Db) {
     await db.collection(index.collection).createIndex(index.keys, index.options);
   }
   console.log(`✓ booking page indexes (${BOOKING_PAGE_INDEXES.length}), page off for every business`);
+}
+
+/**
+ * Text Blast's indexes. No business starts with the module or with automatic
+ * reminders on; both are switched on by a person.
+ */
+async function seedTextBlastIndexes(db: Db) {
+  for (const index of TEXT_BLAST_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ text blast indexes (${TEXT_BLAST_INDEXES.length}), reminders off for every business`);
+}
+
+/** Quotations get indexes only. A sample quotation would read as a real price given to a real customer. */
+async function seedQuotationIndexes(db: Db) {
+  for (const index of QUOTATION_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ quotation indexes (${QUOTATION_INDEXES.length}), no sample quotations`);
+}
+
+/** Suppliers get indexes only: a sample supplier's prices would be read as real costs. */
+async function seedSupplierIndexes(db: Db) {
+  for (const index of SUPPLIER_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ supplier indexes (${SUPPLIER_INDEXES.length}), no sample suppliers`);
 }
 
 main().catch((error) => {

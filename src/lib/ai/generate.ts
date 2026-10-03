@@ -58,6 +58,13 @@ export interface GenerateArgs<T> {
   model: string;
   instructions: string;
   input: string;
+  /**
+   * Images sent with the input, as data URLs. The cache key must cover them
+   * (hash the bytes): the text alone does not say which photo was read.
+   */
+  images?: string[];
+  /** Overrides the client default, for a call that is slow by nature (reading a photo). */
+  timeoutMs?: number;
   /** Hard ceiling. A truncated answer is discarded, so keep real headroom. */
   maxOutputTokens: number;
   schemaName: string;
@@ -103,7 +110,21 @@ export async function generate<T>(args: GenerateArgs<T>): Promise<AiResult<T>> {
     const response = await client.responses.create({
       model: args.model,
       instructions: args.instructions,
-      input: args.input,
+      input: args.images?.length
+        ? [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: args.input },
+                ...args.images.map((url) => ({
+                  type: "input_image" as const,
+                  image_url: url,
+                  detail: "high" as const,
+                })),
+              ],
+            },
+          ]
+        : args.input,
       max_output_tokens: args.maxOutputTokens,
       text: {
         format: {
@@ -113,7 +134,7 @@ export async function generate<T>(args: GenerateArgs<T>): Promise<AiResult<T>> {
           strict: true,
         },
       },
-    });
+    }, args.timeoutMs ? { timeout: args.timeoutMs } : undefined);
 
     inputTokens = response.usage?.input_tokens ?? 0;
     outputTokens = response.usage?.output_tokens ?? 0;

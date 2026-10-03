@@ -25,6 +25,7 @@ export interface CrmWorkspaceProps {
   /** The customer named in `?customer=`, loaded on the server. */
   profile: CustomerProfile | null;
   fleetEnabled: boolean;
+  smsEnabled: boolean;
   businessName: string;
   todayIso: string;
 }
@@ -33,6 +34,7 @@ export function CrmWorkspace({
   customers,
   profile,
   fleetEnabled,
+  smsEnabled,
   businessName,
   todayIso,
 }: CrmWorkspaceProps) {
@@ -280,6 +282,7 @@ export function CrmWorkspace({
           key={profile.customer.ref}
           profile={profile}
           fleetEnabled={fleetEnabled}
+          smsEnabled={smsEnabled}
           onClose={() => open(null)}
         />
       )}

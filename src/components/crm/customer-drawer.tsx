@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { updateCustomerAction } from "@/app/actions/crm";
-import { Avatar, Badge, Button, Icon, IconButton } from "@/components/ui";
+import { setCustomerSmsOptOutAction, updateCustomerAction } from "@/app/actions/crm";
+import { Avatar, Badge, Button, Icon, IconButton, Switch } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
 import { formatMoney, getStatusStyle } from "@/lib/bookings";
 import { SERVICE_DUE_STYLES, vehicleLabel } from "@/lib/fleet";
@@ -14,11 +14,13 @@ import type { CustomerInput, CustomerProfile, MonthValue } from "@/types";
 export interface CustomerDrawerProps {
   profile: CustomerProfile;
   fleetEnabled: boolean;
+  /** Whether the business has Text Blast, which is what the Text reminders switch governs. */
+  smsEnabled: boolean;
   onClose: () => void;
 }
 
 /** The right-hand profile for one customer: contact, cars, bookings, value, mail. */
-export function CustomerDrawer({ profile, fleetEnabled, onClose }: CustomerDrawerProps) {
+export function CustomerDrawer({ profile, fleetEnabled, smsEnabled, onClose }: CustomerDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -58,6 +60,27 @@ export function CustomerDrawer({ profile, fleetEnabled, onClose }: CustomerDrawe
           description: "The change did not save. Please try again.",
           key: `customer-${customer.ref}`,
         });
+      }
+    });
+  };
+
+  const setReminders = (on: boolean) => {
+    const optOut = !on;
+    startTransition(async () => {
+      try {
+        const result = await setCustomerSmsOptOutAction(customer.ref, optOut);
+        if (!result.ok) {
+          toast({ tone: "error", title: `${customer.name} did not update`, description: result.error, key: `customer-sms-${customer.ref}` });
+          return;
+        }
+        router.refresh();
+        toast({
+          tone: "success",
+          title: on ? `Reminders on for ${customer.name}` : `Reminders off for ${customer.name}`,
+          key: `customer-sms-${customer.ref}`,
+        });
+      } catch {
+        toast({ tone: "error", title: `${customer.name} did not update`, description: "The change did not save. Please try again.", key: `customer-sms-${customer.ref}` });
       }
     });
   };
@@ -147,6 +170,25 @@ export function CustomerDrawer({ profile, fleetEnabled, onClose }: CustomerDrawe
                 </span>
               </div>
             ))}
+            {smsEnabled && (
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ color: "var(--text-muted)", flex: "0 0 auto" }}>
+                  <Icon name="send" size={14} />
+                </span>
+                <span style={{ width: 70, flex: "0 0 auto", fontSize: "11.5px", color: "var(--text-muted)" }}>
+                  Reminders
+                </span>
+                <Switch
+                  checked={!customer.smsOptOut}
+                  disabled={pending}
+                  label={`Text reminders for ${customer.name}`}
+                  onChange={setReminders}
+                />
+                <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500 }}>
+                  {customer.smsOptOut ? "Off. Not texted; the customer opted out" : "On. Texted when a car is due"}
+                </span>
+              </div>
+            )}
             {customer.notes && (
               <p style={{ margin: "4px 0 0", fontSize: "12px", lineHeight: "18px", color: "var(--text-secondary)", overflowWrap: "anywhere" }}>
                 {customer.notes}

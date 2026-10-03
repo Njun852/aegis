@@ -425,3 +425,10 @@ export async function syncBookingService(booking: Booking): Promise<void> {
   }
   throw new Error(`Could not record ${booking.ref} in the service history; please retry.`);
 }
+
+/** The reading for a booking's history line, once the booking has written it. */
+export async function setBookingServiceOdometer(bookingRef: string, km: number): Promise<void> {
+  const collection = await serviceRecords();
+  const record = await collection.findOne({ bookingRef, source: "booking" });
+  if (record) await setServiceOdometer(record.ref, km);
+}

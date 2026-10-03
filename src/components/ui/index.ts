@@ -50,6 +50,8 @@ export { StatCard } from "./stat-card";
 export type { StatCardProps, StatTone } from "./stat-card";
 export { Toast } from "./toast";
 export type { ToastProps, ToastTone } from "./toast";
+export { Switch } from "./switch";
+export type { SwitchProps } from "./switch";
 export { TabBar } from "./tab-bar";
 export type { TabBarItem, TabBarProps } from "./tab-bar";
 export { UserChip } from "./user-chip";

@@ -2,7 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/dal/businesses";
-import { createCustomer, findDuplicates, updateCustomer } from "@/lib/dal/customers";
+import {
+  createCustomer,
+  findDuplicates,
+  setCustomerSmsOptOut,
+  updateCustomer,
+} from "@/lib/dal/customers";
 import { InputError } from "@/lib/dal/refs";
 import type { CustomerInput, CustomerMatch } from "@/types";
 
@@ -78,5 +83,22 @@ export async function updateCustomerAction(
     throw error;
   }
   refresh();
+  return { ok: true };
+}
+
+/** Marks a customer as not wanting texts, or wanting them again. Text Blast obeys it. */
+export async function setCustomerSmsOptOutAction(
+  ref: string,
+  optedOut: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireModule("crm");
+  try {
+    await setCustomerSmsOptOut(ref, optedOut);
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, error: error.message };
+    throw error;
+  }
+  refresh();
+  revalidatePath("/text-blast");
   return { ok: true };
 }

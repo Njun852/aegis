@@ -630,14 +630,17 @@ export function BookingsWorkspace({
       {composing !== null && (
         <NewBookingModal
           vehicles={vehicles}
+          fleetEnabled={fleetEnabled}
           customers={customers}
           initialDate={composing || null}
           onClose={() => setComposing(null)}
-          onCreated={(ref) => {
+          onCreated={(ref, note) => {
             toast({
               tone: "success",
               title: `Booking ${ref} created`,
-              description: "Saved as Pending — confirm it from the booking.",
+              description: [note, "Saved as Pending — confirm it from the booking."]
+                .filter(Boolean)
+                .join(". "),
             });
             setComposing(null);
             // Pull the newly written row back from the server, then open it.

@@ -157,7 +157,8 @@ export function RequestPanel({ booking, crmEnabled, fleetEnabled, matches, pendi
 
       {fleetEnabled && !booking.vehicleRef && booking.customerRef && !plateMatch && (
         <Step title="Vehicle">
-          <div style={{ display: "flex", gap: 8 }}>
+          {/* Full width with a shrinkable input, so the button stays inside the drawer. */}
+          <div style={{ display: "flex", gap: 8, flex: "1 1 100%", minWidth: 0 }}>
             <input
               value={plate}
               onChange={(event) => setPlate(event.target.value.toUpperCase())}

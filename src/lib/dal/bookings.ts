@@ -36,6 +36,7 @@ function toBooking(doc: BookingDocument): Booking {
     customer: doc.customer,
     company: doc.company,
     email: doc.email,
+    phone: doc.phone ?? "",
     service: doc.service,
     startsAt: doc.startsAt.toISOString(),
     durationMinutes: doc.durationMinutes,
@@ -129,6 +130,7 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
         customer: input.customer,
         company: input.company,
         email: input.email,
+        ...(input.phone ? { phone: input.phone } : {}),
         service: input.service,
         startsAt: new Date(input.startsAt),
         durationMinutes: input.durationMinutes,
@@ -164,6 +166,21 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
   }
 
   throw new Error("Could not allocate a booking reference; please retry.");
+}
+
+/**
+ * A booking still open for this car within a day or so of `when`: the job a
+ * past service typed into Fleet would otherwise record a second time.
+ */
+export async function findOpenBookingNear(vehicleRef: string, when: Date): Promise<Booking | null> {
+  const collection = await bookings();
+  const window = 36 * 3_600_000;
+  const doc = await collection.findOne({
+    vehicleRef,
+    status: { $in: ["Pending", "Confirmed", "In progress"] },
+    startsAt: { $gte: new Date(when.getTime() - window), $lt: new Date(when.getTime() + window) },
+  });
+  return doc ? toBooking(doc) : null;
 }
 
 /** One customer's bookings, newest first, for the CRM profile. */

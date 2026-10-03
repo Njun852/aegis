@@ -68,6 +68,27 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
     desc: "Customer vehicles, service history and next service due.",
     href: "/fleet",
   },
+  {
+    key: "sms",
+    name: "Text Blast",
+    icon: "send",
+    desc: "Automatic text reminders to customers when their car is due for service.",
+    href: "/text-blast",
+  },
+  {
+    key: "quotes",
+    name: "Quotations",
+    icon: "file-text",
+    desc: "Printable parts and labor quotations, emailed as a PDF or drafted from a photo.",
+    href: "/quotations",
+  },
+  {
+    key: "suppliers",
+    name: "Suppliers",
+    icon: "truck",
+    desc: "Suppliers, what each charges for every part, and how those costs change.",
+    href: "/suppliers",
+  },
 ];
 
 export const OPTIONAL_MODULE_KEYS: OptionalModuleKey[] = OPTIONAL_MODULES.map(

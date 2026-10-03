@@ -31,6 +31,8 @@ export interface FleetWorkspaceProps {
   history: ServiceRecord[];
   /** Whether owners link through to their CRM profile. */
   crmEnabled: boolean;
+  /** Whether a past service is saved as a completed booking. */
+  bookingsEnabled: boolean;
   businessName: string;
   /** "Now" as the server saw it, for the date a new service log defaults to. */
   todayIso: string;
@@ -41,6 +43,7 @@ export function FleetWorkspace({
   customers,
   history,
   crmEnabled,
+  bookingsEnabled,
   businessName,
   todayIso,
 }: FleetWorkspaceProps) {
@@ -322,6 +325,7 @@ export function FleetWorkspace({
           vehicle={selected}
           history={selectedHistory}
           crmEnabled={crmEnabled}
+          bookingsEnabled={bookingsEnabled}
           todayIso={todayIso}
           onClose={() => setOpenRef(null)}
         />

@@ -10,7 +10,8 @@ export type AiKind =
   | "ads-insight"
   | "mail-triage"
   | "compose-draft"
-  | "mail-reply";
+  | "mail-reply"
+  | "quote-photo";
 
 /**
  * Why a generation did not produce text. Every one of these is a normal

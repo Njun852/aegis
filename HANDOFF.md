@@ -106,7 +106,7 @@ business has no internet domain, which blocks Meta business verification.
 
 ```
 src/app/(app)/…            screens: dashboard, mail, ads, bookings, inventory, fleet,
-                           crm, account, admin/businesses, admin/users, status,
+                           crm, quotations, account, admin/businesses, admin/users, status,
                            modules/[key]
 src/app/actions/…          server actions, one file per area
 src/app/api/meta/webhook   the only unauthenticated route; Meta's signature is its auth
@@ -118,7 +118,7 @@ src/components/…           screens by area, plus ui/ design system
 src/app/book/…             the public booking page, outside the app shell
 scripts/                   seed, reconcile, mail-check, ads-check, messenger-simulate,
                            fleet-check, crm-check, booking-page-check, report-check,
-                           calendar-check
+                           calendar-check, text-blast-check, text-blast-run, quote-check
 ```
 
 Types live in `src/types/*` and are re-exported from `@/types`.
@@ -264,3 +264,183 @@ booking next to its `day` and `time` strings (`dateKeyOf`,
 `src/lib/booking-calendar.ts`), and the grid is built from keys alone, so the
 server render and the browser agree whatever timezone either is in.
 Check: `npm run calendar:check`.
+
+## Text Blast: automatic service reminders by SMS
+
+A new optional module (`sms`, "Text Blast", `/text-blast`), outside the frozen
+acceptance checklist like Fleet and CRM. **No SMS provider is connected. Not
+one text has been sent to a phone.** The backend and the screen are built; the
+provider's API is the remaining step.
+
+What it does: each customer car gets one text when it falls due for service,
+which is its last service plus its own interval (six months by default, the
+same date Fleet shows). The owner chose **fully automatic** sending, so there
+is no review step; the rules below are what keep that safe.
+
+- **Off until switched on**, per business, on the Text Blast screen, with a
+  confirmation. It needs Fleet.
+- **One text per car per due date** (unique index on vehicle and due date), so
+  the sweep can run any number of times.
+- **No backlog blast:** only cars due within the last 30 days are texted on
+  their own. Older ones show "Overdue, never reminded" with a Send reminder
+  button.
+- **Daytime only:** 9:00 AM to 6:00 PM, Asia/Manila.
+- **Opt-out:** a Reminders on/off switch per customer, on this screen and in the
+  CRM drawer. Off means the customer asked not to be texted.
+- **Valid Philippine mobile only**; otherwise skipped with the reason shown.
+- **Queue expires:** a text not sent within 14 days becomes Expired.
+
+How it runs: `src/instrumentation.ts` starts a timer in the server process
+(`src/lib/sms/timer.ts`) that every 15 minutes calls `runReminderSweep` for each
+business with the module and the switch on. It logs
+`[text-blast] reminder timer started` once at boot. On a host that does not keep
+the server running, schedule `npm run sms:run` instead; it does the same pass.
+The sweep is addressed by business id and uses no session
+(`src/lib/dal/text-blast.ts`); the rules are pure, in `src/lib/text-blast.ts`.
+
+The message is a template with `{name}`, `{vehicle}`, `{plate}`, `{due}`,
+`{business}` and `{link}`. `{link}` is the public booking page and needs
+`APP_PUBLIC_URL` set, because a timer has no request to read an address from.
+The screen shows the character count and how many SMS parts each customer's
+text takes, which is what a provider will bill.
+
+**Connecting a provider later.** Only `src/lib/sms/provider.ts` changes:
+`getSmsProvider()` returns an adapter with `send(to, body)` that reports
+`{ ok: true, id }` only when the provider accepted the text, and
+`{ ok: false, error }` otherwise. Credentials go in the environment. Before
+switching it on for a real business: run `npm run sms:check` (it refuses to run
+with a provider connected, so point it at a test configuration or adapt it),
+send one text to the developer's own phone, and confirm with the owner that the
+wording and the opt-out meet the local rules for commercial texts. From then on
+each text costs money; the one-per-car-per-due-date rule and the segment count
+are what bound it.
+
+Not built: blasts to everyone on a fixed cycle, free-form campaigns, delivery
+receipts, and replies (a customer texting STOP is not read; staff switch that
+customer's Reminders off by hand).
+
+Check: `npm run sms:check` (the rules, then the real sweep against a throwaway
+business: off, night, one per car, queued and never sent, manual limits,
+expiry).
+
+## Quotations
+
+A new optional module (`quotes`, "Quotations", `/quotations`), outside the
+frozen acceptance checklist like Fleet and CRM. It prints the shop's own
+quotation form as a PDF, emails it, and drafts one from a photo. Granted to no
+business by default; an admin switches it on in Business Management.
+
+- **Data:** `quotations` (QT-…), `quotePriceItems` (the price list),
+  `quotePhotos` (QP-…), all tenant-scoped through `src/lib/dal/quotations.ts`.
+  The letterhead (logo, address, contact numbers, default notes, footer,
+  markup) is `quotation` on the business record, edited from Settings on the
+  Quotations screen. Bill To and the vehicle are copies, optionally linked to a
+  CRM customer and a Fleet car, so editing a customer never changes a quotation
+  already sent.
+- **Totals are never stored.** `quoteTotals` (`src/lib/quotations.ts`) works
+  them out from the lines everywhere: editor, list, PDF, email.
+- **Cost and margin are internal.** Each line has an optional cost; a cost
+  with no price is offered at the business's markup (50% by default, the
+  ratio in the owner's sample). The PDF component is never given costs, so
+  it cannot print them.
+- **Price list fills itself.** Saving a quotation upserts each priced line by
+  its normalised wording; the description box autocompletes from it. Photo
+  lines are remembered only once a person saves the draft.
+- **PDF:** `src/lib/quote-pdf.tsx` (`@react-pdf/renderer`, installed with
+  `--legacy-peer-deps` because of the existing next-auth/nodemailer peer
+  clash). Served by `/api/quotations/[ref]/pdf` for the preview and the
+  download, and attached to the email, so all three are the same document.
+  Built-in fonts: Latin-1 (Iñigo) prints, the peso sign does not, so amounts
+  are plain numbers as on the paper form. A quotation with an unpriced line
+  can be previewed but not downloaded or emailed.
+- **Email:** through the business's connected mailbox; `sendMail` now takes
+  attachments. A person checks the address, subject and message and presses
+  Send; the quotation is marked Sent only after SMTP accepts it. Gmail keeps
+  the copy in its Sent folder; AEGIS does not add it to the Mail screen.
+- **From a photo:** one vision call per upload (`src/lib/ai/quote-photo.ts`,
+  kind `quote-photo`), classifying the photo (written estimate, supplier
+  document, vehicle, other) and extracting lines. Prices come from the photo,
+  then a cost in the photo at markup, then the price list (matched on the
+  server, never sent to the model); the rest stay unpriced. A vehicle photo
+  gives at most eight suggestions and the model may not price them. Every
+  line is tagged with its source in the editor, and the photo sits beside
+  the draft. A plate or phone links to an existing car or customer; nothing
+  is created.
+- **Photo spend:** the browser shrinks to about 1400px JPEG under 1 MB; the
+  cache key is the photo's SHA-256, so a re-upload is free; at most
+  `OPENAI_QUOTE_PHOTOS_PER_DAY` (10) billed reads per business per day; no
+  reading once 80% of the monthly budget is used, keeping the rest for mail.
+  The model is `OPENAI_MODEL_VISION` (default `gpt-4.1-mini`) because
+  gpt-4o-mini bills an image at about 33 times its tokens (about 25,000 a
+  photo). **Not yet run against the real API**: check the first call's
+  input tokens on System Status before relying on the estimate of about
+  2,500 per photo.
+- **Privacy:** a photo of a written estimate may show a customer's name and
+  phone, and it goes to OpenAI with the image. That is inherent to the feature
+  and differs from the dashboard report, which sends no customer details.
+
+Check: `npm run quote:check` (the owner's sample totals, markup, rounding,
+typed amounts, price-list matching, photo reply validation and draft pricing
+order, indexes and the price list's one-entry-per-wording rule).
+
+Left to do: browser verification signed in; a first real photo read; VAT
+other than the printed "zero rated" note, if the owner wants it.
+
+## Inventory: stock batches (Suppliers & Costing, step 1)
+
+Part of the Suppliers, Purchase Orders and Costing work the owner asked for
+(3 Oct 2026), outside the frozen checklist. Steps still to come: suppliers and
+the price book, record-only purchase orders and receiving, receipt photos,
+quotation costing and low stock to draft POs.
+
+- **Every stock in opens a batch** (`stockBatches`, BT-…): quantity received,
+  quantity left, unit cost, supplier, delivery note, the movement that opened
+  it. Goods received carries the cost paid; a customer return (whose amount is
+  a credit, a price) and internal moves come in at the item's average.
+- **Every stock out draws oldest batch first** and stores which batches and at
+  what cost on the movement (`batches`, `costCents`). The item's guarded
+  `onHand` is still what stops two picks taking the last unit; the batches
+  are decremented with their own guards and re-planned on a lost race, and a
+  failure puts back what was taken.
+- **The item is the total:** on hand is the level, value is summed batch by
+  batch, `unitCostCents` is now the weighted average (refreshed after every
+  movement), and `nextCostCents` is the oldest open batch's cost. The drawer
+  shows the batches, oldest (next used) first.
+- **Existing stock converts itself:** the first read or write of a
+  business's Inventory gives each stocked item without batches one opening
+  batch (ref `OPEN-<sku>`, insert-only, so repeating it is harmless). Re-seeding
+  deletes the seeded items' batches so they are rebuilt at the seeded levels.
+- **Stock value changes** when this lands: it was on hand times a cost that
+  never moved; it is now the batches' own costs.
+
+Check: `npm run supplier:check` (oldest-first maths, value, incoming cost,
+indexes, a repeated conversion, a batch that cannot be over-drawn, and a
+read-only report of any item whose level disagrees with its batches).
+
+## Suppliers and the price book (Suppliers & Costing, step 2)
+
+A new optional module (`suppliers`, "Suppliers", `/suppliers`), granted to no
+business by default. Tabs: Suppliers, Compare costs, Cost changes.
+
+- **Suppliers** (`suppliers`, SP-…): contact, phone, email, terms, usual
+  delivery days, notes. One record per name (unique `nameKey`). A supplier no
+  longer used is set aside, never deleted, so its history stays.
+- **Price book** (`supplierItems`, SI-…): each part as one supplier sells it,
+  in their wording, at their latest cost, optionally linked to an Inventory
+  item. One entry per wording per supplier. **Every cost is written through
+  `recordCost`** (`src/lib/dal/suppliers.ts`), which also writes the history
+  line (`supplierCosts`) when the cost changed; purchases and receipt photos
+  will call the same function.
+- **Comparison** groups entries by Inventory item, or by wording when
+  unlinked, cheapest first, and marks the **planning cost**: the preferred
+  supplier's, else the most recently confirmed (`planningCost`,
+  `src/lib/suppliers.ts`). Quotation costing will use that, not the cheapest.
+  Costs older than 90 days are flagged.
+- **From Inventory**: the supplier names typed on Inventory items can be made
+  into supplier records after a person ticks them, optionally putting each
+  supplier's items into its price book at the current average cost
+  (source "inventory").
+- Money on these screens is pesos (`formatPeso`).
+
+Check: `npm run supplier:check` now also covers name matching, comparison
+grouping, the planning cost, and the unique name and wording indexes.

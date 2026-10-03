@@ -22,6 +22,9 @@ export function routeTitle(pathname: string, businesses: Business[]): string {
   if (pathname.startsWith("/inventory")) return "Inventory";
   if (pathname.startsWith("/fleet")) return "Fleet";
   if (pathname.startsWith("/crm")) return "CRM";
+  if (pathname.startsWith("/text-blast")) return "Text Blast";
+  if (pathname.startsWith("/quotations")) return "Quotations";
+  if (pathname.startsWith("/suppliers")) return "Suppliers";
   if (pathname.startsWith("/ads")) return "Ads";
 
   if (pathname.startsWith("/modules/")) {

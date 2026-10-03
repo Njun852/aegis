@@ -28,6 +28,7 @@ export default async function FleetPage() {
       customers={customers}
       history={history}
       crmEnabled={business.modules.includes("crm")}
+      bookingsEnabled={business.modules.includes("bookings")}
       businessName={business.name}
       todayIso={today.toISOString()}
     />

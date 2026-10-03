@@ -25,6 +25,7 @@ export function toCustomer(doc: CustomerDocument): Customer {
     email: doc.email,
     company: doc.company ?? "",
     notes: doc.notes,
+    smsOptOut: doc.smsOptOut ?? false,
   };
 }
 
@@ -123,6 +124,19 @@ export async function updateCustomer(ref: string, input: CustomerInput): Promise
         updatedAt: new Date(),
       },
     },
+  );
+  if (result.matchedCount === 0) throw new InputError(`${ref} is no longer on file.`);
+}
+
+/**
+ * Records that a customer does or does not want texts. Text Blast reads this on
+ * every sweep, so it takes effect before the next reminder is written.
+ */
+export async function setCustomerSmsOptOut(ref: string, optedOut: boolean): Promise<void> {
+  const collection = await customersCollection();
+  const result = await collection.updateOne(
+    { ref },
+    { $set: { smsOptOut: optedOut, updatedAt: new Date() } },
   );
   if (result.matchedCount === 0) throw new InputError(`${ref} is no longer on file.`);
 }

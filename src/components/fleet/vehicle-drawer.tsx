@@ -37,6 +37,8 @@ export interface VehicleDrawerProps {
   history: ServiceRecord[];
   /** Whether the owner links through to their CRM profile. */
   crmEnabled: boolean;
+  /** With Bookings on, a past service is saved as a completed booking. */
+  bookingsEnabled: boolean;
   todayIso: string;
   onClose: () => void;
 }
@@ -46,6 +48,7 @@ export function VehicleDrawer({
   vehicle,
   history,
   crmEnabled,
+  bookingsEnabled,
   todayIso,
   onClose,
 }: VehicleDrawerProps) {
@@ -99,7 +102,12 @@ export function VehicleDrawer({
         }
         after?.();
         router.refresh();
-        toast({ tone: "success", title: done, key: `vehicle-${vehicle.ref}` });
+        toast({
+          tone: "success",
+          title: done,
+          description: result.note,
+          key: `vehicle-${vehicle.ref}`,
+        });
       } catch {
         toast({
           tone: "error",
@@ -403,7 +411,7 @@ export function VehicleDrawer({
             )}
 
             {panel === "log" && (
-              <PanelForm title="Log a service" onSave={saveLog} onCancel={() => setPanel(null)} pending={pending} saveLabel="Save service">
+              <PanelForm title={bookingsEnabled ? "Add a past service" : "Log a service"} onSave={saveLog} onCancel={() => setPanel(null)} pending={pending} saveLabel="Save service">
                 <div style={{ display: "flex", gap: "8px" }}>
                   <input
                     type="date"
@@ -429,6 +437,12 @@ export function VehicleDrawer({
                   aria-label="Work done"
                   style={EDITOR_INPUT}
                 />
+                {bookingsEnabled && (
+                  <span style={{ fontSize: "11.5px", color: "var(--text-muted)", textWrap: "pretty" }}>
+                    Saved as a completed booking, so the job is in Bookings too. For work still
+                    to come, make a booking instead.
+                  </span>
+                )}
               </PanelForm>
             )}
 
@@ -495,7 +509,7 @@ export function VehicleDrawer({
           }}
         >
           <Button icon="wrench" onClick={() => open("log")} disabled={pending}>
-            Log service
+            {bookingsEnabled ? "Past service" : "Log service"}
           </Button>
           <Button variant="outline" icon="gauge" onClick={() => open("mileage")} disabled={pending}>
             Update mileage

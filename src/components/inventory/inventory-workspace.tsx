@@ -34,6 +34,7 @@ import type {
   InventoryItem,
   InventoryPeriod,
   InventoryStatusFilter,
+  StockBatch,
   StockMove,
   StockMoveKind,
 } from "@/types";
@@ -46,6 +47,8 @@ export interface InventoryWorkspaceProps {
   items: InventoryItem[];
   /** Movement history, newest first. Feeds the counts and the drawer's trail. */
   moves: StockMove[];
+  /** Every batch, newest first. The drawer shows the selected item's. */
+  batches: StockBatch[];
   businessName: string;
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
@@ -57,6 +60,7 @@ export interface InventoryWorkspaceProps {
 export function InventoryWorkspace({
   items,
   moves,
+  batches,
   businessName,
   todayIso,
 }: InventoryWorkspaceProps) {
@@ -330,7 +334,7 @@ export function InventoryWorkspace({
             <ColumnLabel>Item</ColumnLabel>
             <ColumnLabel>Stock level</ColumnLabel>
             <ColumnLabel className="hidden text-right wide:block">
-              Unit cost
+              Avg cost
             </ColumnLabel>
             <ColumnLabel className="hidden text-right wide:block">
               Value
@@ -534,6 +538,7 @@ export function InventoryWorkspace({
           key={selected.sku}
           item={selected}
           moves={moves.filter((entry) => entry.sku === selected.sku)}
+          batches={batches.filter((batch) => batch.sku === selected.sku)}
           onClose={() => setOpenSku(null)}
           onStockIn={() => setMove({ kind: "in", sku: selected.sku })}
           onStockOut={() => setMove({ kind: "out", sku: selected.sku })}

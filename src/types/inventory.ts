@@ -70,9 +70,18 @@ export interface InventoryItem {
   unit: string;
   location: string;
   supplier: string;
+  /**
+   * Average cost of the stock on hand, weighted over its open batches. When
+   * nothing is on hand it is the cost of the last batch, so the item still
+   * reads at a sensible price.
+   */
   unitCostCents: number;
-  /** `onHand × unitCostCents`. */
+  /** What the open batches cost, summed batch by batch: exact, not on hand × average. */
   valueCents: number;
+  /** Batches with stock left. */
+  openBatches: number;
+  /** Unit cost of the oldest open batch: what the next unit used will cost. Null when none is on hand. */
+  nextCostCents: number | null;
   status: InventoryStatus;
   /** "Aug 28 · 07:15" */
   updated: string;
@@ -113,6 +122,10 @@ export interface StockMove {
   amountCents: number;
   /** True when this move is what brought the item into existence. */
   createdItem: boolean;
+  /** For a stock out, the batches it drew from, oldest first. For a stock in, the batch it opened. */
+  batches: BatchDraw[];
+  /** What the units moved cost the business, from their batches. */
+  costCents: number;
   occurredAt: string;
   /** "Aug 28 · 16:40" */
   when: string;
@@ -130,6 +143,9 @@ export interface StockMoveDocument {
   unitAmountCents: number;
   amountCents: number;
   createdItem: boolean;
+  /** Absent on movements recorded before batches existed. */
+  batches?: BatchDraw[];
+  costCents?: number;
   occurredAt: Date;
   createdAt: Date;
 }
@@ -144,4 +160,59 @@ export interface StockMoveInput {
   documentRef: string;
   party: string;
   unitAmountCents: number;
+}
+
+/**
+ * Where a batch came from. Every stock in opens one; "opening" is the stock
+ * that was already on the shelf when batches were introduced.
+ */
+export type BatchSource =
+  | "opening"
+  | "goods-received"
+  | "customer-return"
+  | "transfer-in"
+  | "count-correction";
+
+/** Units taken from, or put into, one batch by one movement. */
+export interface BatchDraw {
+  batchRef: string;
+  quantity: number;
+  unitCostCents: number;
+}
+
+/**
+ * One delivery of one item: what arrived, what is left of it and what each
+ * unit cost. Stock is used oldest batch first, so a job is charged the cost
+ * of the units it actually took.
+ */
+export interface StockBatchDocument {
+  businessId: string;
+  ref: string;
+  sku: string;
+  source: BatchSource;
+  receivedAt: Date;
+  quantityReceived: number;
+  remaining: number;
+  unitCostCents: number;
+  /** As recorded on the movement. Becomes a supplier record link with the Suppliers module. */
+  supplier: string;
+  /** Delivery note or receipt number, as typed. */
+  documentRef: string;
+  /** The movement that opened it. Null for opening stock. */
+  moveRef: string | null;
+  createdAt: Date;
+}
+
+export interface StockBatch {
+  ref: string;
+  sku: string;
+  source: BatchSource;
+  /** "Sep 02, 2026" */
+  receivedDay: string;
+  receivedAt: string;
+  quantityReceived: number;
+  remaining: number;
+  unitCostCents: number;
+  supplier: string;
+  documentRef: string;
 }

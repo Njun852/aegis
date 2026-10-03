@@ -221,6 +221,7 @@ const SURFACE_LABELS: Record<string, string> = {
   "mail-triage": "Mail triage",
   "compose-draft": "New email drafting",
   "mail-reply": "Reply drafting",
+  "quote-photo": "Quotation from a photo",
 };
 
 /** Plain readings of the outcome codes, so nobody has to look them up. */

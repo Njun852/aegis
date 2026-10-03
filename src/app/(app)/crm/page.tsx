@@ -31,6 +31,7 @@ export default async function CrmPage(props: PageProps<"/crm">) {
       customers={customers}
       profile={profile}
       fleetEnabled={fleet}
+      smsEnabled={business.modules.includes("sms")}
       businessName={business.name}
       todayIso={today.toISOString()}
     />

@@ -28,7 +28,11 @@ function toLocalInput(iso: string) {
 
 export interface BookingDrawerProps {
   booking: Booking;
-  /** The linked Fleet vehicle, when the booking has one and Fleet is on. */
+  /**
+   * The linked Fleet vehicle, when the booking has one and Fleet is on. Shown,
+   * not editable: the car is set when the booking is made, and swapping it
+   * afterwards would rewrite two cars' service histories.
+   */
   vehicle: VehicleOption | null;
   /** CRM customers. Null without CRM, which hides the customer row and link. */
   customers: Customer[] | null;
@@ -69,6 +73,14 @@ export function BookingDrawer({
   const linkedLabel =
     [...customerLabels.entries()].find(([, ref]) => ref === booking.customerRef)?.[0] ?? NOT_LINKED;
   const [linkChoice, setLinkChoice] = useState(linkedLabel);
+  // The request panel links a customer too, so the saved link can change under
+  // this picker. Follow it, or the picker keeps offering "Unlink" for a link
+  // that was only just made.
+  const [savedLabel, setSavedLabel] = useState(linkedLabel);
+  if (savedLabel !== linkedLabel) {
+    setSavedLabel(linkedLabel);
+    setLinkChoice(linkedLabel);
+  }
 
   const status = getStatusStyle(booking.status);
 
@@ -204,7 +216,12 @@ export function BookingDrawer({
       ? [{ icon: "car", label: "Vehicle", value: `${vehicle.plate} · ${vehicle.label}` }]
       : []),
     { icon: "user", label: "Assigned to", value: booking.staff },
-    { icon: "mail", label: "Contact", value: booking.email || booking.request?.mobile || "—" },
+    {
+      icon: "phone",
+      label: "Contact",
+      value:
+        [booking.phone || booking.request?.mobile, booking.email].filter(Boolean).join(" · ") || "—",
+    },
     {
       icon: "wallet",
       label: "Value",

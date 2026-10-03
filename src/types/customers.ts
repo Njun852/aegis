@@ -13,6 +13,8 @@ export interface Customer {
   email: string;
   company: string;
   notes: string;
+  /** True when the customer has asked not to be texted. Text Blast skips them. */
+  smsOptOut: boolean;
 }
 
 /** Stored shape. `businessId` is stamped on by `tenantScope`. */
@@ -33,6 +35,8 @@ export interface CustomerDocument {
   phoneKey?: string;
   /** Lower case. Absent on records written before CRM. */
   emailKey?: string;
+  /** Absent means the customer has not opted out. */
+  smsOptOut?: boolean;
   createdAt: Date;
   updatedAt?: Date;
 }

@@ -1,5 +1,7 @@
 import type { MetaAdsConfig } from "./ads";
 import type { OptionalModuleKey } from "./business";
+import type { QuotationConfig } from "./quotations";
+import type { TextBlastConfig } from "./text-blast";
 
 /**
  * AEGIS staff see and administer every business. A member only ever sees the
@@ -71,6 +73,10 @@ export interface BusinessDocument {
   metaAds?: MetaAdsConfig;
   /** Absent until an admin turns on the public booking page. */
   onlineBooking?: OnlineBookingConfig;
+  /** Absent until someone saves Text Blast settings; treated as switched off. */
+  textBlast?: TextBlastConfig;
+  /** Absent until someone saves the quotation letterhead; defaults apply. */
+  quotation?: QuotationConfig;
 }
 
 /**

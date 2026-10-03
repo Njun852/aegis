@@ -2,13 +2,17 @@
 
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
+import { useState } from "react";
 import { getStatusStyle, moveReasonMeta } from "@/lib/inventory";
-import type { InventoryItem, StockMove } from "@/types";
+import { BATCH_SOURCE_LABELS } from "@/lib/inventory-batches";
+import type { InventoryItem, StockBatch, StockMove } from "@/types";
 
 export interface ItemDrawerProps {
   item: InventoryItem;
   /** This item's movements, newest first. */
   moves: StockMove[];
+  /** This item's batches, newest first. */
+  batches: StockBatch[];
   onClose: () => void;
   onStockIn: () => void;
   onStockOut: () => void;
@@ -32,11 +36,16 @@ function movementStyle(move: StockMove) {
 export function ItemDrawer({
   item,
   moves,
+  batches,
   onClose,
   onStockIn,
   onStockOut,
 }: ItemDrawerProps) {
   const status = getStatusStyle(item.status);
+  const [showUsed, setShowUsed] = useState(false);
+  // Oldest first, the order stock is taken in, so the top batch is the next one used.
+  const open = batches.filter((batch) => batch.remaining > 0).reverse();
+  const used = batches.filter((batch) => batch.remaining === 0);
 
   const counts = [
     { label: "On hand", value: String(item.onHand) },
@@ -47,8 +56,16 @@ export function ItemDrawer({
     { icon: "package", label: "Category", value: item.category },
     {
       icon: "wallet",
-      label: "Unit cost",
+      label: "Average cost",
       value: `${formatMoney(item.unitCostCents)} · ${formatMoney(item.valueCents, false)} on hand`,
+    },
+    {
+      icon: "layers",
+      label: "Next unit",
+      value:
+        item.nextCostCents === null
+          ? "None on hand"
+          : `${formatMoney(item.nextCostCents)} · from the oldest batch, which is used first`,
     },
     {
       icon: "trending-up",
@@ -248,6 +265,51 @@ export function ItemDrawer({
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <span className="flex items-baseline justify-between">
+              <span
+                style={{
+                  fontSize: "var(--text-overline-size)",
+                  letterSpacing: ".1em",
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                }}
+              >
+                Batches on hand
+              </span>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>oldest is used first</span>
+            </span>
+
+            {open.map((batch, index) => (
+              <BatchRow key={batch.ref} batch={batch} unit={item.unit} next={index === 0} />
+            ))}
+            {open.length === 0 && (
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                No stock on hand. The next stock in opens a batch.
+              </span>
+            )}
+
+            {used.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowUsed((shown) => !shown)}
+                style={{
+                  alignSelf: "flex-start",
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "11.5px",
+                  color: "var(--text-accent)",
+                }}
+              >
+                {showUsed ? "Hide" : "Show"} {used.length} used-up {used.length === 1 ? "batch" : "batches"}
+              </button>
+            )}
+            {showUsed && used.map((batch) => <BatchRow key={batch.ref} batch={batch} unit={item.unit} />)}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <span
               style={{
                 fontSize: "var(--text-overline-size)",
@@ -312,6 +374,14 @@ export function ItemDrawer({
                     >
                       {meta}
                     </span>
+                    {entry.kind === "out" && entry.batches.length > 0 && (
+                      <span style={{ fontSize: "10.5px", color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+                        Cost {formatMoney(entry.costCents)} from{" "}
+                        {entry.batches
+                          .map((draw) => `${draw.batchRef} ×${draw.quantity} @ ${formatMoney(draw.unitCostCents)}`)
+                          .join(", ")}
+                      </span>
+                    )}
                   </span>
                   <span
                     style={{
@@ -371,5 +441,45 @@ export function ItemDrawer({
         </div>
       </aside>
     </>
+  );
+}
+
+/** One batch: where it came from, what is left of it, what each unit cost. */
+function BatchRow({ batch, unit, next }: { batch: StockBatch; unit: string; next?: boolean }) {
+  const usedUp = batch.remaining === 0;
+  const origin = [batch.receivedDay, batch.supplier, batch.documentRef].filter(Boolean).join(" · ");
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "8px 10px",
+        border: `1px solid ${next ? "var(--blue-200)" : "var(--border-subtle)"}`,
+        background: next ? "var(--accent-soft)" : "transparent",
+        borderRadius: "var(--radius-md)",
+        opacity: usedUp ? 0.6 : 1,
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
+        <span style={{ fontSize: "12px", fontWeight: 600, overflowWrap: "anywhere" }}>
+          {BATCH_SOURCE_LABELS[batch.source]}
+          <span style={{ fontFamily: "var(--font-mono)", fontWeight: 400, color: "var(--text-muted)", fontSize: "10.5px" }}>
+            {" "}
+            {batch.ref}
+          </span>
+          {next && <span style={{ color: "var(--text-accent)", fontWeight: 600 }}> · next used</span>}
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)", overflowWrap: "anywhere" }}>{origin}</span>
+      </span>
+      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3 }}>
+        <span style={{ fontSize: "12.5px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+          {batch.remaining} of {batch.quantityReceived} {unit}
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+          @ {formatMoney(batch.unitCostCents)}
+        </span>
+      </span>
+    </div>
   );
 }
