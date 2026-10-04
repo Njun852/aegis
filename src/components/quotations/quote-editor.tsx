@@ -26,6 +26,7 @@ import type {
   QuotationInput,
   QuotationSettings,
   QuoteBillTo,
+  QuoteCostSource,
   QuoteLine,
   QuotePhotoView,
   QuotePriceItem,
@@ -42,6 +43,8 @@ export interface QuoteEditorProps {
   defaults: { quoteDate: string; notes: string };
   settings: QuotationSettings;
   priceItems: QuotePriceItem[];
+  /** What parts cost now, from Inventory and Suppliers. Empty when neither module is on. */
+  costSources: QuoteCostSource[];
   /** Empty when CRM is off. */
   customers: Customer[];
   /** Empty when Fleet is off. */
@@ -152,6 +155,7 @@ export function QuoteEditor({
   defaults,
   settings,
   priceItems,
+  costSources,
   customers,
   vehicles,
   crmEnabled,
@@ -554,6 +558,7 @@ export function QuoteEditor({
               noun={section.noun}
               lines={draft.lines.filter((line) => line.section === section.key)}
               priceItems={priceItems}
+              costSources={section.key === "parts" ? costSources : []}
               markupPercent={settings.markupPercent}
               onChange={(next) => {
                 setDraft((current) => {

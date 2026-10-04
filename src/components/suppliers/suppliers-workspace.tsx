@@ -8,10 +8,14 @@ import { activateOnKey } from "@/lib/interaction";
 import { STALE_COST_DAYS, compareParts, filterSuppliers } from "@/lib/suppliers";
 import { CostChangesPanel } from "./cost-changes-panel";
 import { ImportModal } from "./import-modal";
+import { OrdersPanel, ReceiptsPanel } from "./orders-panel";
 import { PriceComparison } from "./price-comparison";
 import { SupplierDrawer } from "./supplier-drawer";
 import { SupplierModal } from "./supplier-modal";
 import type {
+  PurchaseOrder,
+  Receipt,
+  RestockSuggestion,
   InventoryOption,
   SupplierCostChange,
   SupplierImportCandidate,
@@ -19,7 +23,7 @@ import type {
   SupplierSummary,
 } from "@/types";
 
-export type SuppliersTab = "suppliers" | "prices" | "changes";
+export type SuppliersTab = "suppliers" | "prices" | "changes" | "orders" | "receipts";
 
 const GRID =
   "grid gap-3 items-center grid-cols-[minmax(160px,1.4fr)_90px_20px] wide:grid-cols-[minmax(190px,1.4fr)_minmax(0,1.2fr)_110px_90px_120px_22px]";
@@ -30,6 +34,9 @@ export interface SuppliersWorkspaceProps {
   changes: SupplierCostChange[];
   inventory: InventoryOption[];
   candidates: SupplierImportCandidate[];
+  orders: PurchaseOrder[];
+  receipts: Receipt[];
+  restock: RestockSuggestion[];
   inventoryEnabled: boolean;
   tab: SuppliersTab;
   openRef: string | null;
@@ -44,6 +51,9 @@ export function SuppliersWorkspace({
   changes,
   inventory,
   candidates,
+  orders,
+  receipts,
+  restock,
   inventoryEnabled,
   tab,
   openRef,
@@ -86,6 +96,8 @@ export function SuppliersWorkspace({
     { id: "suppliers", label: "Suppliers", icon: "truck" },
     { id: "prices", label: "Compare costs", icon: "layers" },
     { id: "changes", label: "Cost changes", icon: "trending-up" },
+    { id: "orders", label: "Purchase orders", icon: "file-text" },
+    { id: "receipts", label: "Receipts", icon: "arrow-down" },
   ];
 
   return (
@@ -146,7 +158,7 @@ export function SuppliersWorkspace({
           ))}
         </div>
 
-        <div className="flex items-center gap-1" role="tablist" aria-label="Suppliers view">
+        <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="Suppliers view">
           {tabs.map((item) => {
             const active = tab === item.id;
             return (
@@ -181,6 +193,8 @@ export function SuppliersWorkspace({
 
         {tab === "prices" && <PriceComparison groups={groups} onOpenSupplier={(ref) => go({ supplier: ref })} />}
         {tab === "changes" && <CostChangesPanel changes={changes} onOpenSupplier={(ref) => go({ supplier: ref })} />}
+        {tab === "orders" && <OrdersPanel orders={orders} restock={restock} inventoryEnabled={inventoryEnabled} />}
+        {tab === "receipts" && <ReceiptsPanel receipts={receipts} />}
         {tab === "suppliers" && (
           <section
             style={{

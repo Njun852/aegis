@@ -127,6 +127,11 @@ export function SupplierDrawer({ supplier, items, allItems, inventory, inventory
           <Button variant="secondary" icon="pen-line" onClick={() => setEditing(true)}>
             Edit details
           </Button>
+          {supplier.active && (
+            <Button variant="secondary" icon="file-text" onClick={() => router.push(`/suppliers/orders/new?supplier=${encodeURIComponent(supplier.ref)}`)}>
+              New order
+            </Button>
+          )}
           <Button variant="ghost" onClick={toggleActive} disabled={pending}>
             {supplier.active ? "No longer used" : "Use again"}
           </Button>

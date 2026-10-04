@@ -29,6 +29,10 @@ export interface QuoteLine {
   /** What the part or job costs the business. Internal: never printed, never emailed. */
   costCents: number | null;
   origin: QuoteLineOrigin;
+  /** The Inventory item a part line was costed from. Absent on lines saved before costing. */
+  sku?: string | null;
+  /** Where the cost came from, as staff read it: "Oldest batch in stock", "Supplier A · Oct 02, 2026". */
+  costNote?: string;
 }
 
 /** Who the quotation is addressed to, as it reads on the form. */
@@ -254,5 +258,22 @@ export interface QuotePhotoDocument {
 /** The photo a draft came from, as the editor shows it beside the lines. */
 export interface QuotePhotoView {
   ref: string;
+  note: string;
+}
+
+/**
+ * What a part costs right now, from Inventory or the supplier price book,
+ * worked out on the server for the editor. Stock on hand wins, because the job
+ * will use those units; otherwise the supplier's planning cost.
+ */
+export interface QuoteCostSource {
+  /** Every wording the part is known by, as match keys: the Inventory name and each supplier's. */
+  keys: string[];
+  label: string;
+  sku: string | null;
+  unit: string;
+  costCents: number;
+  kind: "stock" | "supplier";
+  /** "Oldest batch in stock (4 on hand)", "Supplier A · Oct 02, 2026". */
   note: string;
 }

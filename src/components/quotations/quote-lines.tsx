@@ -13,7 +13,8 @@ import {
   priceFromCost,
 } from "@/lib/quotations";
 import { CELL, ColumnLabel, NUMBER_CELL, Panel } from "@/components/forms/form-kit";
-import type { QuoteLine, QuoteLineOrigin, QuotePriceItem, QuoteSection } from "@/types";
+import { checkLineCost, findCostSource, type CostCheck } from "@/lib/quote-costing";
+import type { QuoteCostSource, QuoteLine, QuoteLineOrigin, QuotePriceItem, QuoteSection } from "@/types";
 
 /** A line as the editor holds it: the numbers kept as typed until the save reads them. */
 export interface EditorLine extends QuoteLine {
@@ -37,6 +38,8 @@ export interface QuoteLinesProps {
   noun: string;
   lines: EditorLine[];
   priceItems: QuotePriceItem[];
+  /** What parts cost now. Empty for labor. */
+  costSources: QuoteCostSource[];
   markupPercent: number;
   onChange: (lines: EditorLine[]) => void;
 }
@@ -47,11 +50,15 @@ export function QuoteLines({
   noun,
   lines,
   priceItems,
+  costSources,
   markupPercent,
   onChange,
 }: QuoteLinesProps) {
   const listId = `quote-price-list-${section}`;
   const known = priceItems.filter((item) => item.section === section);
+  // Parts on record in Inventory or Suppliers but never quoted yet are offered too.
+  const knownKeys = new Set(known.map((item) => descriptionKey(item.description)));
+  const costed = costSources.filter((source) => !knownKeys.has(descriptionKey(source.label)));
 
   const patch = (id: string, change: Partial<EditorLine>) =>
     onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
@@ -69,8 +76,39 @@ export function QuoteLines({
         change.costText = amountInput(match.costCents);
       }
     }
+    // The cost comes from what the part costs now when it is on record:
+    // stock on hand, else the supplier. It replaces a remembered cost, which
+    // may be months old, but never one the person typed by hand.
+    const source = findCostSource(description, costSources);
+    const typedByHand = line.costText.trim() !== "" && !line.costNote;
+    if (source && !typedByHand) {
+      change.costText = amountInput(source.costCents);
+      change.costNote = source.note;
+      change.sku = source.sku;
+      if ((change.unit ?? line.unit).trim() === "") change.unit = source.unit;
+      if ((change.priceText ?? line.priceText).trim() === "") {
+        change.priceText = amountInput(priceFromCost(source.costCents, markupPercent));
+        change.origin = "typed";
+      }
+    } else if (!source && line.costNote && change.costText === undefined) {
+      // The wording no longer names the part the cost was filled from.
+      change.costText = "";
+      change.costNote = "";
+      change.sku = null;
+    }
     patch(line.id, change);
   };
+
+  /** Takes the cost on record, and with `reprice` the price at the markup over it. */
+  const takeCurrentCost = (line: EditorLine, source: QuoteCostSource, reprice: boolean) =>
+    patch(line.id, {
+      costText: amountInput(source.costCents),
+      costNote: source.note,
+      sku: source.sku,
+      ...(reprice
+        ? { priceText: amountInput(priceFromCost(source.costCents, markupPercent)), origin: "typed" as const }
+        : {}),
+    });
 
   /** A cost typed with no price offers the price at the business's markup. */
   const offerPrice = (line: EditorLine) => {
@@ -112,6 +150,9 @@ export function QuoteLines({
         {known.map((item) => (
           <option key={item.description} value={item.description} label={formatAmount(item.unitPriceCents)} />
         ))}
+        {costed.map((source) => (
+          <option key={`cost-${source.label}`} value={source.label} label={`Cost ${formatAmount(source.costCents)}`} />
+        ))}
       </datalist>
 
       <div className="overflow-x-auto">
@@ -141,6 +182,13 @@ export function QuoteLines({
             const note = ORIGIN_NOTE[line.origin];
             const loss =
               typeof price === "number" && typeof cost === "number" && price < cost;
+            const check =
+              described && price !== undefined && cost !== undefined
+                ? checkLineCost(
+                    { section, description: line.description, unitPriceCents: price, costCents: cost },
+                    costSources,
+                  )
+                : null;
 
             return (
               <div key={line.id} className={GRID} style={{ padding: "0 2px" }}>
@@ -163,6 +211,11 @@ export function QuoteLines({
                   />
                   {note && described && (
                     <span style={{ fontSize: "10.5px", color: note.color, paddingLeft: 2 }}>{note.text}</span>
+                  )}
+                  {line.costNote && described && typeof cost === "number" && (
+                    <span style={{ fontSize: "10.5px", color: "var(--text-muted)", paddingLeft: 2 }}>
+                      Cost: {line.costNote}
+                    </span>
                   )}
                 </span>
                 <input
@@ -219,7 +272,8 @@ export function QuoteLines({
                   inputMode="decimal"
                   placeholder="—"
                   value={line.costText}
-                  onChange={(event) => patch(line.id, { costText: event.target.value })}
+                  // A cost typed by hand is the person's own; it no longer says where it came from.
+                  onChange={(event) => patch(line.id, { costText: event.target.value, costNote: "" })}
                   onBlur={() => offerPrice(line)}
                 />
                 <button
@@ -241,6 +295,15 @@ export function QuoteLines({
                 >
                   <Icon name="x" size={14} />
                 </button>
+                {check && (
+                  <CostNotice
+                    check={check}
+                    markupPercent={markupPercent}
+                    priceCents={typeof price === "number" ? price : null}
+                    onUseCost={() => takeCurrentCost(line, check.source, false)}
+                    onReprice={() => takeCurrentCost(line, check.source, true)}
+                  />
+                )}
               </div>
             );
           })}
@@ -258,4 +321,63 @@ export function QuoteLines({
 
 function invalid(style: CSSProperties, bad: boolean): CSSProperties {
   return bad ? { ...style, borderColor: "var(--status-negative)" } : style;
+}
+
+/**
+ * Spans the row under a part line whose cost on record has moved past it, or
+ * which has no cost while one is on record. Offers the new cost, and the price
+ * at the business's markup over it; neither is applied without a click.
+ */
+function CostNotice({
+  check,
+  markupPercent,
+  priceCents,
+  onUseCost,
+  onReprice,
+}: {
+  check: CostCheck;
+  markupPercent: number;
+  priceCents: number | null;
+  onUseCost: () => void;
+  onReprice: () => void;
+}) {
+  const { source } = check;
+  const newPrice = priceFromCost(source.costCents, markupPercent);
+  const cost = formatAmount(source.costCents);
+  let message: string;
+  if (check.risen) {
+    message =
+      priceCents !== null && check.markupNow !== null
+        ? `Cost is now ${cost} (${source.note}). At ${formatAmount(priceCents)} your markup is ${check.markupNow}%, not ${check.markupWas ?? markupPercent}%.`
+        : `Cost is now ${cost} (${source.note}).`;
+  } else {
+    message =
+      check.markupNow !== null
+        ? `Cost on record: ${cost} (${source.note}), a markup of ${check.markupNow}% at this price.`
+        : `Cost on record: ${cost} (${source.note}).`;
+  }
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2"
+      style={{
+        gridColumn: "2 / -1",
+        padding: "6px 9px",
+        borderRadius: "var(--radius-sm)",
+        background: check.risen ? "var(--status-warning-soft)" : "var(--surface-inset)",
+        fontSize: "11px",
+        color: "var(--text-primary)",
+      }}
+    >
+      {check.risen && <Icon name="alert-triangle" size={12} color="var(--status-warning)" />}
+      <span style={{ flex: 1, minWidth: 200, textWrap: "pretty" }}>{message}</span>
+      <Button size="sm" variant="secondary" onClick={onUseCost}>
+        Use this cost
+      </Button>
+      {priceCents !== newPrice && (
+        <Button size="sm" variant="secondary" onClick={onReprice}>
+          Price at {markupPercent}%: {formatAmount(newPrice)}
+        </Button>
+      )}
+    </div>
+  );
 }

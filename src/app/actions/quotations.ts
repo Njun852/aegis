@@ -30,6 +30,8 @@ import { explainMailFailure } from "@/lib/mail/failures";
 import { sendMail } from "@/lib/mail/ingest";
 import { quotePdfFilename, renderQuotePdf } from "@/lib/quote-pdf";
 import { describeRead, draftLinesFromRead } from "@/lib/quote-photo";
+import { applyCostSources } from "@/lib/quote-costing";
+import { listCostSources } from "@/lib/dal/quote-costing";
 import {
   MAX_AMOUNT_CENTS,
   MAX_LINES,
@@ -94,6 +96,8 @@ function readLines(raw: unknown): QuoteLine[] {
       unitPriceCents: null,
       costCents: null,
       origin: ORIGINS.find((key) => key === entry.origin) ?? "typed",
+      sku: section === "parts" ? text(entry.sku, 40) || null : null,
+      costNote: text(entry.costNote, 120),
     };
 
     const price = cents(entry.unitPriceCents);
@@ -331,8 +335,19 @@ export async function createQuotationFromPhotoAction(
     }
 
     const read = result.data;
-    const [priceItems, settings] = await Promise.all([listPriceItems(), readQuotationSettings()]);
-    const lines = draftLinesFromRead(read, priceItems, settings.markupPercent);
+    const [priceItems, settings, costSources] = await Promise.all([
+      listPriceItems(),
+      readQuotationSettings(),
+      listCostSources(business),
+    ]);
+    // Parts left without a cost after the photo and the price list take what
+    // they cost now, from stock or the supplier, priced at the markup if the
+    // photo gave no price.
+    const lines = applyCostSources(
+      draftLinesFromRead(read, priceItems, settings.markupPercent),
+      costSources,
+      settings.markupPercent,
+    );
     const note = describeRead(read, lines);
     const photoRef = await savePhoto({
       sha256,

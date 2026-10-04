@@ -23,6 +23,14 @@ import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import { STOCK_BATCH_INDEXES } from "@/lib/data/inventory";
 import { SUPPLIER_INDEXES } from "@/lib/data/suppliers";
+import {
+  addDaysToKey,
+  outstanding,
+  planRestock,
+  receiptVariance,
+  receivedStatus,
+  variancePercent,
+} from "@/lib/purchasing";
 import { changePercent, compareParts, describeAge, planningCost, supplierNameKey } from "@/lib/suppliers";
 import type { SupplierItem } from "@/types";
 import {
@@ -123,6 +131,48 @@ assert.equal(describeAge(95), "3 months old");
 
 console.log("✓ supplier names match however typed; comparison groups; planning cost; change and age wording");
 
+// ---- Part one, continued: purchase orders and receipts --------------------------------
+
+assert.equal(outstanding({ qtyOrdered: 10, qtyReceived: 4 }), 6);
+assert.equal(outstanding({ qtyOrdered: 10, qtyReceived: 12 }), 0, "an over-delivery never shows as negative outstanding");
+assert.equal(receivedStatus([{ qtyOrdered: 10, qtyReceived: 0 }]), "Ordered");
+assert.equal(receivedStatus([{ qtyOrdered: 10, qtyReceived: 10 }, { qtyOrdered: 4, qtyReceived: 1 }]), "Partly received");
+assert.equal(receivedStatus([{ qtyOrdered: 10, qtyReceived: 10 }, { qtyOrdered: 4, qtyReceived: 4 }]), "Received");
+
+assert.equal(
+  receiptVariance([
+    { qty: 10, unitCostCents: 54_000, expectedCostCents: 50_000 },
+    { qty: 2, unitCostCents: 9_000, expectedCostCents: 10_000 },
+    { qty: 5, unitCostCents: 7_000, expectedCostCents: null },
+  ]),
+  10 * 4_000 - 2 * 1_000,
+  "variance counts only lines that had an expected cost",
+);
+assert.equal(variancePercent(54_000, 50_000), 8);
+assert.equal(variancePercent(54_000, null), null);
+assert.equal(addDaysToKey("2026-10-30", 5), "2026-11-04", "an expected date rolls over the month");
+
+const restock = planRestock({
+  items: [
+    { sku: "SKU-1", name: "Washer", unit: "pc", onHand: 2, target: 20, reorder: 5 },
+    { sku: "SKU-2", name: "Gasket", unit: "pc", onHand: 1, target: 10, reorder: 3 },
+    { sku: "SKU-3", name: "Filter", unit: "pc", onHand: 3, target: 12, reorder: 4 },
+    { sku: "SKU-4", name: "Belt", unit: "pc", onHand: 9, target: 10, reorder: 3 },
+  ],
+  onOrder: new Map([["SKU-3", 9]]),
+  sources: new Map([
+    ["SKU-1", { supplierRef: "SP-1", supplierName: "Supplier A", description: "Inj. washer", costCents: 50_000, active: true }],
+    ["SKU-3", { supplierRef: "SP-1", supplierName: "Supplier A", description: "Oil filter", costCents: 30_000, active: true }],
+  ]),
+});
+assert.deepEqual(restock.map((entry) => entry.sku), ["SKU-1", "SKU-3", "SKU-2"], "orderable first; an item above its reorder point is not listed");
+assert.equal(restock[0].qty, 18, "back up to target");
+assert.equal(restock[0].description, "Inj. washer", "ordered in the supplier's own wording");
+assert.equal(restock[1].skipped, "9 already on order", "what is already coming is not ordered twice");
+assert.equal(restock[2].skipped, "No supplier in the price book", "an item with no supplier is listed with the reason, not dropped");
+
+console.log("✓ order status from deliveries; outstanding; receipt variance; restock quantities and suppliers");
+
 // ---- Part two: the database -----------------------------------------------------
 
 const mongo = await new MongoClient(process.env.MONGODB_URI!).connect();
@@ -155,6 +205,37 @@ try {
   );
   await itemCollection.insertOne({ businessId, ref: "SI-1003", supplierRef: "SP-2001", key: "injector washer" });
   console.log("✓ one supplier per name; one entry per wording per supplier, and other suppliers may sell the same part");
+
+  // The writes receiving relies on: an order line's received quantity by its id, and the posting lock.
+  const orderCollection = db.collection("purchaseOrders");
+  await orderCollection.insertOne({
+    businessId,
+    ref: "PO-1001",
+    lines: [
+      { id: "a", qtyOrdered: 10, qtyReceived: 0 },
+      { id: "b", qtyOrdered: 4, qtyReceived: 0 },
+    ],
+  });
+  await orderCollection.updateOne(
+    { businessId, ref: "PO-1001" },
+    { $inc: { "lines.$[l].qtyReceived": 6 } },
+    { arrayFilters: [{ "l.id": "a" }] },
+  );
+  const order = await orderCollection.findOne({ businessId, ref: "PO-1001" });
+  assert.deepEqual(order?.lines.map((line: { qtyReceived: number }) => line.qtyReceived), [6, 0], "a delivery lands on its own line only");
+
+  const receiptCollection = db.collection("receipts");
+  await receiptCollection.insertOne({ businessId, ref: "GR-1001", status: "Posting" });
+  const claim = () => {
+    const now = new Date();
+    return receiptCollection.updateOne(
+      { businessId, ref: "GR-1001", status: "Posting", $or: [{ lockedUntil: { $exists: false } }, { lockedUntil: { $lte: now } }] },
+      { $set: { lockedUntil: new Date(now.getTime() + 120_000) } },
+    );
+  };
+  const [firstClaim, secondClaim] = await Promise.all([claim(), claim()]);
+  assert.equal(firstClaim.modifiedCount + secondClaim.modifiedCount, 1, "two posters cannot post one receipt at once");
+  console.log("✓ deliveries land on their own order line; one poster per receipt");
 
   // The conversion's own write, run twice at once: one opening batch results.
   const collection = db.collection("stockBatches");
@@ -218,7 +299,7 @@ try {
     console.log(`  ${unconverted} stocked items have no batches yet; they convert when Inventory is next opened`);
   }
 } finally {
-  for (const name of ["stockBatches", "suppliers", "supplierItems", "supplierCosts"]) {
+  for (const name of ["stockBatches", "suppliers", "supplierItems", "supplierCosts", "purchaseOrders", "receipts"]) {
     await db.collection(name).deleteMany({ businessId });
   }
   await mongo.close();

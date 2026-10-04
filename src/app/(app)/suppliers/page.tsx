@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
 import { SuppliersWorkspace, type SuppliersTab } from "@/components/suppliers/suppliers-workspace";
 import { getActiveBusiness } from "@/lib/dal/businesses";
+import { listOrders, listReceipts, listRestockSuggestions } from "@/lib/dal/purchasing";
 import {
   listCostChanges,
   listImportCandidates,
@@ -10,7 +11,7 @@ import {
   listSupplierSummaries,
 } from "@/lib/dal/suppliers";
 
-const TABS: SuppliersTab[] = ["suppliers", "prices", "changes"];
+const TABS: SuppliersTab[] = ["suppliers", "prices", "changes", "orders", "receipts"];
 
 export default async function SuppliersPage(props: PageProps<"/suppliers">) {
   const business = await getActiveBusiness();
@@ -28,12 +29,16 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
   const inventoryEnabled = business.modules.includes("inventory");
   const now = new Date();
 
-  const [suppliers, items, changes, inventory, candidates] = await Promise.all([
+  const [suppliers, items, changes, inventory, candidates, orders, receipts, restock] = await Promise.all([
     listSupplierSummaries(),
     listSupplierItems(now),
     listCostChanges(120, now),
     inventoryEnabled ? listInventoryOptions() : Promise.resolve([]),
     inventoryEnabled ? listImportCandidates() : Promise.resolve([]),
+    listOrders(),
+    tab === "receipts" ? listReceipts() : Promise.resolve([]),
+    // Only the orders tab offers restocking, and it reads all of Inventory.
+    inventoryEnabled && tab === "orders" ? listRestockSuggestions() : Promise.resolve([]),
   ]);
 
   return (
@@ -43,6 +48,9 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
       changes={changes}
       inventory={inventory}
       candidates={candidates}
+      orders={orders}
+      receipts={receipts}
+      restock={restock}
       inventoryEnabled={inventoryEnabled}
       tab={tab}
       openRef={openRef}

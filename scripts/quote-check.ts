@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import { QUOTATION_INDEXES } from "@/lib/data/quotations";
+import { applyCostSources, checkLineCost, findCostSource, markupOf } from "@/lib/quote-costing";
 import { draftLinesFromRead, parseQuotePhotoRead } from "@/lib/quote-photo";
 import {
   defaultQuoteEmail,
@@ -38,7 +39,7 @@ import {
   priceFromCost,
   quoteTotals,
 } from "@/lib/quotations";
-import type { QuoteLine, QuotePriceItem, QuoteSection } from "@/types";
+import type { QuoteCostSource, QuoteLine, QuotePriceItem, QuoteSection } from "@/types";
 
 // ---- Part one: arithmetic -----------------------------------------------------
 
@@ -196,6 +197,79 @@ assert.ok(suggested.every((entry) => entry.origin === "suggested"), "every sugge
 assert.equal(suggested[0].unitPriceCents, 350_000, "a suggestion on the price list gets the shop's own price");
 
 console.log("✓ photo replies validated; prices from photo, then cost at markup, then price list; suggestions never priced by the model");
+
+// ---- Part two, continued: costing from stock and suppliers ---------------------------
+
+const sources: QuoteCostSource[] = [
+  {
+    keys: ["injector washer", "inj washer copper"],
+    label: "Injector washer",
+    sku: "SKU-1001",
+    unit: "pc",
+    costCents: 50_000,
+    kind: "stock",
+    note: "Oldest batch in stock (4 on hand)",
+  },
+  {
+    keys: ["engine support aftermarket"],
+    label: "Engine support aftermarket",
+    sku: null,
+    unit: "pc",
+    costCents: 160_000,
+    kind: "supplier",
+    note: "Supplier A · Oct 02, 2026",
+  },
+];
+
+assert.equal(findCostSource("Inj. washer (copper)", sources)?.sku, "SKU-1001", "a supplier's wording finds the stocked part");
+assert.equal(findCostSource("Injector washers", sources)?.sku, "SKU-1001", "a plural finds it too");
+assert.equal(findCostSource("Turbo cleaning", sources), null, "labor and unknown parts have no cost on record");
+assert.equal(markupOf(75_000, 50_000), 50, "cost 500, price 750 is the 50% markup");
+assert.equal(markupOf(225_000, 160_000), 41);
+
+const risen = checkLineCost(
+  { section: "parts", description: "Engine support aftermarket", unitPriceCents: 225_000, costCents: 150_000 },
+  sources,
+);
+assert.ok(risen?.risen, "the supplier now charges 1,600, above the 1,500 on the line");
+assert.equal(risen?.markupWas, 50, "the line was priced at 50% over its own cost");
+assert.equal(risen?.markupNow, 41, "and at 2,250 the markup over today's cost is 41%");
+
+const available = checkLineCost(
+  { section: "parts", description: "Injector washers", unitPriceCents: 75_000, costCents: null },
+  sources,
+);
+assert.ok(available?.available, "a line with no cost is told one is on record");
+assert.equal(
+  checkLineCost({ section: "parts", description: "Injector washers", unitPriceCents: 75_000, costCents: 50_000 }, sources),
+  null,
+  "nothing to say when the line already carries today's cost",
+);
+assert.equal(
+  checkLineCost({ section: "labor", description: "Injector washers", unitPriceCents: 75_000, costCents: null }, sources),
+  null,
+  "labor is never costed from stock",
+);
+
+const costedDraft = applyCostSources(
+  [
+    line("parts", "Injector washers", 4, null),
+    line("parts", "Engine support aftermarket", 2, 2400),
+    line("parts", "Gasket kit", 1, null),
+    line("labor", "Injector washers", 1, null),
+  ],
+  sources,
+  50,
+);
+assert.equal(costedDraft[0].costCents, 50_000, "an uncosted part takes the cost on record");
+assert.equal(costedDraft[0].unitPriceCents, 75_000, "and, with no price, the price at the markup");
+assert.equal(costedDraft[0].costNote, "Oldest batch in stock (4 on hand)", "and says where the cost came from");
+assert.equal(costedDraft[1].unitPriceCents, 240_000, "a price already on the line is never changed");
+assert.equal(costedDraft[1].costCents, 160_000);
+assert.equal(costedDraft[2].costCents, null, "a part with nothing on record stays uncosted");
+assert.equal(costedDraft[3].costCents, null, "labor is left alone");
+
+console.log("✓ costing: wordings and plurals find the part; risen costs and markups; drafts costed without touching prices");
 
 // ---- Part three: the database -------------------------------------------------
 

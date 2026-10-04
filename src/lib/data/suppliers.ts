@@ -4,7 +4,7 @@
  * existing one) create the same set.
  */
 export interface SupplierIndex {
-  collection: "suppliers" | "supplierItems" | "supplierCosts";
+  collection: "suppliers" | "supplierItems" | "supplierCosts" | "purchaseOrders" | "receipts";
   keys: Record<string, 1 | -1>;
   options?: { unique?: boolean };
 }
@@ -19,4 +19,10 @@ export const SUPPLIER_INDEXES: SupplierIndex[] = [
   { collection: "supplierItems", keys: { businessId: 1, sku: 1 } },
   { collection: "supplierCosts", keys: { businessId: 1, at: -1 } },
   { collection: "supplierCosts", keys: { businessId: 1, itemRef: 1, at: -1 } },
+  { collection: "purchaseOrders", keys: { businessId: 1, ref: 1 }, options: { unique: true } },
+  { collection: "purchaseOrders", keys: { businessId: 1, status: 1, updatedAt: -1 } },
+  { collection: "receipts", keys: { businessId: 1, ref: 1 }, options: { unique: true } },
+  // The duplicate-receipt warning looks up a supplier's receipt numbers.
+  { collection: "receipts", keys: { businessId: 1, supplierRef: 1, receiptNo: 1 } },
+  { collection: "receipts", keys: { businessId: 1, purchaseOrderRef: 1 } },
 ];

@@ -444,3 +444,66 @@ business by default. Tabs: Suppliers, Compare costs, Cost changes.
 
 Check: `npm run supplier:check` now also covers name matching, comparison
 grouping, the planning cost, and the unique name and wording indexes.
+
+## Quotation costing (Suppliers & Costing, pulled forward)
+
+Quotation part lines now take their cost from what the part costs today.
+
+- **Sources** (`listCostSources`, `src/lib/dal/quote-costing.ts`), built per
+  editor load from the modules the business has: a part with stock on hand
+  costs its **oldest batch** (what the job will use); otherwise the supplier
+  **planning cost** (preferred, else most recently confirmed). Each source
+  carries every wording the part is known by, Inventory name and supplier
+  wordings, so a receipt's "Inj. washer" finds Inventory's "Injector washer".
+- **In the editor** (`quote-lines.tsx`): typing or picking a part fills the
+  cost, says where it came from ("Cost: Supplier A · Oct 02, 2026"), links the
+  line to the Inventory item (`sku`), and prices it at the markup if no price
+  is there. It replaces a cost remembered from an old quotation but never one
+  typed by hand. The description box also offers stocked and supplier parts
+  never quoted before.
+- **Warnings:** a line whose cost on record has risen above its own cost shows
+  the markup now against the markup it was priced at, with "Use this cost"
+  and "Price at 50%" buttons; neither applies without a click. A line with no
+  cost is told when one is on record.
+- **Photo drafts** run the same rules on the server (`applyCostSources`) after
+  the photo and the price list, never changing a price the photo gave.
+- Labor is never costed this way. The PDF and the email never show costs.
+
+Check: `npm run quote:check` covers wording and plural matching, the risen-cost
+markups, and draft costing.
+
+## Purchase orders and receiving (Suppliers & Costing, step 3)
+
+Two more tabs on Suppliers (Purchase orders, Receipts) and four routes:
+`/suppliers/orders/new`, `/suppliers/orders/[ref]`, `/suppliers/receive`
+(`?po=PO-…` to receive against an order), `/suppliers/receipts/[ref]`.
+
+- **Orders are record-only** (`purchaseOrders`, PO-…): Draft → Ordered (how
+  it was placed, when, expected delivery) → Partly received → Received, or
+  Cancelled. AEGIS never contacts a supplier. Lines take whole units and an
+  expected cost from the supplier's price book. Lines can change until the
+  first delivery; after that the order is the record. An order nothing has
+  arrived against can be cancelled; a partly received one is closed short.
+- **Receipts** (`receipts`, GR-…), with or without an order. Posting each
+  line calls `recordStockMove` (Goods received, which opens the batch at the
+  cost paid, supplier and "GR-… · No. … · PO-…" as the delivery note), adds to
+  the order line's received quantity (`$inc` by line id), and calls
+  `recordCost` (price book and history). A line with no Inventory link
+  creates the item on first receipt. Without the Inventory module a receipt
+  records costs only.
+- **Safe to repeat:** each line records its movement as soon as it is in
+  stock, and a receipt left in "Posting" shows **Finish posting**, which skips
+  posted lines. A short lock stops two requests posting one receipt at once.
+- **Checks before writing:** the supplier matches the order, the order is
+  ordered and open, nothing arrives beyond what is outstanding, and a supplier
+  receipt number already recorded asks for confirmation.
+- **Variance:** each receipt line shows actual against expected cost (from
+  the order, or the price book without one), and the receipt the total.
+- **Low stock → draft orders:** items at or below their reorder point, back
+  up to target less what is already on open orders, one draft per supplier
+  (preferred, else most recently costed, skipping suppliers no longer used).
+  Items with no supplier are listed with the reason.
+
+Check: `npm run supplier:check` now also covers order status, outstanding
+quantities, variance, restock planning, the per-line received update and the
+posting lock.
