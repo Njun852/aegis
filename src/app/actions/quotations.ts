@@ -10,16 +10,26 @@ import { requireModule } from "@/lib/dal/businesses";
 import { isMailboxConfigured } from "@/lib/dal/mailbox";
 import { findCustomer, findDuplicates } from "@/lib/dal/customers";
 import { findVehicleByPlate, findVehicleOption } from "@/lib/dal/fleet";
+import { getBooking, updateBookingDetails } from "@/lib/dal/bookings";
+import { findJobOrder, setJobOrderStatus } from "@/lib/dal/job-orders";
+import { notifyOwner } from "@/lib/dal/owner-alerts";
+import { approvalNeededText, jobText, quoteAnsweredText, quoteSentText } from "@/lib/owner-alerts";
 import {
+  approveSpecialPricing,
+  clearQuoteResponse,
+  convertToJobOrder,
   countBilledPhotosToday,
   createQuotation,
+  currentQuoteActor,
   deletePriceItem,
   deleteQuotation,
   findQuotation,
   linkPhoto,
   listPriceItems,
   markQuotationSent,
+  noteOnQuotation,
   readQuotationSettings,
+  recordQuoteResponse,
   savePhoto,
   saveQuotationSettings,
   updatePriceItem,
@@ -36,17 +46,28 @@ import {
   MAX_AMOUNT_CENTS,
   MAX_LINES,
   MAX_QTY,
+  MAX_VALID_DAYS,
+  QUOTE_HANDOVER_METHODS,
+  QUOTE_RESPONSE_METHODS,
+  addDays,
+  formatPeso,
   isBlankLine,
   isDateKey,
   manilaDateKey,
+  parseManilaDateTime,
+  pricingCleared,
   quoteTotals,
+  specialPricingKey,
+  specialPricingReason,
 } from "@/lib/quotations";
 import type {
+  JobOrderStatus,
   QuotationConfig,
   QuotationInput,
   QuoteBillTo,
   QuoteLine,
   QuoteLineOrigin,
+  QuoteResponseOutcome,
   QuoteSection,
   QuoteVehicle,
 } from "@/types";
@@ -61,6 +82,17 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function refresh(ref?: string) {
   revalidatePath("/quotations");
   if (ref) revalidatePath(`/quotations/${ref}`);
+}
+
+/** The reason a quotation cannot leave the shop yet, or null. Checked on the stored copy. */
+function blockedFromSending(quotation: NonNullable<Awaited<ReturnType<typeof findQuotation>>>): string | null {
+  if (quotation.jobOrderRef) return `${quotation.ref} is already job order ${quotation.jobOrderRef}.`;
+  if (quotation.lines.length === 0) return "This quotation has no lines to send.";
+  if (quotation.totals.unpricedCount > 0) return "Price every line before sending this quotation.";
+  if (!pricingCleared(quotation)) {
+    return `${specialPricingReason(quotation.lines, quotation.discountCents) ?? ""} An administrator must approve the pricing before it goes to the customer.`.trim();
+  }
+  return null;
 }
 
 function text(value: unknown, max: number): string {
@@ -126,10 +158,16 @@ function readLines(raw: unknown): QuoteLine[] {
 
 async function readInput(
   raw: QuotationInput,
-  modules: { crm: boolean; fleet: boolean },
+  modules: { crm: boolean; fleet: boolean; bookings: boolean },
 ): Promise<QuotationInput> {
   const quoteDate = text(raw.quoteDate, 10);
   if (!isDateKey(quoteDate)) throw new InputError("The quotation needs a date.");
+  const validUntil = text(raw.validUntil, 10);
+  if (!isDateKey(validUntil)) throw new InputError("The quotation needs a valid-until date.");
+  if (validUntil < quoteDate) throw new InputError("The valid-until date is before the quotation's date.");
+  if (validUntil > addDays(quoteDate, MAX_VALID_DAYS)) {
+    throw new InputError(`A quotation is valid for ${MAX_VALID_DAYS} days at most.`);
+  }
 
   const billTo = raw.billTo ?? ({} as QuotationInput["billTo"]);
   const vehicle = raw.vehicle ?? ({} as QuotationInput["vehicle"]);
@@ -152,6 +190,10 @@ async function readInput(
   if (customerRef && (!modules.crm || !(await findCustomer(customerRef)))) customerRef = null;
   let vehicleRef = text(vehicle.vehicleRef, 20) || null;
   if (vehicleRef && (!modules.fleet || !(await findVehicleOption(vehicleRef)))) vehicleRef = null;
+  const bookingRef = text(raw.bookingRef, 20) || null;
+  if (bookingRef && (!modules.bookings || !(await getBooking(bookingRef)))) {
+    throw new InputError(`Booking ${bookingRef} is not on file. Pick another or leave it unlinked.`);
+  }
 
   const lines = readLines(raw.lines);
   const discountCents = cents(raw.discountCents ?? 0);
@@ -163,9 +205,16 @@ async function readInput(
     throw new InputError("The discount is larger than the quotation.");
   }
 
+  const discountReason = discountCents > 0 ? text(raw.discountReason, 200) : "";
+  if (discountCents > 0 && !discountReason) {
+    throw new InputError("Say why the discount is given. The approver and the log need the reason.");
+  }
+
   return {
     quoteDate,
+    validUntil,
     drNumber: text(raw.drNumber, 30),
+    bookingRef,
     billTo: {
       customerRef,
       name: text(billTo.name, 120),
@@ -184,6 +233,7 @@ async function readInput(
     technician: text(raw.technician, 80),
     lines,
     discountCents,
+    discountReason,
     notes: text(raw.notes, 600),
   };
 }
@@ -201,12 +251,13 @@ async function guard<T>(work: () => Promise<Result<T>>): Promise<Result<T>> {
 export async function saveQuotationAction(
   ref: string | null,
   raw: QuotationInput,
-): Promise<Result<{ ref: string }>> {
+): Promise<Result<{ ref: string; revision: number; revised: boolean }>> {
   const business = await requireModule("quotes");
   return guard(async () => {
     const input = await readInput(raw, {
       crm: business.modules.includes("crm"),
       fleet: business.modules.includes("fleet"),
+      bookings: business.modules.includes("bookings"),
     });
     if (!input.billTo.name && !input.billTo.company) {
       throw new InputError("Who is the quotation for? Add a customer or company name.");
@@ -215,10 +266,45 @@ export async function saveQuotationAction(
       throw new InputError("Add at least one part or labor line.");
     }
 
-    const saved = ref ? (await updateQuotation(ref, input), ref) : await createQuotation(input);
-    refresh(saved);
-    return { ok: true, ref: saved };
+    if (ref) {
+      const { revision, revised } = await updateQuotation(ref, input);
+      await alertIfApprovalNeeded(business.name, ref);
+      refresh(ref);
+      return { ok: true, ref, revision, revised };
+    }
+    const created = await createQuotation(input);
+    await alertIfApprovalNeeded(business.name, created);
+    refresh(created);
+    return { ok: true, ref: created, revision: 1, revised: false };
   });
+}
+
+/**
+ * A member saved a discount or a below-cost price: the owner is texted once
+ * for exactly that pricing, so they can open it and approve. An administrator
+ * saving it can approve it themselves and is not texted about their own work.
+ */
+async function alertIfApprovalNeeded(businessName: string, ref: string): Promise<void> {
+  const actor = await currentQuoteActor();
+  if (actor.role === "aegis_admin") return;
+  const quotation = await findQuotation(ref);
+  if (!quotation || pricingCleared(quotation)) return;
+  await notifyOwner(
+    "approvals",
+    `approval:${ref}:${specialPricingKey(quotation.lines, quotation.discountCents)}`,
+    approvalNeededText(businessName, ref, specialPricingReason(quotation.lines, quotation.discountCents) ?? "", actor.name),
+  );
+}
+
+/** "QT-1004 sent to Juan Cruz", once per revision however many times it is sent. */
+async function alertSent(businessName: string, ref: string): Promise<void> {
+  const quotation = await findQuotation(ref);
+  if (!quotation) return;
+  await notifyOwner(
+    "quotes",
+    `quote-sent:${ref}:${quotation.revision}`,
+    quoteSentText(businessName, ref, quotation.billTo.name || quotation.billTo.company, quotation.totals.totalCents),
+  );
 }
 
 export async function deleteQuotationAction(ref: string): Promise<Result> {
@@ -262,22 +348,201 @@ export async function sendQuotationAction(
 
     const quotation = await findQuotation(ref);
     if (!quotation) throw new InputError(`${ref} is no longer on file.`);
-    if (quotation.lines.length === 0) throw new InputError("This quotation has no lines to send.");
-    if (quotation.totals.unpricedCount > 0) {
-      throw new InputError("Price every line before sending this quotation.");
-    }
+    const blocked = blockedFromSending(quotation);
+    if (blocked) throw new InputError(blocked);
 
     const settings = await readQuotationSettings();
     const pdf = await renderQuotePdf({ quotation, settings, businessName: business.name });
     const failure = await sendMail(to, subject, body, [
-      { filename: quotePdfFilename(business.name, quotation.ref), content: pdf, contentType: "application/pdf" },
+      {
+        filename: quotePdfFilename(business.name, quotation.ref, quotation.revision),
+        content: pdf,
+        contentType: "application/pdf",
+      },
     ]);
     if (failure) throw new InputError(explainMailFailure(failure));
 
     // Recorded only once the mail server accepted it.
-    await markQuotationSent(ref, to);
+    await markQuotationSent(ref, to, "email");
+    await alertSent(business.name, ref);
     refresh(ref);
     return { ok: true, to };
+  });
+}
+
+/**
+ * For a quotation that reached the customer some way other than AEGIS's
+ * email: printed, shown, or sent from a phone. The same checks as emailing,
+ * so pricing nobody approved cannot leave this way either.
+ */
+export async function markQuotationGivenAction(ref: string, how: string): Promise<Result> {
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    const method = QUOTE_HANDOVER_METHODS.find((entry) => entry === how);
+    if (!method) throw new InputError("Say how the quotation reached the customer.");
+    const quotation = await findQuotation(ref);
+    if (!quotation) throw new InputError(`${ref} is no longer on file.`);
+    const blocked = blockedFromSending(quotation);
+    if (blocked) throw new InputError(blocked);
+    await markQuotationSent(ref, method, "hand");
+    await alertSent(business.name, ref);
+    refresh(ref);
+    return { ok: true };
+  });
+}
+
+// ---- Approvals --------------------------------------------------------------------
+
+/** Administrators only. A member can type a discount but not agree to it. */
+export async function approveSpecialPricingAction(ref: string, key: string): Promise<Result> {
+  await requireModule("quotes");
+  return guard(async () => {
+    const actor = await currentQuoteActor();
+    if (actor.role !== "aegis_admin") {
+      throw new InputError("Only an administrator can approve a discount or a price below cost.");
+    }
+    await approveSpecialPricing(ref, typeof key === "string" ? key : "");
+    refresh(ref);
+    return { ok: true };
+  });
+}
+
+const OUTCOMES: QuoteResponseOutcome[] = ["Approved", "Partially Approved", "Declined"];
+
+export async function recordQuoteResponseAction(
+  ref: string,
+  raw: {
+    outcome: string;
+    at: string;
+    customerName: string;
+    method: string;
+    note: string;
+    approvedLineIds: string[];
+    approvedDiscountCents: number;
+  },
+): Promise<Result> {
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    const outcome = OUTCOMES.find((entry) => entry === raw.outcome);
+    if (!outcome) throw new InputError("Choose whether the customer approved, partly approved or declined.");
+    const method = QUOTE_RESPONSE_METHODS.find((entry) => entry === raw.method);
+    if (!method) throw new InputError("Say how the customer gave their answer.");
+    const at = parseManilaDateTime(text(raw.at, 16));
+    if (!at) throw new InputError("Enter the date and time the customer answered.");
+    const customerName = text(raw.customerName, 120);
+    if (!customerName) throw new InputError("Who gave the answer for the customer?");
+    const discount = cents(raw.approvedDiscountCents ?? 0);
+    if (discount === undefined || discount === null) throw new InputError("The discount is not a valid amount.");
+    const ids = Array.isArray(raw.approvedLineIds)
+      ? raw.approvedLineIds.filter((id): id is string => typeof id === "string").slice(0, MAX_LINES)
+      : [];
+
+    await recordQuoteResponse(ref, {
+      outcome,
+      at,
+      customerName,
+      method,
+      note: text(raw.note, 400),
+      approvedLineIds: ids,
+      approvedDiscountCents: discount,
+    });
+    const answered = await findQuotation(ref);
+    if (answered?.response) {
+      await notifyOwner(
+        "quotes",
+        `quote-answer:${ref}:${answered.revision}:${outcome}`,
+        quoteAnsweredText(business.name, ref, outcome, customerName, answered.response.approvedTotalCents),
+      );
+    }
+    refresh(ref);
+    return { ok: true };
+  });
+}
+
+export async function clearQuoteResponseAction(ref: string): Promise<Result> {
+  await requireModule("quotes");
+  return guard(async () => {
+    await clearQuoteResponse(ref);
+    refresh(ref);
+    return { ok: true };
+  });
+}
+
+// ---- Job orders -------------------------------------------------------------------
+
+/**
+ * Turns the approved quotation into a job order. When the quotation is for a
+ * booking, the booking's value becomes the approved amount: that one booking
+ * is where the sale is recorded, so the ledger entry it already has is
+ * updated rather than a second one added.
+ */
+export async function convertToJobOrderAction(
+  ref: string,
+): Promise<Result<{ jobOrderRef: string; created: boolean; bookingNote: string | null }>> {
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    const { jobOrderRef, created, doc } = await convertToJobOrder(ref);
+    let bookingNote: string | null = null;
+
+    const bookingRef = doc.bookingRef ?? null;
+    const approvedTotal = doc.response?.approvedTotalCents ?? null;
+    if (created && bookingRef && approvedTotal !== null && business.modules.includes("bookings")) {
+      const booking = await getBooking(bookingRef);
+      if (!booking) {
+        bookingNote = `Booking ${bookingRef} is no longer on file, so no booking value was changed.`;
+      } else if (booking.status === "Cancelled") {
+        bookingNote = `Booking ${bookingRef} is cancelled, so its value was left as it was.`;
+      } else if (booking.valueCents === approvedTotal) {
+        bookingNote = `Booking ${bookingRef} already had the approved value.`;
+      } else {
+        await updateBookingDetails(bookingRef, {
+          staff: booking.staff,
+          durationMinutes: booking.durationMinutes,
+          valueCents: approvedTotal,
+        });
+        bookingNote = `Booking ${bookingRef} value set from ${formatPeso(booking.valueCents)} to the approved ${formatPeso(approvedTotal)}.`;
+        revalidatePath("/bookings");
+        revalidatePath("/dashboard");
+      }
+      await noteOnQuotation(ref, doc.revision ?? 1, bookingNote);
+    }
+
+    refresh(ref);
+    revalidatePath(`/quotations/jobs/${jobOrderRef}`);
+    return { ok: true, jobOrderRef, created, bookingNote };
+  });
+}
+
+const JOB_STATUSES: JobOrderStatus[] = ["Open", "In progress", "Completed", "Cancelled"];
+
+export async function setJobOrderStatusAction(
+  ref: string,
+  status: string,
+): Promise<Result<{ bookingNote: string | null }>> {
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    const next = JOB_STATUSES.find((entry) => entry === status);
+    if (!next) throw new InputError("Unknown job order status.");
+    const { bookingNote } = await setJobOrderStatus(ref, next, {
+      bookingsEnabled: business.modules.includes("bookings"),
+    });
+    revalidatePath("/quotations");
+    revalidatePath(`/quotations/jobs/${ref}`);
+    if (bookingNote) {
+      // The booking moved with it: its screen, the ads counts and the car's history.
+      revalidatePath("/bookings");
+      revalidatePath("/ads");
+      revalidatePath("/fleet");
+    }
+    if (next === "Completed" || next === "Cancelled") {
+      const job = await findJobOrder(ref);
+      await notifyOwner(
+        "jobs",
+        `job:${ref}:${next}`,
+        jobText(business.name, ref, next, job ? job.billTo.name || job.billTo.company : ""),
+      );
+    }
+    return { ok: true, bookingNote };
   });
 }
 
@@ -407,16 +672,20 @@ export async function createQuotationFromPhotoAction(
       billTo.email = car.ownerEmail;
     }
 
+    const quoteDate = manilaDateKey(new Date());
     const ref = await createQuotation(
       {
-        quoteDate: manilaDateKey(new Date()),
+        quoteDate,
+        validUntil: addDays(quoteDate, settings.validDays),
         drNumber: "",
+        bookingRef: null,
         billTo,
         vehicle,
         serviceAdvisor: "",
         technician: "",
         lines,
         discountCents: 0,
+        discountReason: "",
         notes: settings.notes,
       },
       { source: "photo", photoRef },
@@ -479,6 +748,10 @@ export async function saveQuotationSettingsAction(
     if (typeof markup !== "number" || !Number.isFinite(markup) || markup < 0 || markup > 500) {
       throw new InputError("The markup must be a percentage from 0 to 500.");
     }
+    const validDays = raw.validDays;
+    if (typeof validDays !== "number" || !Number.isInteger(validDays) || validDays < 1 || validDays > MAX_VALID_DAYS) {
+      throw new InputError(`Quotations must be valid for 1 to ${MAX_VALID_DAYS} days.`);
+    }
     if (typeof logo === "string") {
       if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(logo)) {
         throw new InputError("The logo must be a PNG or JPEG image.");
@@ -494,6 +767,7 @@ export async function saveQuotationSettingsAction(
         notes: text(raw.notes, 600),
         footer: text(raw.footer, 120),
         markupPercent: Math.round(markup * 100) / 100,
+        validDays,
       },
       logo,
     );

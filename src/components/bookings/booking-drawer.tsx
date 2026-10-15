@@ -13,7 +13,16 @@ import {
 import { Badge, Avatar, Button, Icon, IconButton, Select } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
 import { bookingTimeline, formatMoney, getStatusStyle } from "@/lib/bookings";
-import type { AdCampaignOption, Booking, BookingStatus, Customer, RequestMatches, VehicleOption } from "@/types";
+import { activeJobs, bookingMoveRefusal, type BookingJob } from "@/lib/job-orders";
+import type {
+  AdCampaignOption,
+  Booking,
+  BookingQuoteLink,
+  BookingStatus,
+  Customer,
+  RequestMatches,
+  VehicleOption,
+} from "@/types";
 import { RequestPanel } from "./request-panel";
 
 const NOT_LINKED = "Not linked";
@@ -42,6 +51,10 @@ export interface BookingDrawerProps {
   matches: RequestMatches | null;
   /** Synced Meta campaigns, for a manual credit. Empty without a connected ad account. */
   campaigns: AdCampaignOption[];
+  /** Quotations made for this booking. Null without the Quotations module, which hides the row. */
+  quotes: BookingQuoteLink[] | null;
+  /** Job orders made for this booking. While one is open, the work is moved on there. */
+  jobs: BookingJob[];
   onClose: () => void;
 }
 
@@ -53,6 +66,8 @@ export function BookingDrawer({
   fleetEnabled,
   matches,
   campaigns,
+  quotes,
+  jobs,
   onClose,
 }: BookingDrawerProps) {
   const router = useRouter();
@@ -119,12 +134,15 @@ export function BookingDrawer({
   };
 
   const move = (next: BookingStatus) =>
-    run(() => setBookingStatusAction(booking.ref, next), {
-      done:
-        next === "Cancelled"
-          ? `${booking.ref} cancelled`
-          : `${booking.ref} moved to ${next}`,
-    });
+    run(
+      async () => {
+        const result = await setBookingStatusAction(booking.ref, next);
+        if (!result.ok) throw new Error(result.error);
+      },
+      {
+        done: next === "Cancelled" ? `${booking.ref} cancelled` : `${booking.ref} moved to ${next}`,
+      },
+    );
 
   const saveLink = () => {
     const customerRef = customerLabels.get(linkChoice) ?? null;
@@ -188,6 +206,13 @@ export function BookingDrawer({
     Cancelled: { label: "Reopen", icon: "refresh-cw", next: "Pending" as const },
   }[booking.status];
 
+  // Once a job order exists the work is moved on there; the booking follows.
+  // The button that would move the work hands over to the job order instead.
+  const openJobs = activeJobs(jobs);
+  const advanceRefusal = bookingMoveRefusal(advance.next, jobs);
+  const cancelRefusal = bookingMoveRefusal("Cancelled", jobs);
+  const workJob = openJobs.find((job) => job.status !== "Completed") ?? openJobs[0];
+
   const fields = [
     { icon: "briefcase", label: "Company", value: booking.company },
     {
@@ -233,6 +258,56 @@ export function BookingDrawer({
     },
     ...(booking.source || campaigns.length > 0
       ? [{ icon: "megaphone", label: "Ad source", value: (<AdSource booking={booking} campaigns={campaigns} />) as React.ReactNode }]
+      : []),
+    ...(jobs.length > 0
+      ? [
+          {
+            icon: "wrench",
+            label: "Job order",
+            value: (
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                {jobs.map((job) => (
+                  <Link
+                    key={job.ref}
+                    href={`/quotations/jobs/${encodeURIComponent(job.ref)}`}
+                    style={{ color: "var(--accent-primary)", textDecoration: "none" }}
+                  >
+                    {job.ref} · {job.status}
+                  </Link>
+                ))}
+              </span>
+            ) as React.ReactNode,
+          },
+        ]
+      : []),
+    ...(quotes
+      ? [
+          {
+            icon: "file-text",
+            label: "Quotations",
+            value: (
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                {quotes.map((quote) => (
+                  <Link
+                    key={quote.ref}
+                    href={`/quotations/${encodeURIComponent(quote.ref)}`}
+                    style={{ color: "var(--accent-primary)", textDecoration: "none" }}
+                  >
+                    {quote.ref} · {quote.jobOrderRef ?? quote.status}
+                  </Link>
+                ))}
+                {booking.status !== "Cancelled" && (
+                  <Link
+                    href={`/quotations/new?booking=${encodeURIComponent(booking.ref)}`}
+                    style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600 }}
+                  >
+                    + New quotation
+                  </Link>
+                )}
+              </span>
+            ) as React.ReactNode,
+          },
+        ]
       : []),
   ];
 
@@ -593,13 +668,19 @@ export function BookingDrawer({
             background: "var(--gray-25)",
           }}
         >
-          <Button
-            icon={advance.icon}
-            onClick={() => move(advance.next)}
-            disabled={pending}
-          >
-            {advance.label}
-          </Button>
+          {advanceRefusal && workJob ? (
+            <Button
+              icon="wrench"
+              title={advanceRefusal}
+              onClick={() => router.push(`/quotations/jobs/${encodeURIComponent(workJob.ref)}`)}
+            >
+              Work on {workJob.ref}
+            </Button>
+          ) : (
+            <Button icon={advance.icon} onClick={() => move(advance.next)} disabled={pending}>
+              {advance.label}
+            </Button>
+          )}
           <Button
             variant="outline"
             icon="clock"
@@ -624,8 +705,8 @@ export function BookingDrawer({
           <IconButton
             icon="trash-2"
             size={36}
-            label="Cancel booking"
-            disabled={pending || booking.status === "Cancelled"}
+            label={cancelRefusal ?? "Cancel booking"}
+            disabled={pending || booking.status === "Cancelled" || cancelRefusal !== null}
             onClick={() => move("Cancelled")}
           />
         </div>

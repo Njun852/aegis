@@ -4,9 +4,11 @@ import { MailboxPanel } from "@/components/admin/mailbox-panel";
 import { MessengerPanel } from "@/components/admin/messenger-panel";
 import { MetaAdsPanel } from "@/components/admin/meta-ads-panel";
 import { OnlineBookingPanel } from "@/components/admin/online-booking-panel";
+import { OwnerAlertsPanel } from "@/components/admin/owner-alerts-panel";
 import { readMetaAdsStatus } from "@/lib/dal/ad-account";
 import { getBusinessForUser, readOnlineBookingStatus } from "@/lib/dal/businesses";
 import { readMailboxStatus } from "@/lib/dal/mailbox";
+import { readOwnerAlertPanel } from "@/lib/dal/owner-alerts";
 import { requireAdmin } from "@/lib/dal/session";
 
 export default async function Page(props: PageProps<"/admin/businesses/[id]">) {
@@ -23,10 +25,11 @@ export default async function Page(props: PageProps<"/admin/businesses/[id]">) {
   // Read on the server: `readMailboxStatus` is shaped so it cannot carry the
   // stored password, which is why the panel can be a client component at all.
   // Both shaped so they cannot carry a stored secret.
-  const [mailbox, metaAds, onlineBooking] = await Promise.all([
+  const [mailbox, metaAds, onlineBooking, ownerAlerts] = await Promise.all([
     readMailboxStatus(id),
     readMetaAdsStatus(id),
     readOnlineBookingStatus(id),
+    readOwnerAlertPanel(id),
   ]);
 
   return (
@@ -36,6 +39,7 @@ export default async function Page(props: PageProps<"/admin/businesses/[id]">) {
     // alongside it running the full width of the screen.
     <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-3.5">
       <BusinessDetail businessId={id} />
+      <OwnerAlertsPanel businessId={id} businessName={business.name} data={ownerAlerts} />
       <OnlineBookingPanel
         businessId={id}
         businessName={business.name}

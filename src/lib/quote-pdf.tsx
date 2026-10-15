@@ -166,7 +166,7 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
     ["PLATE NUMBER", vehicle.plate],
     ["MODEL/MAKE", vehicle.makeModel.toUpperCase()],
     ["Technician", quotation.technician],
-    ["", ""],
+    ["Valid Until", formatQuoteDay(quotation.validUntil)],
     ["", ""],
   ];
 
@@ -228,7 +228,7 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
                   {formatQuoteDay(quotation.quoteDate)}
                 </Cell>
                 <Cell width="34%" style={[styles.center, styles.bold]}>
-                  {quotation.ref}
+                  {quotation.revision > 1 ? `${quotation.ref} Rev ${quotation.revision}` : quotation.ref}
                 </Cell>
                 <Cell width="30%" style={styles.center}>
                   {quotation.drNumber}
@@ -355,8 +355,8 @@ export function renderQuotePdf(props: QuotePdfProps): Promise<Buffer> {
   return renderToBuffer(<QuotePdf {...props} />);
 }
 
-/** "AUTOBLITZ-QT-1001.pdf", safe as a download and attachment name. */
-export function quotePdfFilename(businessName: string, ref: string): string {
+/** "AUTOBLITZ-QT-1001.pdf", or "AUTOBLITZ-QT-1001-rev2.pdf" after a revision; safe as a download and attachment name. */
+export function quotePdfFilename(businessName: string, ref: string, revision = 1): string {
   const name = businessName.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "Quotation";
-  return `${name}-${ref}.pdf`;
+  return `${name}-${ref}${revision > 1 ? `-rev${revision}` : ""}.pdf`;
 }

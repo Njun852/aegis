@@ -23,6 +23,7 @@ import { CRM_INDEXES } from "../src/lib/data/crm.ts";
 import { FLEET_INDEXES } from "../src/lib/data/fleet.ts";
 import { TEXT_BLAST_INDEXES } from "../src/lib/data/text-blast.ts";
 import { QUOTATION_INDEXES } from "../src/lib/data/quotations.ts";
+import { OWNER_ALERT_INDEXES } from "../src/lib/data/owner-alerts.ts";
 import { SUPPLIER_INDEXES } from "../src/lib/data/suppliers.ts";
 import {
   INVENTORY_SEEDS,
@@ -156,6 +157,7 @@ async function main() {
     await seedTextBlastIndexes(db);
     await seedQuotationIndexes(db);
     await seedSupplierIndexes(db);
+    await seedOwnerAlertIndexes(db);
 
     // Without an administrator nobody can sign in to create one, so say so
     // plainly rather than leaving a fresh install unusable and silent.
@@ -566,6 +568,14 @@ async function seedQuotationIndexes(db: Db) {
     await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
   }
   console.log(`✓ quotation indexes (${QUOTATION_INDEXES.length}), no sample quotations`);
+}
+
+/** Owner alerts get indexes only, and stay switched off until an admin adds a number. */
+async function seedOwnerAlertIndexes(db: Db) {
+  for (const index of OWNER_ALERT_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ owner alert indexes (${OWNER_ALERT_INDEXES.length}), alerts off for every business`);
 }
 
 /** Suppliers get indexes only: a sample supplier's prices would be read as real costs. */

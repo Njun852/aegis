@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
 import { isAiConfigured } from "@/lib/ai/client";
-import { QuotationsWorkspace } from "@/components/quotations/quotations-workspace";
+import { QuotationsWorkspace, type QuotationsTab } from "@/components/quotations/quotations-workspace";
 import { getActiveBusiness } from "@/lib/dal/businesses";
+import { listJobOrderSummaries } from "@/lib/dal/job-orders";
 import { listPriceItems, listQuotationSummaries, readQuotationSettings } from "@/lib/dal/quotations";
+
+const TABS: QuotationsTab[] = ["quotations", "jobs", "prices"];
 
 export default async function QuotationsPage(props: PageProps<"/quotations">) {
   const business = await getActiveBusiness();
@@ -15,9 +18,11 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
     return <ModulePage moduleKey="quotes" />;
   }
 
-  const tab = (await props.searchParams).tab === "prices" ? "prices" : "quotations";
-  const [quotations, priceItems, settings] = await Promise.all([
+  const requested = (await props.searchParams).tab;
+  const tab = TABS.find((entry) => entry === requested) ?? "quotations";
+  const [quotations, jobOrders, priceItems, settings] = await Promise.all([
     listQuotationSummaries(),
+    listJobOrderSummaries(),
     listPriceItems(),
     readQuotationSettings(),
   ]);
@@ -25,6 +30,7 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
   return (
     <QuotationsWorkspace
       quotations={quotations}
+      jobOrders={jobOrders}
       priceItems={priceItems}
       settings={settings}
       tab={tab}

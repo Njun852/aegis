@@ -8,6 +8,8 @@ import { listConversations } from "@/lib/dal/messenger";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { findDuplicates, listCustomers } from "@/lib/dal/customers";
 import { findVehicleByPlate, listVehicleOptions } from "@/lib/dal/fleet";
+import { listJobsByBooking } from "@/lib/dal/job-orders";
+import { listQuotationsByBooking } from "@/lib/dal/quotations";
 import { dateKeyOf } from "@/lib/booking-calendar";
 import type { Booking, RequestMatches } from "@/types";
 
@@ -50,7 +52,7 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
     return <ModulePage moduleKey="bookings" />;
   }
 
-  const [bookings, vehicles, customers, campaigns, meta] = await Promise.all([
+  const [bookings, vehicles, customers, campaigns, meta, quoteLinks, jobLinks] = await Promise.all([
     listBookings(),
     // Empty without Fleet, which hides the Vehicle field.
     business.modules.includes("fleet") ? listVehicleOptions() : Promise.resolve([]),
@@ -59,6 +61,10 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
     // Empty without a connected ad account: only real campaigns may be credited.
     listMetaCampaignOptions(),
     readActiveMetaAdsStatus(),
+    // Null without Quotations, which hides the drawer's quotation row.
+    business.modules.includes("quotes") ? listQuotationsByBooking() : Promise.resolve(null),
+    // Read even with Quotations off: job orders already made still own their bookings' work.
+    listJobsByBooking(),
   ]);
   // The inbox exists once a Page is connected; the count is chats nobody has
   // made a booking from yet.
@@ -86,6 +92,8 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
       campaigns={campaigns}
       chatsWaiting={chatsWaiting}
       initialOpenRef={typeof opened === "string" ? opened : null}
+      quoteLinks={quoteLinks}
+      jobLinks={jobLinks}
     />
   );
 }

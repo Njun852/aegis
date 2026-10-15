@@ -10,6 +10,7 @@ export type * from "./inventory";
 export type * from "./ledger";
 export type * from "./mail";
 export type * from "./navigation";
+export type * from "./owner-alerts";
 export type * from "./purchasing";
 export type * from "./quotations";
 export type * from "./report";

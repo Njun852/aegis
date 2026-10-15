@@ -24,9 +24,11 @@ import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
 import { BookingsCalendar } from "./bookings-calendar";
 import { NewBookingModal } from "./new-booking-modal";
+import type { BookingJob } from "@/lib/job-orders";
 import type {
   AdCampaignOption,
   Booking,
+  BookingQuoteLink,
   BookingRange,
   BookingStatusFilter,
   Customer,
@@ -61,6 +63,10 @@ export interface BookingsWorkspaceProps {
   chatsWaiting: number | null;
   /** A booking to open on arrival, from `?booking=`, as the Ads drill-down links. */
   initialOpenRef: string | null;
+  /** Quotations by booking ref. Null without the Quotations module. */
+  quoteLinks: Record<string, BookingQuoteLink[]> | null;
+  /** Job orders by booking ref. A booking with an open one has its work moved on there. */
+  jobLinks: Record<string, BookingJob[]>;
 }
 
 type BookingsView = "List" | "Calendar";
@@ -78,6 +84,8 @@ export function BookingsWorkspace({
   campaigns,
   chatsWaiting,
   initialOpenRef,
+  quoteLinks,
+  jobLinks,
 }: BookingsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
@@ -644,6 +652,8 @@ export function BookingsWorkspace({
           fleetEnabled={fleetEnabled}
           matches={requestMatches[selected.ref] ?? null}
           campaigns={campaigns}
+          quotes={quoteLinks ? (quoteLinks[selected.ref] ?? []) : null}
+          jobs={jobLinks[selected.ref] ?? []}
           onClose={() => setOpenRef(null)}
         />
       )}

@@ -19,6 +19,8 @@ import {
   readOpenDays,
   type RequestLookup,
 } from "@/lib/dal/public-booking";
+import { notifyOwnerFor } from "@/lib/dal/owner-alerts";
+import { bookingText } from "@/lib/owner-alerts";
 import { allow } from "@/lib/rate-limit";
 
 /**
@@ -146,6 +148,15 @@ export async function submitBookingRequestAction(
       openDays: await readOpenDays(business.businessId, now),
     };
   }
+
+  // Addressed by the business the page resolved, since this visitor has no
+  // session. Whatever happens to the text, the customer's request stands.
+  await notifyOwnerFor(
+    business.businessId,
+    "bookings",
+    `booking:${result.ref}`,
+    bookingText(business.name, result.ref, name, formatManila(startsAt), "the booking page"),
+  );
 
   return {
     error: null,

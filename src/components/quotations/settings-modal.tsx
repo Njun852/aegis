@@ -30,6 +30,7 @@ export function QuoteSettingsModal({
   const [notes, setNotes] = useState(settings.notes);
   const [footer, setFooter] = useState(settings.footer);
   const [markup, setMarkup] = useState(String(settings.markupPercent));
+  const [validDays, setValidDays] = useState(String(settings.validDays));
   // undefined: unchanged; null: removed; string: a new image.
   const [logo, setLogo] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +65,15 @@ export function QuoteSettingsModal({
       setError("The markup must be a number, such as 50.");
       return;
     }
+    const days = Number(validDays);
+    if (!Number.isInteger(days) || days < 1) {
+      setError("Validity must be a whole number of days, such as 30.");
+      return;
+    }
     setError(null);
     startTransition(async () => {
       const result = await saveQuotationSettingsAction(
-        { address, contact, notes, footer, markupPercent: markupValue },
+        { address, contact, notes, footer, markupPercent: markupValue, validDays: days },
         logo,
       );
       if (!result.ok) {
@@ -187,6 +193,17 @@ export function QuoteSettingsModal({
           inputMode="decimal"
           value={markup}
           onChange={(event) => setMarkup(event.target.value)}
+        />
+      </Field>
+      <Field
+        label="Valid for (days)"
+        hint="New quotations are valid this long from their date, and each can be changed. A sent quotation with no answer by then reads as Expired."
+      >
+        <input
+          style={{ ...INPUT, maxWidth: 140 }}
+          inputMode="numeric"
+          value={validDays}
+          onChange={(event) => setValidDays(event.target.value)}
         />
       </Field>
     </Modal>

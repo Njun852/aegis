@@ -10,39 +10,59 @@ import { phoneKey } from "@/lib/crm";
 import { parseWholeNumber, plateKey } from "@/lib/fleet";
 import {
   QUOTE_SECTIONS,
+  addDays,
   amountInput,
   defaultQuoteEmail,
   emptyLine,
   formatPeso,
+  hasLeftShop,
   parseAmount,
   parseQty,
+  pricingCleared,
+  quoteStatusTone,
   quoteTotals,
+  specialPricingReason,
 } from "@/lib/quotations";
-import { Field, INPUT, Notice, Panel } from "@/components/forms/form-kit";
+import { Field, INPUT, Notice, Panel, SELECT } from "@/components/forms/form-kit";
 import { LinkedNote, MatchList, matchKeys, type MatchOption } from "@/components/forms/match-list";
 import { QuoteLines, type EditorLine } from "./quote-lines";
 import { QuoteActions } from "./quote-actions";
+import { QuoteHistory } from "./quote-history";
+import { QuoteProgress } from "./quote-workflow";
 import type {
   Customer,
   Quotation,
   QuotationInput,
+  QuotationRevisionSummary,
   QuotationSettings,
   QuoteBillTo,
+  QuoteBookingOption,
   QuoteCostSource,
+  QuoteEvent,
   QuoteLine,
   QuotePhotoView,
   QuotePriceItem,
   QuoteSection,
+  StoredQuoteStatus,
   VehicleOption,
 } from "@/types";
+
+/** What a new quotation started from a booking is filled in with, worked out on the server. */
+export interface QuoteEditorPrefill {
+  bookingRef: string;
+  billTo: QuoteBillTo;
+  vehicleRef: string | null;
+  plate: string;
+  makeModel: string;
+}
 
 export interface QuoteEditorProps {
   /** Null for a new quotation. */
   quotation: Quotation | null;
   /** The photo a draft was read from, shown beside it for checking. */
   photo: QuotePhotoView | null;
-  /** Where a new quotation starts: today's date, the default notes. */
-  defaults: { quoteDate: string; notes: string };
+  /** Where a new quotation starts: today's date, its validity, the default notes, and a booking when started from one. */
+  defaults: { quoteDate: string; validUntil: string; notes: string; prefill?: QuoteEditorPrefill | null };
   settings: QuotationSettings;
   priceItems: QuotePriceItem[];
   /** What parts cost now, from Inventory and Suppliers. Empty when neither module is on. */
@@ -51,15 +71,26 @@ export interface QuoteEditorProps {
   customers: Customer[];
   /** Empty when Fleet is off. */
   vehicles: VehicleOption[];
+  /** Bookings a quotation can be for. Empty when Bookings is off. */
+  bookings: QuoteBookingOption[];
+  bookingsEnabled: boolean;
   crmEnabled: boolean;
   fleetEnabled: boolean;
   mailConnected: boolean;
   businessName: string;
+  /** Administrators approve discounts and prices below cost. */
+  isAdmin: boolean;
+  /** Superseded versions, newest first. */
+  revisions: QuotationRevisionSummary[];
+  /** The change log, newest first. */
+  events: QuoteEvent[];
 }
 
 interface Draft {
   quoteDate: string;
+  validUntil: string;
   drNumber: string;
+  bookingRef: string | null;
   billTo: QuoteBillTo;
   vehicleRef: string | null;
   plate: string;
@@ -69,6 +100,7 @@ interface Draft {
   technician: string;
   lines: EditorLine[];
   discount: string;
+  discountReason: string;
   notes: string;
 }
 
@@ -87,18 +119,22 @@ function blankEditorLine(section: QuoteSection): EditorLine {
 
 function initialDraft(quotation: Quotation | null, defaults: QuoteEditorProps["defaults"]): Draft {
   if (!quotation) {
+    const prefill = defaults.prefill ?? null;
     return {
       quoteDate: defaults.quoteDate,
+      validUntil: defaults.validUntil,
       drNumber: "",
-      billTo: { customerRef: null, name: "", company: "", address: "", phone: "", email: "" },
-      vehicleRef: null,
-      plate: "",
-      makeModel: "",
+      bookingRef: prefill?.bookingRef ?? null,
+      billTo: prefill?.billTo ?? { customerRef: null, name: "", company: "", address: "", phone: "", email: "" },
+      vehicleRef: prefill?.vehicleRef ?? null,
+      plate: prefill?.plate ?? "",
+      makeModel: prefill?.makeModel ?? "",
       odometer: "",
       serviceAdvisor: "",
       technician: "",
       lines: [blankEditorLine("parts"), blankEditorLine("labor")],
       discount: "",
+      discountReason: "",
       notes: defaults.notes,
     };
   }
@@ -110,7 +146,9 @@ function initialDraft(quotation: Quotation | null, defaults: QuoteEditorProps["d
   }
   return {
     quoteDate: quotation.quoteDate,
+    validUntil: quotation.validUntil,
     drNumber: quotation.drNumber,
+    bookingRef: quotation.bookingRef,
     billTo: quotation.billTo,
     vehicleRef: quotation.vehicle.vehicleRef,
     plate: quotation.vehicle.plate,
@@ -120,6 +158,7 @@ function initialDraft(quotation: Quotation | null, defaults: QuoteEditorProps["d
     technician: quotation.technician,
     lines,
     discount: quotation.discountCents ? amountInput(quotation.discountCents) : "",
+    discountReason: quotation.discountReason,
     notes: quotation.notes,
   };
 }
@@ -160,18 +199,31 @@ export function QuoteEditor({
   costSources,
   customers,
   vehicles,
+  bookings,
+  bookingsEnabled,
   crmEnabled,
   fleetEnabled,
   mailConnected,
   businessName,
+  isAdmin,
+  revisions,
+  events,
 }: QuoteEditorProps) {
   const router = useRouter();
   const toast = useToast();
   const [draft, setDraft] = useState<Draft>(() => initialDraft(quotation, defaults));
-  const [dirty, setDirty] = useState(false);
+  // A quotation started from a booking has unsaved details from the first moment.
+  const [dirty, setDirty] = useState(Boolean(!quotation && defaults.prefill));
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
   const [deleting, startDeleting] = useTransition();
+  /** Once a job order is made from it, the quotation is the record of what was agreed. */
+  const locked = Boolean(quotation?.jobOrderRef);
+  const storedStatus: StoredQuoteStatus | null = quotation
+    ? quotation.status === "Expired"
+      ? "Sent"
+      : quotation.status
+    : null;
   const savedOnce = useRef(false);
 
   // The server sends a fresh copy after each save; the editor adopts it so the
@@ -333,14 +385,49 @@ export function QuoteEditor({
     update(patch);
   };
 
+  /**
+   * Links the booking and fills in its customer and car where nothing has
+   * been typed yet, never over details already chosen.
+   */
+  const pickBooking = (ref: string) => {
+    if (!ref) {
+      update({ bookingRef: null });
+      return;
+    }
+    const booking = bookings.find((entry) => entry.ref === ref);
+    if (!booking) return;
+    const patch: Partial<Draft> = { bookingRef: booking.ref };
+    if (!draft.billTo.customerRef && !draft.billTo.name.trim()) {
+      const customer = customers.find((entry) => entry.ref === booking.customerRef);
+      patch.billTo = customer
+        ? {
+            ...draft.billTo,
+            customerRef: customer.ref,
+            name: customer.name,
+            company: customer.company,
+            phone: customer.phone,
+            email: customer.email,
+          }
+        : { ...draft.billTo, name: booking.customer, phone: booking.phone, email: booking.email };
+    }
+    if (!draft.vehicleRef && !draft.plate.trim()) {
+      const car = vehicles.find((entry) => entry.ref === booking.vehicleRef);
+      if (car) Object.assign(patch, { vehicleRef: car.ref, plate: car.plate, makeModel: car.label });
+    }
+    update(patch);
+  };
+
   const buildInput = (): QuotationInput | string => {
     if (parsed.error) return parsed.error;
     if (discountCents === undefined) return "The discount is not an amount.";
+    if (discountCents && !draft.discountReason.trim()) return "Say why the discount is given.";
     const odometer = parseWholeNumber(draft.odometer);
     if (odometer === undefined) return "The odometer reading must be a whole number of km.";
     return {
       quoteDate: draft.quoteDate,
+      validUntil: draft.validUntil,
       drNumber: draft.drNumber,
+      bookingRef: draft.bookingRef,
       billTo: draft.billTo,
       vehicle: {
         vehicleRef: draft.vehicleRef,
@@ -352,6 +439,7 @@ export function QuoteEditor({
       technician: draft.technician,
       lines: parsed.lines,
       discountCents: discountCents ?? 0,
+      discountReason: discountCents ? draft.discountReason : "",
       notes: draft.notes,
     };
   };
@@ -378,10 +466,19 @@ export function QuoteEditor({
         setDirty(false);
         toast({
           tone: "success",
-          title: quotation ? `${result.ref} saved` : `${result.ref} created`,
-          description: totals.unpricedCount
-            ? `${totals.unpricedCount} ${totals.unpricedCount === 1 ? "line still needs" : "lines still need"} a price.`
-            : `Total ${formatPeso(totals.totalCents)}.`,
+          title: result.revised
+            ? `${result.ref} revision ${result.revision} started`
+            : quotation
+              ? `${result.ref} saved`
+              : `${result.ref} created`,
+          description: [
+            result.revised ? `Revision ${result.revision - 1} stays on file as it was given to the customer.` : "",
+            totals.unpricedCount
+              ? `${totals.unpricedCount} ${totals.unpricedCount === 1 ? "line still needs" : "lines still need"} a price.`
+              : `Total ${formatPeso(totals.totalCents)}.`,
+          ]
+            .filter(Boolean)
+            .join(" "),
           key: "quote-save",
         });
         if (quotation) router.refresh();
@@ -404,6 +501,17 @@ export function QuoteEditor({
       router.push("/quotations");
     });
   };
+
+  // Special pricing is judged on the saved copy, which is what the approval
+  // and the send both work on; the progress strip offers the approval.
+  const draftPricingReason = specialPricingReason(parsed.lines, totals.discountCents);
+  const savedCleared = quotation ? pricingCleared(quotation) : true;
+
+  /** Only a first draft nobody outside the shop has seen. */
+  const deletable =
+    quotation !== null && quotation.status === "Draft" && quotation.revision === 1 && !quotation.sent && !locked;
+
+  const linkedBooking = draft.bookingRef ? bookings.find((entry) => entry.ref === draft.bookingRef) : null;
 
   const customerOnFile = draft.billTo.customerRef
     ? customers.find((entry) => entry.ref === draft.billTo.customerRef)
@@ -433,12 +541,15 @@ export function QuoteEditor({
           {quotation ? quotation.ref : "New quotation"}
         </h2>
         {quotation && (
-          <Badge tone={quotation.status === "Sent" ? "positive" : "neutral"}>{quotation.status}</Badge>
+          <Badge tone={quoteStatusTone(quotation.status)}>
+            {quotation.status}
+            {quotation.revision > 1 ? ` · rev ${quotation.revision}` : ""}
+          </Badge>
         )}
         {quotation?.source === "photo" && <Badge tone="accent" icon="image">From photo</Badge>}
         {dirty && <span style={{ fontSize: "12px", color: "var(--status-warning)" }}>Unsaved changes</span>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {quotation && (
+          {deletable && (
             <Button variant="ghost" icon="trash-2" onClick={remove} disabled={deleting || saving}>
               {deleting ? "Deleting…" : "Delete"}
             </Button>
@@ -449,33 +560,52 @@ export function QuoteEditor({
               dirty={dirty}
               unpricedCount={totals.unpricedCount}
               mailConnected={mailConnected}
+              pricingBlocked={!savedCleared || (dirty && draftPricingReason !== null)}
               email={defaultQuoteEmail(quotation, businessName, settings.contact)}
               save={save}
             />
           )}
           {/* Once the stored copy matches the screen there is nothing to save,
               and the button says so instead of inviting a click. */}
-          {quotation && !dirty && !saving ? (
+          {locked ? (
+            <Button variant="secondary" icon="lock" disabled>
+              Locked
+            </Button>
+          ) : quotation && !dirty && !saving ? (
             <Button variant="secondary" icon="check" disabled>
               Saved
             </Button>
           ) : (
             <Button icon="check" onClick={() => void save()} disabled={saving || deleting}>
-              {saving ? "Saving…" : "Save"}
+              {saving
+                ? "Saving…"
+                : storedStatus && hasLeftShop(storedStatus)
+                  ? `Save as revision ${(quotation?.revision ?? 1) + 1}`
+                  : "Save"}
             </Button>
           )}
         </div>
       </div>
 
-      {quotation?.status === "Sent" && dirty && (
+      {quotation && (
+        <QuoteProgress quotation={quotation} dirty={dirty} isAdmin={isAdmin} bookingsEnabled={bookingsEnabled} />
+      )}
+
+      {locked && quotation && (
+        <Notice tone="info">Locked: this is what the customer approved for {quotation.jobOrderRef}.</Notice>
+      )}
+      {!locked && quotation && storedStatus && hasLeftShop(storedStatus) && dirty && (
         <Notice tone="warning">
-          This quotation was emailed to {quotation.sentTo} on {quotation.sent}. They keep that version
-          until you send it again.
+          Saving starts revision {quotation.revision + 1}. Revision {quotation.revision} stays on file as it was sent.
         </Notice>
       )}
       {error && <Notice tone="error">{error}</Notice>}
 
-      <div className="grid gap-3.5 min-[1440px]:grid-cols-[minmax(0,1fr)_300px]">
+      <fieldset
+        disabled={locked}
+        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+        className="grid gap-3.5 min-[1440px]:grid-cols-[minmax(0,1fr)_300px]"
+      >
         <div className="flex min-w-0 flex-col gap-3.5">
           <div className="grid gap-3.5 wide:grid-cols-2">
             <Panel title="Bill to" icon="user">
@@ -559,7 +689,7 @@ export function QuoteEditor({
                     onKeyDown={customerKeys}
                   />
                 </Field>
-                <Field label="Email address" hint="The quotation is emailed here.">
+                <Field label="Email address">
                   <input
                     style={INPUT}
                     type="email"
@@ -658,6 +788,35 @@ export function QuoteEditor({
                     Start typing a plate or model to fill this in from Fleet.
                   </span>
                 ))}
+              {bookingsEnabled && (
+                <Field
+                  label="Booking"
+                  hint={
+                    linkedBooking ? (
+                      <Link
+                        href={`/bookings?booking=${encodeURIComponent(linkedBooking.ref)}`}
+                        style={{ color: "var(--accent-primary)", textDecoration: "none" }}
+                      >
+                        Open {linkedBooking.ref}
+                      </Link>
+                    ) : undefined
+                  }
+                >
+                  <select
+                    style={SELECT}
+                    value={draft.bookingRef ?? ""}
+                    onChange={(event) => pickBooking(event.target.value)}
+                  >
+                    <option value="">None</option>
+                    {draft.bookingRef && !linkedBooking && <option value={draft.bookingRef}>{draft.bookingRef}</option>}
+                    {bookings.map((entry) => (
+                      <option key={entry.ref} value={entry.ref}>
+                        {entry.ref} · {entry.day} · {entry.customer} · {entry.service}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Odometer (km)">
                   <input
@@ -673,7 +832,25 @@ export function QuoteEditor({
                     style={INPUT}
                     type="date"
                     value={draft.quoteDate}
-                    onChange={(event) => update({ quoteDate: event.target.value })}
+                    onChange={(event) => {
+                      const quoteDate = event.target.value;
+                      // A validity nobody changed moves with the date; one typed by hand stays.
+                      const untouched =
+                        draft.quoteDate && draft.validUntil === addDays(draft.quoteDate, settings.validDays);
+                      update({
+                        quoteDate,
+                        ...(untouched && quoteDate ? { validUntil: addDays(quoteDate, settings.validDays) } : {}),
+                      });
+                    }}
+                  />
+                </Field>
+                <Field label="Valid until" required>
+                  <input
+                    style={INPUT}
+                    type="date"
+                    value={draft.validUntil}
+                    min={draft.quoteDate}
+                    onChange={(event) => update({ validUntil: event.target.value })}
                   />
                 </Field>
                 <Field label="Service advisor">
@@ -745,31 +922,40 @@ export function QuoteEditor({
                   }}
                 />
               </a>
-              <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", textWrap: "pretty" }}>{photo.note}</span>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textWrap: "pretty" }}>
-                Check every line against the photo. Prices read from it, or from the price list, are a starting
-                point; the customer sees only what you save.
+              <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", textWrap: "pretty" }}>
+                {photo.note} Check each line against the photo.
               </span>
             </Panel>
           )}
           <Panel title="Totals" icon="wallet">
-            <TotalRow label="Total parts" value={formatPeso(totals.partsCents)} />
-            <TotalRow label="Total labor" value={formatPeso(totals.laborCents)} />
-            <TotalRow label="Subtotal" value={formatPeso(totals.subtotalCents)} strong />
-            <Field label="Discount">
+            <TotalRow label="Parts" value={formatPeso(totals.partsCents)} />
+            <TotalRow label="Labor" value={formatPeso(totals.laborCents)} />
+            <div className="flex items-center justify-between gap-3">
+              <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>Discount</span>
               <input
-                style={{ ...INPUT, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                aria-label="Discount"
+                style={{ ...INPUT, width: 120, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                 inputMode="decimal"
                 placeholder="0.00"
                 value={draft.discount}
                 onChange={(event) => update({ discount: event.target.value })}
               />
-            </Field>
+            </div>
+            {Boolean(discountCents) && (
+              <input
+                aria-label="Reason for the discount"
+                style={INPUT}
+                maxLength={200}
+                value={draft.discountReason}
+                placeholder="Reason for the discount (required)"
+                onChange={(event) => update({ discountReason: event.target.value })}
+              />
+            )}
             <div
               className="flex items-baseline justify-between"
               style={{ paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}
             >
-              <span style={{ fontSize: "13px", fontWeight: 700 }}>Total</span>
+              <span style={{ fontSize: "13px", fontWeight: 700 }}>Customer total</span>
               <span
                 style={{
                   fontFamily: "var(--font-display)",
@@ -777,59 +963,62 @@ export function QuoteEditor({
                   fontWeight: 700,
                   letterSpacing: "-.02em",
                   fontVariantNumeric: "tabular-nums",
-                  color: "var(--status-negative)",
                 }}
               >
                 {formatPeso(totals.totalCents)}
               </span>
             </div>
             {totals.unpricedCount > 0 && (
-              <Notice tone="warning">
-                {totals.unpricedCount} {totals.unpricedCount === 1 ? "line has" : "lines have"} no price yet
-                and {totals.unpricedCount === 1 ? "is" : "are"} left out of the total. Price{" "}
-                {totals.unpricedCount === 1 ? "it" : "them"} before sending.
-              </Notice>
+              <span style={{ fontSize: "11.5px", color: "var(--status-warning)" }}>
+                {totals.unpricedCount} unpriced {totals.unpricedCount === 1 ? "line" : "lines"} not in the total
+              </span>
             )}
-          </Panel>
+            {dirty && draftPricingReason && (
+              <span style={{ fontSize: "11.5px", color: "var(--status-warning)" }}>Needs admin approval before sending</span>
+            )}
 
-          <Panel
-            title="Internal"
-            icon="eye-off"
-            action={<span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Never printed</span>}
-          >
-            <TotalRow label="Cost" value={totals.costedLines ? formatPeso(totals.costCents) : "—"} />
-            <TotalRow
-              label="Margin"
-              value={totals.costedLines ? formatPeso(totals.marginCents) : "—"}
-              tone={totals.costedLines && totals.marginCents < 0 ? "negative" : undefined}
-              strong
-            />
-            <span style={{ fontSize: "11px", color: "var(--text-muted)", textWrap: "pretty" }}>
-              {totals.pricedLines === 0
-                ? "Type a cost on a line to see the margin."
-                : `From the cost on ${totals.costedLines} of ${totals.pricedLines} priced ${
-                    totals.pricedLines === 1 ? "line" : "lines"
-                  }${totals.discountCents ? ", after the discount" : ""}. A cost with no price is offered at ${
-                    settings.markupPercent
-                  }% markup.`}
-            </span>
+            {/* Internal figures: on screen only, never in the PDF or the email. */}
+            <div
+              className="flex flex-col gap-1.5"
+              style={{ marginTop: 4, padding: "10px 12px", borderRadius: "var(--radius-md)", background: "var(--surface-inset)" }}
+            >
+              <span className="flex items-center gap-1.5" style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-muted)" }}>
+                <Icon name="eye-off" size={12} />
+                Internal · never printed
+              </span>
+              <TotalRow label="Cost" value={totals.costedLines ? formatPeso(totals.costCents) : "—"} />
+              <TotalRow
+                label="Gross profit"
+                value={
+                  totals.costedLines
+                    ? `${formatPeso(totals.marginCents)}${totals.marginPercent === null ? "" : ` · ${totals.marginPercent.toFixed(1)}%`}`
+                    : "—"
+                }
+                tone={totals.costedLines && totals.marginCents < 0 ? "negative" : undefined}
+                strong
+              />
+              {totals.pricedLines > 0 && totals.costedLines < totals.pricedLines && (
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Costed on {totals.costedLines} of {totals.pricedLines} lines
+                </span>
+              )}
+            </div>
           </Panel>
 
           <Panel title="Notes" icon="file-text">
             <textarea
-              rows={4}
+              rows={3}
               maxLength={600}
               style={{ ...INPUT, resize: "vertical" }}
               value={draft.notes}
               placeholder="THIS QUOTATION IS ZERO RATED VAT"
               onChange={(event) => update({ notes: event.target.value })}
             />
-            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-              Printed in the notes box. New quotations start with the notes in Settings.
-            </span>
           </Panel>
         </div>
-      </div>
+      </fieldset>
+
+      {quotation && <QuoteHistory quotation={quotation} revisions={revisions} events={events} />}
     </div>
   );
 }

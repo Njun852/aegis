@@ -4,27 +4,32 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Badge, Button, Icon, SearchInput } from "@/components/ui";
 import { activateOnKey } from "@/lib/interaction";
-import { QUOTE_STATUSES, filterQuotations, formatPeso, manilaDateKey } from "@/lib/quotations";
+import { QUOTE_STATUSES, filterQuotations, formatPeso, manilaDateKey, quoteStatusTone } from "@/lib/quotations";
 import { ColumnLabel } from "@/components/forms/form-kit";
+import { JobOrdersPanel } from "./job-orders-panel";
 import { PhotoButton } from "./photo-button";
 import { PriceListPanel } from "./price-list-panel";
 import { QuoteSettingsModal } from "./settings-modal";
-import type { QuotationSettings, QuotationSummary, QuotePriceItem, QuoteStatusFilter } from "@/types";
+import type { JobOrderSummary, QuotationSettings, QuotationSummary, QuotePriceItem, QuoteStatusFilter } from "@/types";
 
 const GRID =
-  "grid gap-3 items-center grid-cols-[92px_minmax(150px,1.3fr)_110px_20px] wide:grid-cols-[92px_minmax(170px,1.4fr)_minmax(0,1fr)_110px_90px_130px_22px]";
+  "grid gap-3 items-center grid-cols-[92px_minmax(150px,1.3fr)_110px_20px] wide:grid-cols-[92px_minmax(170px,1.4fr)_minmax(0,1fr)_110px_130px_130px_22px]";
+
+export type QuotationsTab = "quotations" | "jobs" | "prices";
 
 export interface QuotationsWorkspaceProps {
   quotations: QuotationSummary[];
+  jobOrders: JobOrderSummary[];
   priceItems: QuotePriceItem[];
   settings: QuotationSettings;
-  tab: "quotations" | "prices";
+  tab: QuotationsTab;
   businessName: string;
   aiConfigured: boolean;
 }
 
 export function QuotationsWorkspace({
   quotations,
+  jobOrders,
   priceItems,
   settings,
   tab,
@@ -51,8 +56,8 @@ export function QuotationsWorkspace({
       fg: "var(--status-warning)",
     },
     {
-      label: "Sent this month",
-      value: String(thisMonth.filter((quote) => quote.status === "Sent").length),
+      label: "Awaiting answer",
+      value: String(quotations.filter((quote) => quote.status === "Sent").length),
       icon: "send",
       bg: "var(--status-positive-soft)",
       fg: "var(--status-positive)",
@@ -67,8 +72,8 @@ export function QuotationsWorkspace({
     },
   ];
 
-  const switchTab = (next: "quotations" | "prices") =>
-    router.replace(next === "prices" ? "/quotations?tab=prices" : "/quotations", { scroll: false });
+  const switchTab = (next: QuotationsTab) =>
+    router.replace(next === "quotations" ? "/quotations" : `/quotations?tab=${next}`, { scroll: false });
 
   return (
     <>
@@ -160,6 +165,7 @@ export function QuotationsWorkspace({
           {(
             [
               { id: "quotations", label: "Quotations", icon: "file-text" },
+              { id: "jobs", label: `Job orders · ${jobOrders.length}`, icon: "wrench" },
               { id: "prices", label: "Price list", icon: "layers" },
             ] as const
           ).map((item) => {
@@ -196,6 +202,8 @@ export function QuotationsWorkspace({
 
         {tab === "prices" ? (
           <PriceListPanel items={priceItems} markupPercent={settings.markupPercent} />
+        ) : tab === "jobs" ? (
+          <JobOrdersPanel jobOrders={jobOrders} />
         ) : (
           <section
             style={{
@@ -215,6 +223,8 @@ export function QuotationsWorkspace({
                 const active = status === filter;
                 const count =
                   filter === "All" ? quotations.length : quotations.filter((quote) => quote.status === filter).length;
+                // Six statuses is a lot of chips; only the ones with something in them are offered.
+                if (filter !== "All" && count === 0 && !active) return null;
                 return (
                   <button
                     key={filter}
@@ -277,7 +287,11 @@ export function QuotationsWorkspace({
                   >
                     <span className="flex flex-col leading-tight">
                       <Strong mono>{quote.ref}</Strong>
-                      {quote.source === "photo" && <Muted>From photo</Muted>}
+                      <Muted>
+                        {[quote.revision > 1 ? `Rev ${quote.revision}` : "", quote.source === "photo" ? "From photo" : ""]
+                          .filter(Boolean)
+                          .join(" · ") || " "}
+                      </Muted>
                     </span>
                     <span className="flex min-w-0 flex-col leading-tight">
                       <Strong>{quote.customer || quote.company || "No name"}</Strong>
@@ -290,8 +304,9 @@ export function QuotationsWorkspace({
                     <span className="hidden wide:block">
                       <Strong>{quote.quoteDay}</Strong>
                     </span>
-                    <span className="hidden wide:block">
-                      <Badge tone={quote.status === "Sent" ? "positive" : "neutral"}>{quote.status}</Badge>
+                    <span className="hidden flex-col items-start gap-0.5 wide:flex">
+                      <Badge tone={quoteStatusTone(quote.status)}>{quote.status}</Badge>
+                      {(quote.jobOrderRef || quote.bookingRef) && <Muted>{quote.jobOrderRef ?? quote.bookingRef}</Muted>}
                     </span>
                     <span className="flex flex-col items-end leading-tight">
                       <Strong>{formatPeso(quote.totalCents)}</Strong>

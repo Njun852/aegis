@@ -1,5 +1,6 @@
 import type { MetaAdsConfig } from "./ads";
 import type { OptionalModuleKey } from "./business";
+import type { OwnerAlertConfig } from "./owner-alerts";
 import type { QuotationConfig } from "./quotations";
 import type { TextBlastConfig } from "./text-blast";
 
@@ -77,6 +78,8 @@ export interface BusinessDocument {
   textBlast?: TextBlastConfig;
   /** Absent until someone saves the quotation letterhead; defaults apply. */
   quotation?: QuotationConfig;
+  /** Absent until an admin saves owner text alerts; treated as switched off. */
+  ownerAlerts?: OwnerAlertConfig;
 }
 
 /**

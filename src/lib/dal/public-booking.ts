@@ -97,7 +97,7 @@ export interface RequestInput {
 }
 
 export type CreateRequestResult =
-  | { ok: true; code: string }
+  | { ok: true; code: string; ref: string }
   | { ok: false; reason: "slot-full" };
 
 /**
@@ -178,7 +178,7 @@ export async function createRequest(
       amountCents: 0,
       description: `${input.service} · ${input.name}`,
     });
-    return { ok: true, code };
+    return { ok: true, code, ref };
   }
 
   throw new Error("Could not allocate a booking reference; please retry.");

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
 import { QuoteEditor } from "@/components/quotations/quote-editor";
 import { getActiveBusiness } from "@/lib/dal/businesses";
-import { findPhotoView, findQuotation } from "@/lib/dal/quotations";
+import { findPhotoView, findQuotation, listQuoteEvents, listRevisionSummaries } from "@/lib/dal/quotations";
 import { loadEditorData } from "../load-editor";
 
 export default async function QuotationPage(props: PageProps<"/quotations/[ref]">) {
@@ -11,9 +11,24 @@ export default async function QuotationPage(props: PageProps<"/quotations/[ref]"
   if (!business.modules.includes("quotes")) return <ModulePage moduleKey="quotes" />;
 
   const { ref } = await props.params;
-  const [quotation, data] = await Promise.all([findQuotation(decodeURIComponent(ref)), loadEditorData(business)]);
+  const quoteRef = decodeURIComponent(ref);
+  const [quotation, data, revisions, events] = await Promise.all([
+    findQuotation(quoteRef),
+    loadEditorData(business),
+    listRevisionSummaries(quoteRef),
+    listQuoteEvents(quoteRef),
+  ]);
   if (!quotation) notFound();
   const photo = quotation.photoRef ? await findPhotoView(quotation.photoRef) : null;
 
-  return <QuoteEditor key={quotation.ref} quotation={quotation} photo={photo} {...data} />;
+  return (
+    <QuoteEditor
+      key={`${quotation.ref}-${quotation.revision}`}
+      quotation={quotation}
+      photo={photo}
+      revisions={revisions}
+      events={events}
+      {...data}
+    />
+  );
 }

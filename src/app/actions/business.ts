@@ -9,13 +9,14 @@ import {
   setModuleGrants,
   setOnlineBooking,
 } from "@/lib/dal/businesses";
+import { saveOwnerAlerts, sendTestAlert } from "@/lib/dal/owner-alerts";
 import { InputError } from "@/lib/dal/refs";
 import {
   ACTIVE_BUSINESS_COOKIE,
   allowedBusinessIds,
   verifySession,
 } from "@/lib/dal/session";
-import type { OptionalModuleKey } from "@/types";
+import type { OptionalModuleKey, OwnerAlertConfig } from "@/types";
 
 /**
  * Switching tenants. Membership is checked here before the cookie is written,
@@ -122,4 +123,32 @@ export async function setOnlineBookingAction(
   }
   revalidatePath(`/admin/businesses/${businessId}`);
   return { ok: true };
+}
+
+/** Who gets owner text alerts, and for what. Admin-only; `saveOwnerAlerts` asserts the role. */
+export async function saveOwnerAlertsAction(
+  businessId: string,
+  config: OwnerAlertConfig,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await saveOwnerAlerts(businessId, config);
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, error: error.message };
+    throw error;
+  }
+  revalidatePath(`/admin/businesses/${businessId}`);
+  return { ok: true };
+}
+
+export async function sendTestAlertAction(
+  businessId: string,
+): Promise<{ ok: true; written: number; provider: string | null } | { ok: false; error: string }> {
+  try {
+    const result = await sendTestAlert(businessId);
+    revalidatePath(`/admin/businesses/${businessId}`);
+    return { ok: true, ...result };
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, error: error.message };
+    throw error;
+  }
 }

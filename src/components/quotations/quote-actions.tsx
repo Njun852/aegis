@@ -12,6 +12,8 @@ export interface QuoteActionsProps {
   dirty: boolean;
   unpricedCount: number;
   mailConnected: boolean;
+  /** A discount or below-cost line no administrator has approved yet. */
+  pricingBlocked: boolean;
   /** The defaults the compose box opens with. */
   email: { subject: string; body: string };
   /** Saves the editor; resolves with the ref, or null when the save was refused. */
@@ -30,7 +32,15 @@ function pdfUrl(ref: string, version: string, download = false) {
  * edits are saved first: the customer must never receive a PDF that differs
  * from what the screen showed.
  */
-export function QuoteActions({ quotation, dirty, unpricedCount, mailConnected, email, save }: QuoteActionsProps) {
+export function QuoteActions({
+  quotation,
+  dirty,
+  unpricedCount,
+  mailConnected,
+  pricingBlocked,
+  email,
+  save,
+}: QuoteActionsProps) {
   const toast = useToast();
   const [previewing, setPreviewing] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -44,6 +54,10 @@ export function QuoteActions({ quotation, dirty, unpricedCount, mailConnected, e
     unpricedCount > 0
       ? `${unpricedCount} ${unpricedCount === 1 ? "line has" : "lines have"} no price yet.`
       : null;
+  // A download is usually on its way to a customer, so it waits for the same approval as the email.
+  const blocked =
+    unpriced ?? (pricingBlocked ? "The discount or a below-cost price needs an administrator's approval first." : null);
+  const emailBlocked = quotation.jobOrderRef ? `${quotation.ref} is already job order ${quotation.jobOrderRef}.` : blocked;
 
   return (
     <>
@@ -53,8 +67,8 @@ export function QuoteActions({ quotation, dirty, unpricedCount, mailConnected, e
       <Button
         variant="secondary"
         icon="arrow-down"
-        disabled={unpriced !== null}
-        title={unpriced ?? "Download the PDF"}
+        disabled={blocked !== null}
+        title={blocked ?? "Download the PDF"}
         onClick={() =>
           void afterSave(() => {
             // The response is an attachment, so the page stays where it is.
@@ -68,11 +82,11 @@ export function QuoteActions({ quotation, dirty, unpricedCount, mailConnected, e
       <Button
         variant="secondary"
         icon="send"
-        disabled={unpriced !== null || !mailConnected}
+        disabled={emailBlocked !== null || !mailConnected}
         title={
           !mailConnected
             ? "No mailbox is connected for this business. An administrator connects one in Business Management."
-            : (unpriced ?? "Email the PDF to the customer")
+            : (emailBlocked ?? "Email the PDF to the customer")
         }
         onClick={() => void afterSave(() => setComposing(true))}
       >

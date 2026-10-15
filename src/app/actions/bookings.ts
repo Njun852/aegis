@@ -21,6 +21,10 @@ import {
   updateBookingDetails,
 } from "@/lib/dal/bookings";
 import { InputError } from "@/lib/dal/refs";
+import { listJobsForBooking } from "@/lib/dal/job-orders";
+import { notifyOwner } from "@/lib/dal/owner-alerts";
+import { bookingText } from "@/lib/owner-alerts";
+import { bookingMoveRefusal } from "@/lib/job-orders";
 import { findMetaCampaign } from "@/lib/dal/ads";
 import { findConversation } from "@/lib/dal/messenger";
 import { phoneKey } from "@/lib/crm";
@@ -225,7 +229,16 @@ export async function createBookingAction(
     messengerPsid: messengerPsid || null,
   });
 
-  if (messengerPsid) revalidatePath("/bookings/messenger");
+  if (messengerPsid) {
+    revalidatePath("/bookings/messenger");
+    // A request from a Messenger chat is a new customer coming in from the
+    // page; bookings staff type in for calls and walk-ins are not alerted.
+    await notifyOwner(
+      "bookings",
+      `booking:${booking.ref}`,
+      bookingText(business.name, booking.ref, booking.customer, `${booking.day} ${booking.time.split(" ")[0]}`, "Messenger"),
+    );
+  }
   if (source) revalidatePath("/ads");
 
   revalidatePath("/bookings");
@@ -260,17 +273,29 @@ export async function setBookingSourceAction(
   return { ok: true };
 }
 
+const BOOKING_STATUSES: BookingStatus[] = ["Pending", "Confirmed", "In progress", "Completed", "Cancelled"];
+
+/**
+ * Moves a booking through its statuses. Once it has a job order, the work
+ * half (In progress, Completed) is moved on the job order instead, and a
+ * booking with open work cannot be cancelled from here: the refusal says
+ * where to go.
+ */
 export async function setBookingStatusAction(
   ref: string,
   status: BookingStatus,
-): Promise<void> {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireModule("bookings");
+  if (!BOOKING_STATUSES.includes(status)) return { ok: false, error: "Unknown booking status." };
+  const refusal = bookingMoveRefusal(status, await listJobsForBooking(ref));
+  if (refusal) return { ok: false, error: refusal };
   await setBookingStatus(ref, status);
   revalidatePath("/bookings");
   // Confirming or cancelling changes a campaign's Confirmed Bookings.
   revalidatePath("/ads");
   // A completed booking for a vehicle is a line in its service history.
   revalidatePath("/fleet");
+  return { ok: true };
 }
 
 export async function rescheduleBookingAction(

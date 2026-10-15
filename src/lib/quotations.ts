@@ -2,12 +2,14 @@ import type {
   QuoteLine,
   QuoteLineOrigin,
   QuotePriceItem,
+  QuoteResponseMethod,
   QuoteSection,
   QuoteStatus,
   QuoteTotals,
   QuotationConfig,
   QuotationSettings,
   QuotationSummary,
+  StoredQuoteStatus,
 } from "@/types";
 
 /**
@@ -16,7 +18,71 @@ import type {
  * script all compute a total the same way.
  */
 
-export const QUOTE_STATUSES: QuoteStatus[] = ["Draft", "Sent"];
+export const QUOTE_STATUSES: QuoteStatus[] = [
+  "Draft",
+  "Sent",
+  "Approved",
+  "Partially Approved",
+  "Declined",
+  "Expired",
+];
+
+export const QUOTE_RESPONSE_METHODS: QuoteResponseMethod[] = [
+  "In person",
+  "Signed copy",
+  "Phone call",
+  "Email",
+  "Messenger or text",
+];
+
+/** Ways a quotation reaches a customer other than AEGIS's own email. */
+export const QUOTE_HANDOVER_METHODS = [
+  "Printed and handed over",
+  "Shown on screen",
+  "Sent by Messenger or text",
+  "Read out by phone",
+] as const;
+
+/** How each status reads as a badge. */
+export function quoteStatusTone(status: QuoteStatus): "positive" | "warning" | "accent" | "neutral" | "negative" {
+  switch (status) {
+    case "Approved":
+      return "positive";
+    case "Partially Approved":
+      return "accent";
+    case "Sent":
+      return "warning";
+    case "Declined":
+    case "Expired":
+      return "negative";
+    default:
+      return "neutral";
+  }
+}
+
+/** Days a quotation stays open when the business has not set its own. */
+export const DEFAULT_VALID_DAYS = 30;
+export const MAX_VALID_DAYS = 365;
+
+/**
+ * The status a person should see. Only a Sent quotation can lapse: once the
+ * customer has answered, the date no longer matters, and a Draft has not
+ * been offered to anyone yet.
+ */
+export function effectiveStatus(status: StoredQuoteStatus, validUntil: string, todayKey: string): QuoteStatus {
+  return status === "Sent" && validUntil < todayKey ? "Expired" : status;
+}
+
+/** "2026-09-14" plus 30 days, as a calendar day, so no timezone can shift it. */
+export function addDays(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+/** A quotation that has left the shop. Changing one starts a new revision rather than editing what the customer holds. */
+export function hasLeftShop(status: StoredQuoteStatus): boolean {
+  return status !== "Draft";
+}
 
 export const QUOTE_SECTIONS: { key: QuoteSection; label: string; noun: string }[] = [
   { key: "parts", label: "Parts", noun: "part" },
@@ -34,6 +100,7 @@ export const DEFAULT_QUOTATION_SETTINGS: QuotationSettings = {
   notes: "",
   footer: "Thank you for your business!",
   markupPercent: 50,
+  validDays: DEFAULT_VALID_DAYS,
   logo: null,
 };
 
@@ -45,6 +112,7 @@ export function quoteSettingsOf(config: QuotationConfig | undefined): QuotationS
     notes: config?.notes ?? DEFAULT_QUOTATION_SETTINGS.notes,
     footer: config?.footer ?? DEFAULT_QUOTATION_SETTINGS.footer,
     markupPercent: config?.markupPercent ?? DEFAULT_QUOTATION_SETTINGS.markupPercent,
+    validDays: config?.validDays ?? DEFAULT_QUOTATION_SETTINGS.validDays,
     logo: config?.logo ?? null,
   };
 }
@@ -71,6 +139,7 @@ export function quoteTotals(lines: QuoteLine[], discountCents: number): QuoteTot
   let unpricedCount = 0;
   let costCents = 0;
   let marginCents = 0;
+  let costedSalesCents = 0;
   let costedLines = 0;
   let pricedLines = 0;
 
@@ -89,6 +158,7 @@ export function quoteTotals(lines: QuoteLine[], discountCents: number): QuoteTot
       const cost = Math.round(line.qty * line.costCents);
       costCents += cost;
       marginCents += amount - cost;
+      costedSalesCents += amount;
       costedLines += 1;
     }
   }
@@ -97,6 +167,12 @@ export function quoteTotals(lines: QuoteLine[], discountCents: number): QuoteTot
   // A discount larger than the bill would print a negative total; it is held
   // at the subtotal instead, and the editor refuses to save one anyway.
   const discount = Math.min(Math.max(discountCents, 0), subtotalCents);
+  // The discount comes off the profit, so it comes off what the profit is a
+  // share of too: ₱4,000 of sales costing ₱3,000, less ₱500 off, is ₱500 of
+  // profit on ₱3,500, or 14.3%.
+  const marginBase = costedSalesCents - discount;
+  const marginPercent =
+    costedLines > 0 && marginBase > 0 ? Math.round(((marginCents - discount) / marginBase) * 1000) / 10 : null;
   return {
     partsCents,
     laborCents,
@@ -106,9 +182,102 @@ export function quoteTotals(lines: QuoteLine[], discountCents: number): QuoteTot
     unpricedCount,
     costCents,
     marginCents: marginCents - discount,
+    marginPercent,
     costedLines,
     pricedLines,
   };
+}
+
+/** Priced lines selling for less than they cost the business. */
+export function belowCostLines(lines: QuoteLine[]): QuoteLine[] {
+  return lines.filter(
+    (line) =>
+      !isBlankLine(line) &&
+      line.unitPriceCents !== null &&
+      line.costCents !== null &&
+      line.unitPriceCents < line.costCents,
+  );
+}
+
+/**
+ * What an administrator signs off when they approve special pricing: the
+ * discount and every line below cost, exactly. Empty when there is nothing to
+ * approve. An approval is kept with the key it was given for, so changing any
+ * of these figures afterwards needs a fresh one, while editing an ordinary
+ * line does not.
+ */
+export function specialPricingKey(lines: QuoteLine[], discountCents: number): string {
+  const below = belowCostLines(lines);
+  if (discountCents <= 0 && below.length === 0) return "";
+  const parts = below
+    .map((line) => `${line.id}:${line.qty}:${line.unitPriceCents}:${line.costCents}`)
+    .sort();
+  return `d${Math.max(discountCents, 0)};${parts.join(",")}`;
+}
+
+/** Why a quotation needs an administrator's approval before it goes out, as a sentence. Null when it does not. */
+export function specialPricingReason(lines: QuoteLine[], discountCents: number): string | null {
+  const below = belowCostLines(lines).length;
+  const reasons = [
+    discountCents > 0 ? `a discount of ${formatPeso(discountCents)}` : "",
+    below ? `${below} ${below === 1 ? "line" : "lines"} priced below cost` : "",
+  ].filter(Boolean);
+  return reasons.length ? `It has ${reasons.join(" and ")}.` : null;
+}
+
+/** Whether a quotation may go out as it is, as far as pricing goes: nothing special, or approved exactly as it stands. */
+export function pricingCleared(quote: {
+  lines: QuoteLine[];
+  discountCents: number;
+  pricingApproval: { key: string } | null;
+}): boolean {
+  const key = specialPricingKey(quote.lines, quote.discountCents);
+  return key === "" || quote.pricingApproval?.key === key;
+}
+
+/** The lines a customer agreed to, in their original order. */
+export function approvedLinesOf(lines: QuoteLine[], approvedIds: string[]): QuoteLine[] {
+  const ids = new Set(approvedIds);
+  return lines.filter((line) => ids.has(line.id));
+}
+
+/** "Oct 15, 2026 · 09:12", in the shop's timezone whatever the server's is. */
+export function formatManilaStamp(date: Date): string {
+  const day = date.toLocaleDateString("en-US", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+  const time = date.toLocaleTimeString("en-US", {
+    timeZone: "Asia/Manila",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${day} · ${time}`;
+}
+
+/** "2026-10-15T09:12", the value a datetime-local input wants, as the clock reads in Manila. */
+export function manilaDateTimeInput(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+/** A datetime-local value read as Manila wall-clock time. Null when it is not one. */
+export function parseManilaDateTime(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}:00+08:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /**

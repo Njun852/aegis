@@ -23,21 +23,33 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import { QUOTATION_INDEXES } from "@/lib/data/quotations";
+import { bookingMoveRefusal, bookingStatusFromJobs, jobStartRefusal, syncedBookingStatus } from "@/lib/job-orders";
 import { applyCostSources, checkLineCost, findCostSource, markupOf } from "@/lib/quote-costing";
 import { draftLinesFromRead, parseQuotePhotoRead } from "@/lib/quote-photo";
 import {
+  addDays,
+  approvedLinesOf,
+  belowCostLines,
   defaultQuoteEmail,
   descriptionKey,
+  effectiveStatus,
   emptyLine,
   formatAmount,
+  formatManilaStamp,
   formatQuoteDay,
+  hasLeftShop,
   isDateKey,
   lineAmountCents,
+  manilaDateTimeInput,
   matchPriceItem,
   parseAmount,
+  parseManilaDateTime,
   parseQty,
   priceFromCost,
+  pricingCleared,
   quoteTotals,
+  specialPricingKey,
+  specialPricingReason,
 } from "@/lib/quotations";
 import type { QuoteCostSource, QuoteLine, QuotePriceItem, QuoteSection } from "@/types";
 
@@ -103,6 +115,86 @@ assert.ok(!isDateKey("2026-02-30"), "no such day");
 assert.equal(formatQuoteDay("2026-09-14"), "Sep 14, 2026");
 
 console.log("✓ the sample totals 8,300 / 67,300 / 75,600; discount, markup, rounding, typed amounts");
+
+// ---- Margin %, special pricing, statuses, approvals ----------------------------
+
+assert.equal(totals.marginPercent, 33.3, "19,500 of profit on the 58,500 the three costed lines sell for");
+assert.equal(discounted.marginPercent, 25.7, "a 6,000 discount comes off both: 13,500 on 52,500");
+assert.equal(quoteTotals([line("labor", "Diagnosis", 1, 1500)], 0).marginPercent, null, "no cost on any line, no margin");
+assert.equal(quoteTotals([line("parts", "Gasket", 1, 800, 1000)], 0).marginPercent, -25, "selling below cost reads negative");
+
+assert.equal(specialPricingKey(sample, 0), "", "ordinary pricing needs no approval");
+assert.ok(pricingCleared({ lines: sample, discountCents: 0, pricingApproval: null }));
+const discountKey = specialPricingKey(sample, 600_000);
+assert.ok(discountKey, "a discount needs approval");
+assert.ok(!pricingCleared({ lines: sample, discountCents: 600_000, pricingApproval: null }), "and is blocked without one");
+assert.ok(pricingCleared({ lines: sample, discountCents: 600_000, pricingApproval: { key: discountKey } }), "approved, it may go out");
+assert.ok(
+  !pricingCleared({ lines: sample, discountCents: 700_000, pricingApproval: { key: discountKey } }),
+  "a bigger discount after approval needs approving again",
+);
+const belowCost = [...sample, line("parts", "Gasket kit", 1, 800, 1000)];
+assert.equal(belowCostLines(belowCost).length, 1, "a line priced under its cost is special pricing");
+const belowKey = specialPricingKey(belowCost, 0);
+assert.ok(belowKey && belowKey !== discountKey);
+const withExtraLine = [...belowCost, line("labor", "Road test", 1, 500)];
+assert.equal(specialPricingKey(withExtraLine, 0), belowKey, "adding an ordinary line keeps the approval");
+assert.ok(specialPricingReason(belowCost, 600_000)?.includes("1 line priced below cost"));
+
+assert.equal(addDays("2026-10-15", 30), "2026-11-14");
+assert.equal(addDays("2026-12-20", 30), "2027-01-19", "across the year end");
+assert.equal(effectiveStatus("Sent", "2026-10-14", "2026-10-15"), "Expired", "sent and past its date");
+assert.equal(effectiveStatus("Sent", "2026-10-15", "2026-10-15"), "Sent", "valid through its last day");
+assert.equal(effectiveStatus("Approved", "2026-10-01", "2026-10-15"), "Approved", "an answered quotation never expires");
+assert.equal(effectiveStatus("Draft", "2026-10-01", "2026-10-15"), "Draft", "nor one never sent");
+assert.ok(!hasLeftShop("Draft") && hasLeftShop("Sent") && hasLeftShop("Declined"), "only a draft is edited in place");
+
+const partly = approvedLinesOf(sample, [sample[0].id, sample[4].id]);
+assert.deepEqual(
+  partly.map((entry) => entry.description),
+  ["Engine support aftermarket", "EGR cleaning"],
+  "a partial approval keeps the lines ticked, in order",
+);
+assert.equal(quoteTotals(partly, 0).totalCents, 900_000, "and its amount is theirs alone: 4,500 + 4,500");
+
+const answered = parseManilaDateTime("2026-10-15T09:12");
+assert.equal(answered?.toISOString(), "2026-10-15T01:12:00.000Z", "a typed time is Manila time");
+assert.equal(manilaDateTimeInput(answered!), "2026-10-15T09:12", "and reads back the same");
+assert.equal(formatManilaStamp(answered!), "Oct 15, 2026 · 09:12");
+assert.equal(parseManilaDateTime("yesterday"), null);
+
+console.log("✓ margin %, special pricing keys and approval, validity and Expired, partial approval, Manila times");
+
+// ---- Bookings and job orders: one job, tracked once ------------------------------
+
+assert.equal(bookingStatusFromJobs([]), null, "no job order: the booking keeps its own status");
+assert.equal(bookingStatusFromJobs(["Open"]), null, "work not started: still the appointment's status");
+assert.equal(bookingStatusFromJobs(["In progress"]), "In progress");
+assert.equal(bookingStatusFromJobs(["Completed"]), "Completed");
+assert.equal(bookingStatusFromJobs(["Completed", "Open"]), "In progress", "two jobs, one done: still in progress");
+assert.equal(bookingStatusFromJobs(["Completed", "Cancelled"]), "Completed", "a cancelled job does not hold the booking open");
+
+assert.equal(syncedBookingStatus("Confirmed", ["In progress"]), "In progress", "starting the job starts the booking");
+assert.equal(syncedBookingStatus("In progress", ["Completed"]), "Completed", "completing it completes the booking");
+assert.equal(syncedBookingStatus("Completed", ["In progress"]), "In progress", "reopening the job reopens the booking");
+assert.equal(syncedBookingStatus("In progress", ["Cancelled"]), "Confirmed", "a cancelled job leaves the appointment standing");
+assert.equal(syncedBookingStatus("In progress", ["Open"]), "Confirmed", "back to open: back to confirmed");
+assert.equal(syncedBookingStatus("Confirmed", ["Open"]), null, "nothing to change");
+assert.equal(syncedBookingStatus("Cancelled", ["In progress"]), null, "a cancelled booking is never moved");
+
+const openJob = [{ ref: "JO-1001", status: "Open" as const }];
+const startedJob = [{ ref: "JO-1001", status: "In progress" as const }];
+assert.equal(bookingMoveRefusal("Confirmed", openJob), null, "confirming the appointment stays with the booking");
+assert.ok(bookingMoveRefusal("In progress", openJob)?.includes("JO-1001"), "starting work is done on the job order");
+assert.ok(bookingMoveRefusal("Completed", startedJob), "and so is completing it");
+assert.ok(bookingMoveRefusal("Cancelled", openJob), "a booking with open work cannot be cancelled");
+assert.ok(bookingMoveRefusal("Pending", startedJob), "nor unconfirmed once work has started");
+assert.equal(bookingMoveRefusal("Cancelled", [{ ref: "JO-1001", status: "Cancelled" }]), null, "a cancelled job order lets it go");
+assert.ok(jobStartRefusal("In progress", { ref: "BK-1", status: "Pending" }), "work cannot start on an unconfirmed booking");
+assert.equal(jobStartRefusal("In progress", { ref: "BK-1", status: "Confirmed" }), null);
+assert.equal(jobStartRefusal("In progress", null), null, "a job order with no booking starts freely");
+
+console.log("✓ bookings follow their job orders; the booking side hands work over and cannot cancel open work");
 
 const priceList: QuotePriceItem[] = [
   { section: "labor", description: "Turbo cleaning", unit: "", unitPriceCents: 350_000, costCents: null, useCount: 3, lastUsedDay: "" },
@@ -316,8 +408,26 @@ try {
     "two quotations cannot share a quote number",
   );
   console.log("✓ price list keeps one entry per wording; quote numbers are unique");
+
+  const history = db.collection("quotationRevisions");
+  await history.insertOne({ businessId, quotationRef: "QT-1001", revision: 1 });
+  await assert.rejects(
+    history.insertOne({ businessId, quotationRef: "QT-1001", revision: 1 }),
+    (error: { code?: number }) => error.code === 11000,
+    "a superseded revision is written once; a racing second save is refused",
+  );
+
+  const jobs = db.collection("jobOrders");
+  await jobs.insertOne({ businessId, ref: "JO-1001", quotationRef: "QT-1001" });
+  await assert.rejects(
+    jobs.insertOne({ businessId, ref: "JO-1002", quotationRef: "QT-1001" }),
+    (error: { code?: number; keyPattern?: Record<string, unknown> }) =>
+      error.code === 11000 && Boolean(error.keyPattern && "quotationRef" in error.keyPattern),
+    "one quotation cannot become two job orders",
+  );
+  console.log("✓ revisions are kept once each; a quotation converts to one job order only");
 } finally {
-  for (const name of ["quotePriceItems", "quotations", "quotePhotos"]) {
+  for (const name of ["quotePriceItems", "quotations", "quotePhotos", "quotationRevisions", "quoteEvents", "jobOrders"]) {
     await db.collection(name).deleteMany({ businessId });
   }
   await mongo.close();
