@@ -18,6 +18,22 @@ export type BookingRange =
   | "All time";
 
 /**
+ * Which Meta campaign a booking is credited to.
+ *
+ * From a Messenger chat that started on an ad, it is copied from the chat when
+ * staff create the request and locked: nothing later, in the chat or on the
+ * screen, can change it. For a call, a walk-in or an untracked message staff
+ * may pick the campaign by hand; that manual credit can be corrected.
+ */
+export interface BookingSource {
+  campaignId: string;
+  /** Kept on the booking so it still reads correctly if the campaign is later removed. */
+  campaignName: string;
+  adId: string | null;
+  origin: "messenger" | "manual";
+}
+
+/**
  * What a customer sent from the public booking page. Kept apart from the
  * booking's own fields because it is exactly what a stranger typed: staff turn
  * it into a customer and a vehicle only after reading it.
@@ -87,6 +103,12 @@ export interface Booking {
   customerRef: string | null;
   /** Present when the booking came from the public booking page. */
   request: BookingRequest | null;
+  /** The campaign it is credited to. Null when not from an ad. */
+  source: BookingSource | null;
+  /** The Messenger chat this request was made from, by its page-scoped customer id. */
+  messengerPsid: string | null;
+  /** ISO 8601, when the booking was made: the date Cost per Booking counts it on. */
+  createdAt: string;
 }
 
 /** What the New Booking form submits. `ref` and status are server-assigned. */
@@ -104,6 +126,8 @@ export interface BookingInput {
   notes: string;
   vehicleRef?: string | null;
   customerRef?: string | null;
+  source?: BookingSource | null;
+  messengerPsid?: string | null;
 }
 
 /** Stored shape. `businessId` is stamped on by `tenantScope`. */
@@ -137,6 +161,10 @@ export interface BookingDocument {
     mobileKey: string;
     submittedAt: Date;
   };
+  /** Absent on bookings not credited to a campaign. */
+  source?: BookingSource | null;
+  /** Absent unless the booking was made from a Messenger chat. */
+  messengerPsid?: string | null;
   createdAt: Date;
 }
 

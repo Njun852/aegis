@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { deleteQuotationAction, saveQuotationAction } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon } from "@/components/ui";
-import { parseWholeNumber } from "@/lib/fleet";
+import { phoneKey } from "@/lib/crm";
+import { parseWholeNumber, plateKey } from "@/lib/fleet";
 import {
   QUOTE_SECTIONS,
   amountInput,
@@ -17,7 +18,8 @@ import {
   parseQty,
   quoteTotals,
 } from "@/lib/quotations";
-import { Field, INPUT, Notice, Panel, SELECT } from "@/components/forms/form-kit";
+import { Field, INPUT, Notice, Panel } from "@/components/forms/form-kit";
+import { LinkedNote, MatchList, matchKeys, type MatchOption } from "@/components/forms/match-list";
 import { QuoteLines, type EditorLine } from "./quote-lines";
 import { QuoteActions } from "./quote-actions";
 import type {
@@ -204,6 +206,86 @@ export function QuoteEditor({
     () => quoteTotals(parsed.lines, typeof discountCents === "number" ? discountCents : 0),
     [parsed.lines, discountCents],
   );
+
+  /** The field being typed in, which decides what the matches are matched on. */
+  const [customerField, setCustomerField] = useState<"name" | "company" | "phone" | null>(null);
+  const [customerActive, setCustomerActive] = useState(-1);
+  const [carField, setCarField] = useState<"plate" | "model" | null>(null);
+  const [carActive, setCarActive] = useState(-1);
+  const MAX_MATCHES = 6;
+
+  // Customers on file matching the field being typed in. Nothing is offered
+  // once one is linked, or before there is enough to match on.
+  const customerMatches = useMemo(() => {
+    if (!crmEnabled || draft.billTo.customerRef || !customerField) return [];
+    const typed = draft.billTo[customerField].trim().toLowerCase();
+    if (customerField === "phone") {
+      const digits = phoneKey(typed);
+      if (digits.length < 4) return [];
+      return customers.filter((entry) => phoneKey(entry.phone).includes(digits)).slice(0, MAX_MATCHES);
+    }
+    if (typed.length < 2) return [];
+    return customers
+      .filter((entry) => (customerField === "name" ? entry.name : entry.company).toLowerCase().includes(typed))
+      .slice(0, MAX_MATCHES);
+  }, [crmEnabled, customers, customerField, draft.billTo]);
+
+  // Cars on file by plate, however it is spaced, or by make and model.
+  const carMatches = useMemo(() => {
+    if (!fleetEnabled || draft.vehicleRef || !carField) return [];
+    if (carField === "plate") {
+      const typed = plateKey(draft.plate);
+      if (typed.length < 2) return [];
+      return vehicles.filter((entry) => plateKey(entry.plate).includes(typed)).slice(0, MAX_MATCHES);
+    }
+    const typed = draft.makeModel.trim().toLowerCase();
+    if (typed.length < 3) return [];
+    return vehicles.filter((entry) => entry.label.toLowerCase().includes(typed)).slice(0, MAX_MATCHES);
+  }, [fleetEnabled, vehicles, carField, draft.vehicleRef, draft.plate, draft.makeModel]);
+
+  const customerOptions: MatchOption[] = customerMatches.map((entry) => ({
+    key: entry.ref,
+    icon: "users",
+    title: entry.name,
+    detail: [entry.phone, entry.company].filter(Boolean).join(" · ") || undefined,
+    tag: entry.ref,
+  }));
+  const carOptions: MatchOption[] = carMatches.map((entry) => ({
+    key: entry.ref,
+    icon: "car",
+    title: entry.plate,
+    detail: [entry.label, entry.ownerName].filter(Boolean).join(" · ") || undefined,
+    tag: entry.ref,
+  }));
+
+  const closeCustomerMatches = () => {
+    setCustomerField(null);
+    setCustomerActive(-1);
+  };
+  const closeCarMatches = () => {
+    setCarField(null);
+    setCarActive(-1);
+  };
+  const customerKeys = matchKeys({
+    count: customerOptions.length,
+    active: customerActive,
+    setActive: setCustomerActive,
+    onPick: (index) => {
+      pickCustomer(customerMatches[index].ref);
+      closeCustomerMatches();
+    },
+    onClose: closeCustomerMatches,
+  });
+  const carKeys = matchKeys({
+    count: carOptions.length,
+    active: carActive,
+    setActive: setCarActive,
+    onPick: (index) => {
+      pickVehicle(carMatches[index].ref);
+      closeCarMatches();
+    },
+    onClose: closeCarMatches,
+  });
 
   const pickCustomer = (ref: string) => {
     if (!ref) {
@@ -397,47 +479,59 @@ export function QuoteEditor({
         <div className="flex min-w-0 flex-col gap-3.5">
           <div className="grid gap-3.5 wide:grid-cols-2">
             <Panel title="Bill to" icon="user">
-              {crmEnabled && (
-                <Field
-                  label="Customer record"
-                  hint={
-                    customerOnFile
-                      ? `Filled from ${customerOnFile.ref}. Edits here stay on this quotation.`
-                      : "Pick a CRM customer to fill this in, or type the details."
-                  }
-                >
-                  <select
-                    style={SELECT}
-                    value={draft.billTo.customerRef ?? ""}
-                    onChange={(event) => pickCustomer(event.target.value)}
-                  >
-                    <option value="">Not linked</option>
-                    {customers.map((customer) => (
-                      <option key={customer.ref} value={customer.ref}>
-                        {customer.name}
-                        {customer.company ? ` · ${customer.company}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Customer name">
-                  <input
-                    style={INPUT}
-                    value={draft.billTo.name}
-                    maxLength={120}
-                    onChange={(event) => updateBillTo({ name: event.target.value })}
+              <div className="relative">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Customer name">
+                    <input
+                      style={INPUT}
+                      value={draft.billTo.name}
+                      maxLength={120}
+                      autoComplete="off"
+                      placeholder={crmEnabled ? "Type to find a customer" : undefined}
+                      onChange={(event) => {
+                        // A different name is someone else; the link no longer holds.
+                        updateBillTo({
+                          name: event.target.value,
+                          ...(customerOnFile && event.target.value !== customerOnFile.name ? { customerRef: null } : {}),
+                        });
+                        setCustomerField("name");
+                        setCustomerActive(-1);
+                      }}
+                      onFocus={() => setCustomerField("name")}
+                      onBlur={closeCustomerMatches}
+                      onKeyDown={customerKeys}
+                    />
+                  </Field>
+                  <Field label="Company name">
+                    <input
+                      style={INPUT}
+                      value={draft.billTo.company}
+                      maxLength={120}
+                      autoComplete="off"
+                      onChange={(event) => {
+                        updateBillTo({ company: event.target.value });
+                        setCustomerField("company");
+                        setCustomerActive(-1);
+                      }}
+                      onFocus={() => setCustomerField("company")}
+                      onBlur={closeCustomerMatches}
+                      onKeyDown={customerKeys}
+                    />
+                  </Field>
+                </div>
+                {customerField !== "phone" && (
+                  <MatchList
+                    id="quote-customer-matches"
+                    label="Customers on file"
+                    options={customerOptions}
+                    active={customerActive}
+                    onHover={setCustomerActive}
+                    onPick={(index) => {
+                      pickCustomer(customerMatches[index].ref);
+                      closeCustomerMatches();
+                    }}
                   />
-                </Field>
-                <Field label="Company name">
-                  <input
-                    style={INPUT}
-                    value={draft.billTo.company}
-                    maxLength={120}
-                    onChange={(event) => updateBillTo({ company: event.target.value })}
-                  />
-                </Field>
+                )}
               </div>
               <Field label="Street address">
                 <input
@@ -447,14 +541,22 @@ export function QuoteEditor({
                   onChange={(event) => updateBillTo({ address: event.target.value })}
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="relative grid grid-cols-2 gap-3">
                 <Field label="Contact number">
                   <input
                     style={INPUT}
                     type="tel"
                     value={draft.billTo.phone}
                     maxLength={40}
-                    onChange={(event) => updateBillTo({ phone: event.target.value })}
+                    autoComplete="off"
+                    onChange={(event) => {
+                      updateBillTo({ phone: event.target.value });
+                      setCustomerField("phone");
+                      setCustomerActive(-1);
+                    }}
+                    onFocus={() => setCustomerField("phone")}
+                    onBlur={closeCustomerMatches}
+                    onKeyDown={customerKeys}
                   />
                 </Field>
                 <Field label="Email address" hint="The quotation is emailed here.">
@@ -466,34 +568,55 @@ export function QuoteEditor({
                     onChange={(event) => updateBillTo({ email: event.target.value })}
                   />
                 </Field>
+                {customerField === "phone" && (
+                  <MatchList
+                    id="quote-customer-matches"
+                    label="Customers on file"
+                    options={customerOptions}
+                    active={customerActive}
+                    onHover={setCustomerActive}
+                    onPick={(index) => {
+                      pickCustomer(customerMatches[index].ref);
+                      closeCustomerMatches();
+                    }}
+                  />
+                )}
               </div>
+              {crmEnabled &&
+                (customerOnFile ? (
+                  <LinkedNote onUnlink={() => updateBillTo({ customerRef: null })}>
+                    Linked to {customerOnFile.name} · {customerOnFile.ref} in CRM. Edits here stay on this quotation.
+                  </LinkedNote>
+                ) : (
+                  <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                    Start typing a name, company or number to fill this in from CRM.
+                  </span>
+                ))}
             </Panel>
 
             <Panel title="Vehicle and job" icon="car">
-              {fleetEnabled && (
-                <Field label="Car on file">
-                  <select
-                    style={SELECT}
-                    value={draft.vehicleRef ?? ""}
-                    onChange={(event) => pickVehicle(event.target.value)}
-                  >
-                    <option value="">Not linked</option>
-                    {vehicles.map((vehicle) => (
-                      <option key={vehicle.ref} value={vehicle.ref}>
-                        {vehicle.plate} · {vehicle.label}
-                        {vehicle.ownerName ? ` · ${vehicle.ownerName}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="relative grid grid-cols-2 gap-3">
                 <Field label="Plate number">
                   <input
                     style={{ ...INPUT, fontFamily: "var(--font-mono)" }}
                     value={draft.plate}
                     maxLength={12}
-                    onChange={(event) => update({ plate: event.target.value.toUpperCase() })}
+                    autoComplete="off"
+                    placeholder={fleetEnabled ? "Type to find a car" : undefined}
+                    onChange={(event) => {
+                      const plate = event.target.value.toUpperCase();
+                      const linkedCar = vehicles.find((entry) => entry.ref === draft.vehicleRef);
+                      // Another plate is another car; the link no longer holds.
+                      update({
+                        plate,
+                        ...(linkedCar && plateKey(plate) !== plateKey(linkedCar.plate) ? { vehicleRef: null } : {}),
+                      });
+                      setCarField("plate");
+                      setCarActive(-1);
+                    }}
+                    onFocus={() => setCarField("plate")}
+                    onBlur={closeCarMatches}
+                    onKeyDown={carKeys}
                   />
                 </Field>
                 <Field label="Model / make">
@@ -501,10 +624,41 @@ export function QuoteEditor({
                     style={INPUT}
                     value={draft.makeModel}
                     maxLength={80}
+                    autoComplete="off"
                     placeholder="Fortuner 2015"
-                    onChange={(event) => update({ makeModel: event.target.value })}
+                    onChange={(event) => {
+                      update({ makeModel: event.target.value });
+                      setCarField("model");
+                      setCarActive(-1);
+                    }}
+                    onFocus={() => setCarField("model")}
+                    onBlur={closeCarMatches}
+                    onKeyDown={carKeys}
                   />
                 </Field>
+                <MatchList
+                  id="quote-car-matches"
+                  label="Cars on file"
+                  options={carOptions}
+                  active={carActive}
+                  onHover={setCarActive}
+                  onPick={(index) => {
+                    pickVehicle(carMatches[index].ref);
+                    closeCarMatches();
+                  }}
+                />
+              </div>
+              {fleetEnabled &&
+                (draft.vehicleRef ? (
+                  <LinkedNote onUnlink={() => update({ vehicleRef: null })}>
+                    Linked to {draft.plate} in Fleet.
+                  </LinkedNote>
+                ) : (
+                  <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                    Start typing a plate or model to fill this in from Fleet.
+                  </span>
+                ))}
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="Odometer (km)">
                   <input
                     style={INPUT}

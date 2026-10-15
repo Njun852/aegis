@@ -10,7 +10,7 @@
 export interface BookingPageIndex {
   collection: "bookings" | "businesses";
   keys: Record<string, 1 | -1>;
-  options: { unique: true; partialFilterExpression: Record<string, unknown> };
+  options?: { unique?: boolean; partialFilterExpression?: Record<string, unknown> };
 }
 
 export const BOOKING_PAGE_INDEXES: BookingPageIndex[] = [
@@ -21,6 +21,10 @@ export const BOOKING_PAGE_INDEXES: BookingPageIndex[] = [
     keys: { businessId: 1, "request.code": 1 },
     options: { unique: true, partialFilterExpression: { "request.code": { $type: "string" } } },
   },
+  // The Messenger inbox and the one-request-per-chat guard look bookings up by chat.
+  { collection: "bookings", keys: { businessId: 1, messengerPsid: 1 } },
+  // Confirmed bookings per campaign over a reporting window, for Cost per Booking.
+  { collection: "bookings", keys: { businessId: 1, "source.campaignId": 1, createdAt: 1 } },
   // One business per public link.
   {
     collection: "businesses",

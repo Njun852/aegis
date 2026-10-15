@@ -12,6 +12,8 @@ import { createCustomer, findCustomer, findDuplicates } from "@/lib/dal/customer
 import {
   createBooking,
   getBooking,
+  listBookingsForChats,
+  setManualSource,
   linkBookingCustomer,
   linkBookingVehicle,
   rescheduleBooking,
@@ -19,17 +21,21 @@ import {
   updateBookingDetails,
 } from "@/lib/dal/bookings";
 import { InputError } from "@/lib/dal/refs";
+import { findMetaCampaign } from "@/lib/dal/ads";
+import { findConversation } from "@/lib/dal/messenger";
 import { phoneKey } from "@/lib/crm";
 import { DEFAULT_INTERVAL_KM, DEFAULT_INTERVAL_MONTHS } from "@/lib/fleet";
 import { BOOKING_CHANNELS, DEFAULT_STAFF_CHANNEL } from "@/lib/data/bookings";
 import { parseCents } from "@/lib/format";
-import type { BookingStatus } from "@/types";
+import type { BookingSource, BookingStatus } from "@/types";
 
 export interface BookingFormState {
   error: string | null;
   createdRef?: string;
   /** What else the save wrote, for the confirmation: "Juan Dela Cruz added to CRM". */
   createdNote?: string;
+  /** The chat already has this request; staff must say they mean another booking. */
+  duplicateOf?: string;
 }
 
 /** "juan  dela cruz" and "Juan Dela Cruz" are the same person for matching. */
@@ -80,6 +86,39 @@ export async function createBookingAction(
   const valueCents = parseCents(text("valueCents"));
   if (valueCents === null) {
     return { error: "Value must be an amount like 240 or 240.00." };
+  }
+
+  // Which campaign the booking is credited to. From a Messenger chat it is
+  // read from the stored chat here on the server, never from what the browser
+  // sent, and locked. Otherwise staff may pick one by hand as a fallback.
+  const messengerPsid = text("messengerPsid");
+  let source: BookingSource | null = null;
+  if (messengerPsid) {
+    const chat = await findConversation(messengerPsid);
+    if (!chat) return { error: "That Messenger chat is no longer on file. Reload the inbox." };
+    // One request per chat: repeated messages, or a second click, must not
+    // make another unless staff say this is a separate booking.
+    const already = await listBookingsForChats([messengerPsid]);
+    if (already.length > 0 && text("anotherFromChat") !== "1") {
+      return {
+        error: `This chat already has ${already[0].ref} (${already[0].status}). Create another only if it is a separate booking.`,
+        duplicateOf: already[0].ref,
+      };
+    }
+    if (chat.campaignId) {
+      source = {
+        campaignId: chat.campaignId,
+        campaignName: chat.campaignName ?? "",
+        adId: chat.adId,
+        origin: "messenger",
+      };
+    }
+  }
+  const pickedCampaign = text("campaignId");
+  if (!source && pickedCampaign) {
+    const campaign = await findMetaCampaign(pickedCampaign);
+    if (!campaign) return { error: "That campaign is no longer in the synced ad account. Choose again." };
+    source = { campaignId: campaign.id, campaignName: campaign.name, adId: null, origin: "manual" };
   }
 
   // The car, as typed. A plate already on file is that car; a new plate needs
@@ -178,16 +217,47 @@ export async function createBookingAction(
     durationMinutes,
     staff,
     valueCents,
-    channel: BOOKING_CHANNELS.includes(channel) ? channel : DEFAULT_STAFF_CHANNEL,
+    channel: messengerPsid ? "Messenger" : BOOKING_CHANNELS.includes(channel) ? channel : DEFAULT_STAFF_CHANNEL,
     notes,
     vehicleRef,
     customerRef: linked?.ref ?? null,
+    source,
+    messengerPsid: messengerPsid || null,
   });
+
+  if (messengerPsid) revalidatePath("/bookings/messenger");
+  if (source) revalidatePath("/ads");
 
   revalidatePath("/bookings");
   if (vehicleRef) revalidatePath("/fleet");
   if (linked) revalidatePath("/crm");
   return { error: null, createdRef: booking.ref, createdNote: written.join(" · ") || undefined };
+}
+
+/**
+ * Sets or clears a booking's manual campaign credit, for a call, walk-in or
+ * untracked message. A credit that came from a Messenger chat is refused.
+ */
+export async function setBookingSourceAction(
+  ref: string,
+  campaignId: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireModule("bookings");
+  try {
+    let source: BookingSource | null = null;
+    if (campaignId) {
+      const campaign = await findMetaCampaign(campaignId);
+      if (!campaign) return { ok: false, error: "That campaign is no longer in the synced ad account." };
+      source = { campaignId: campaign.id, campaignName: campaign.name, adId: null, origin: "manual" };
+    }
+    await setManualSource(ref, source);
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, error: error.message };
+    throw error;
+  }
+  revalidatePath("/bookings");
+  revalidatePath("/ads");
+  return { ok: true };
 }
 
 export async function setBookingStatusAction(
@@ -197,6 +267,8 @@ export async function setBookingStatusAction(
   await requireModule("bookings");
   await setBookingStatus(ref, status);
   revalidatePath("/bookings");
+  // Confirming or cancelling changes a campaign's Confirmed Bookings.
+  revalidatePath("/ads");
   // A completed booking for a vehicle is a line in its service history.
   revalidatePath("/fleet");
 }

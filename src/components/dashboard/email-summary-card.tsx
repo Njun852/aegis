@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Card, ListRow } from "@/components/ui";
-import { AWAITING_REPLY_COUNT } from "@/lib/data/dashboard";
-import { countByPriority, countUnread, getPriorityStyle, recentMessages } from "@/lib/mail";
+import { countAwaitingReply, countByPriority, countUnread, getPriorityStyle, recentMessages } from "@/lib/mail";
 import type { MailMessage, MailStat } from "@/types";
 
 export interface EmailSummaryCardProps {
@@ -18,7 +17,7 @@ export function EmailSummaryCard({ messages }: EmailSummaryCardProps) {
     { label: "Unread", value: countUnread(messages), color: "var(--text-primary)" },
     // Deepened semantic hues: the token reds sit too light on a white tile.
     { label: "Urgent", value: countByPriority(messages, "Urgent"), color: "#B42318" },
-    { label: "Awaiting reply", value: AWAITING_REPLY_COUNT, color: "#B25E09" },
+    { label: "Awaiting reply", value: countAwaitingReply(messages), color: "#B25E09" },
   ];
 
   return (

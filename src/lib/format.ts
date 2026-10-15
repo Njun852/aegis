@@ -5,13 +5,19 @@
  * them and disagree.
  */
 
-/** "$ 1,150.00" — the design puts a space after the currency symbol. */
+/**
+ * The currency the businesses on AEGIS trade in. Bookings, Inventory, CRM,
+ * the ledger and the dashboard all show money in it.
+ */
+export const HOUSE_CURRENCY = "PHP";
+
+/** "₱ 1,150.00" — the design puts a space after the currency symbol. */
 export function formatMoney(cents: number, withCents = true) {
   const amount = (cents / 100).toLocaleString("en-US", {
     minimumFractionDigits: withCents ? 2 : 0,
     maximumFractionDigits: withCents ? 2 : 0,
   });
-  return `$ ${amount}`;
+  return `₱ ${amount}`;
 }
 
 function currencySymbol(currency: string): string {
@@ -31,15 +37,16 @@ function currencySymbol(currency: string): string {
 }
 
 /**
- * Money in a connected ad account's own currency: "₱ 1,234.56". USD keeps the
- * house `formatMoney` output exactly, so the sample screens do not change.
+ * Money in a connected ad account's own currency: "₱ 1,234.56". The house
+ * currency is `formatMoney` exactly; anything else, including the USD sample
+ * ad rows, gets its own symbol.
  *
  * Assumes two decimal places, which holds for PHP, USD, EUR and most others.
  * Zero-decimal currencies such as JPY would be off by a factor of 100 — a known
  * limit, stated in DATABASE_AND_AUTH_doc.md.
  */
 export function formatMoneyIn(cents: number, currency: string, withCents = true) {
-  if (currency === "USD") return formatMoney(cents, withCents);
+  if (currency === HOUSE_CURRENCY) return formatMoney(cents, withCents);
   const amount = (cents / 100).toLocaleString("en-US", {
     minimumFractionDigits: withCents ? 2 : 0,
     maximumFractionDigits: withCents ? 2 : 0,
@@ -68,7 +75,7 @@ export function formatStamp(date: Date) {
  * "unreadable"; an empty string is zero.
  */
 export function parseCents(input: string): number | null {
-  const cleaned = input.replace(/[$,\s]/g, "");
+  const cleaned = input.replace(/php|[₱$,\s]/gi, "");
   if (!cleaned) return 0;
   if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
   return Math.round(Number(cleaned) * 100);

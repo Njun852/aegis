@@ -484,3 +484,17 @@ export async function draftRestockOrders(skus: string[]): Promise<string[]> {
   }
   return created;
 }
+
+/**
+ * Receipts posted for costs only (the business has no Inventory), as day
+ * totals. Stocked receipts are already in `purchasesByMonth` through their
+ * movements, so they are left out here to avoid counting a purchase twice.
+ */
+export async function costOnlyReceiptTotals(): Promise<{ dateKey: string; cents: number }[]> {
+  const collection = await receipts();
+  const docs = await collection.find({ stocked: false, status: "Posted" }).toArray();
+  return docs.map((doc) => ({
+    dateKey: doc.receivedDate,
+    cents: doc.lines.reduce((sum, line) => sum + line.qty * line.unitCostCents, 0),
+  }));
+}

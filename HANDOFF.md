@@ -65,21 +65,14 @@ Working, on real data:
 - **Online booking page.** `/book/<link>` lets customers request an
   appointment without an account; see the section below.
 
-**Dropped (30 Sep 2026):** the AI step that turned Messenger chats into booking
-requests, and with it the Meta App Review it needed. The owner chose a public
-booking page instead. The Messenger webhook stays as built.
-
-**Removed (1 Oct 2026):** the link between bookings and ads, at the owner's
-request. The New Booking form no longer has an Ad source picker, bookings no
-longer store a `source` campaign, and the Ads screen, the full report and the
-Ads AI commentary no longer show bookings or cost per booking. No booking had
-ever been credited, so no data was lost. Ads and Bookings are now independent;
-the public booking page's "How did you hear about us?" answer is the only
-record of where a customer came from.
+**Reversed (4 Oct 2026):** the 30 Sep drop of Messenger → booking requests and
+the 1 Oct removal of the ads ↔ bookings link were both reversed by the owner's
+*Meta-to-Bookings Final Acceptance Checklist* (Nicole). Requests are now made by
+staff from a Messenger inbox, with no AI; see "Meta to Bookings" at the end.
 
 Not done: production deployment (the booking page needs a real address to be
 useful to customers); backups and a restore test; the dashboard honesty items
-(DEMO DATA labels, booked value kept apart from actual revenue).
+(booked value kept apart from actual revenue).
 
 Local snags worth knowing: Meta reaches this laptop through a temporary
 `cloudflared tunnel --url http://localhost:3000`, whose address changes on each
@@ -176,8 +169,8 @@ Left to do:
   complete and reopen a linked booking, duplicate customer warning, link an old
   booking, profile contents, Northgate locked).
 - Follow-up tasks and a deals pipeline, if the owner wants them later.
-- The money format is the house `$` from `formatMoney`, as on Bookings and the
-  dashboard, although the shop trades in pesos. That predates these modules.
+- Money shows in pesos everywhere since 4 Oct 2026: `formatMoney` (`src/lib/format.ts`) is the
+  house currency, `HOUSE_CURRENCY = "PHP"`. Only the Ads sample rows, which are USD, show `$`.
 
 ## Online booking page
 
@@ -226,10 +219,8 @@ modules' own tenant-scoped reads; rendered by
   from the online booking page), ads, mail, inventory, fleet, customers. A module the
   business lacks has no section; an unconnected ad account or mailbox gets one
   line saying so, never sample rows.
-- **DEMO DATA, for now:** Total Balance, Expenses and Net Profit are still the
-  sample figures from `DASHBOARD_RANGES` and carry the badge, on screen and in
-  print. The owner asked for them to be shown until they have a real source.
-  They are **not** given to the AI.
+- **No sample figures** since 4 Oct 2026: the report's tiles are the dashboard's
+  real ones (see "Dashboard: real figures" at the end).
 - **Ads cover the last 30 days,** whatever the report's period, because Meta
   reports rolling windows. The section says so and shows the last sync.
 - **AI spend:** opening or reloading the report reads caches only. The longer
@@ -507,3 +498,94 @@ Two more tabs on Suppliers (Purchase orders, Receipts) and four routes:
 Check: `npm run supplier:check` now also covers order status, outstanding
 quantities, variance, restock planning, the per-line received update and the
 posting lock.
+
+## Meta to Bookings (final acceptance checklist, 4 Oct 2026)
+
+Built against `AEGIS_Meta_to_Bookings_Final_Acceptance_Checklist.Nicole.pdf`.
+The checklist freezes scope: finish attribution, booking control, reporting and
+production readiness only, and add nothing unrelated before acceptance.
+(Quotations and Suppliers were built before it arrived; they are optional
+modules granted to no business and change nothing here.)
+
+- **Messenger inbox** (`/bookings/messenger`, a button on Bookings once a Page is
+  connected): the stored chats, read only, with the ad and campaign each started
+  from. **Create booking request** opens the New Booking form; the server reads
+  the chat itself (`findConversation`) and copies its campaign onto the booking
+  as `source` with `origin: "messenger"`, plus `messengerPsid`. Nothing the
+  browser sends can set that credit. No AI is involved, by the owner's choice.
+- **One request per chat:** the create action refuses a second booking for a
+  chat unless staff tick "this is a separate booking" (`anotherFromChat`).
+- **Locked attribution:** the webhook writes a chat's ad once
+  (`storeMessage`); a booking's Messenger credit cannot be changed
+  (`setManualSource` refuses it). Proven by `npm run messenger:simulate`.
+- **Manual fallback:** an Ad source picker on the New Booking form and in the
+  booking drawer, for calls, walk-ins and untracked messages, listing only real
+  synced campaigns. A manual credit can be corrected.
+- **Request vs confirmed:** a request is a Pending booking. Only Confirmed, In
+  progress and Completed count as Confirmed Bookings (`CONFIRMED_STATUSES`,
+  `src/lib/bookings.ts`); Pending and Cancelled never do.
+- **Ads screen, "Ads to bookings" panel** (`campaign-funnel.tsx`, maths in
+  `src/lib/ad-funnel.ts`): per campaign Spend, Conversations (Meta's messaging
+  conversations started, only for campaigns optimised for them, otherwise "—"),
+  Cost per Conversation, Confirmed Bookings, Cost per Booking, Conversation →
+  Booking %. One window for all of them, Meta's own (`windowForRange`), printed
+  as exact dates ("Sep 4 – Oct 3, 2026"). Bookings count on the day they were
+  made. Clicking a campaign lists the bookings behind its number, counted and
+  not, with AEGIS's own received-chat count for audit. At most one flag per
+  campaign: spending with no bookings, cost per booking 1.5× the average, weak
+  conversion, or clearly cheaper than average. Confirmed bookings from no ad are
+  stated apart. Webhook and token details stay off this screen (they are in
+  Business Management).
+- **Bookings, booked vs served:** the Today tile reads served / booked; each
+  calendar day shows "2/5 served"; the selected day shows Booked, Served, To
+  serve, with cancellations left out of Booked and named separately.
+
+Checks: `npm run attribution:check` (the checklist's own example, ₱288 per
+booking and 8.4%, confirmed-only counting, windows and dates, flags, and the
+real queries), `npm run calendar:check` (booked and served),
+`npm run messenger:simulate` (signature, idempotency, locked credit).
+
+**Not code, and still open for the PASS gate** (owner and developer actions):
+- **Meta production approval.** Real customers' Messenger events only arrive
+  once the app has the needed permissions approved in App Review; until then
+  only people with a role on the app are delivered. Business verification is
+  still blocked by the business having no internet domain.
+- **Permanent webhook address.** The callback is still the temporary
+  cloudflared tunnel. It must move to the production AEGIS address and survive
+  restarts, which needs the production deployment.
+- **The end-to-end acceptance test** (section 6) on a real or approved ad entry
+  point, which depends on both of the above.
+
+## Dashboard: real figures (4 Oct 2026)
+
+The DEMO DATA tiles and cards are gone; every figure is read from the
+business's records by `loadDashboard` (`src/lib/dal/dashboard.ts`), maths in
+`src/lib/dashboard.ts`. `src/lib/data/dashboard.ts` holds only the range names.
+
+- **Revenue:** the ledger, as before.
+- **Expenses (purchases):** what was paid for goods received: every
+  goods-received stock movement (typed into Inventory or posted from a supplier
+  receipt) plus cost-only receipts for businesses without Inventory. Wages, rent
+  and other running costs are not recorded anywhere in AEGIS, so they are not in
+  it, and the label says purchases.
+- **Revenue − purchases:** the two subtracted month by month. Named for what it
+  is rather than "net profit", for the same reason.
+- **Quoted:** quotation totals by quotation date, or **Stock value** for a
+  business without Quotations. The old Total Balance tile is gone: AEGIS has no
+  bank or cash account to read a balance from.
+- **Bookings card:** bookings scheduled in the range, cancellations left out,
+  by channel.
+- **Ads Summary:** the connected Meta account's last 30 days (spend,
+  conversations, confirmed bookings, cost per booking), labelled as such; a
+  line saying none is connected otherwise.
+- **Alerts:** worked out from the modules: urgent unread mail, bookings to
+  confirm, stock at reorder point, cars overdue, supplier costs up in 30 days,
+  late deliveries, draft quotations with unpriced lines. At most five, most
+  pressing first; "Nothing needs attention" when empty.
+- **Email "Awaiting reply":** messages the AI marked as needing action with no
+  reply sent from AEGIS (a reply sent straight from Gmail is not seen).
+- **AI Insights fallback** no longer shows invented commentary.
+
+Check: `npm run report:check` covers purchases, net, the tile set, bookings by
+channel and awaiting reply. It found and fixed a real fault: two buckets for
+one month (purchases and cost-only receipts) were replaced instead of added.

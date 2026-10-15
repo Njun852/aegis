@@ -10,8 +10,9 @@ import { KpiGrid } from "@/components/dashboard/kpi-grid";
 import { RevenueCard } from "@/components/dashboard/revenue-card";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedInsight } from "@/lib/ai/insight";
-import { buildLedgerRevenue, revenueWindow } from "@/lib/dashboard";
-import { revenueByMonth } from "@/lib/dal/ledger";
+import { redirect } from "next/navigation";
+import { getActiveBusiness } from "@/lib/dal/businesses";
+import { loadDashboard } from "@/lib/dal/dashboard";
 import { listMessages } from "@/lib/dal/mail";
 import { DATE_RANGES } from "@/lib/data/dashboard";
 import type { DateRange } from "@/types";
@@ -19,19 +20,17 @@ import type { DateRange } from "@/types";
 export const metadata: Metadata = {
   title: "Dashboard · AEGIS AI",
   description:
-    "Balance, revenue, expenses and net profit, with AI commentary on the month.",
+    "Revenue, purchases, bookings, ads and alerts from the business's own records, with AI commentary.",
 };
 
 export default async function DashboardPage() {
-  // One month-bucketed aggregation over the ledger answers all three ranges,
-  // since every range the picker offers is month-aligned.
-  const today = new Date();
-  const { from, to } = revenueWindow(today);
-  const [buckets, messages] = await Promise.all([
-    revenueByMonth(from, to),
-    listMessages(),
-  ]);
-  const revenue = buildLedgerRevenue(buckets, today);
+  const business = await getActiveBusiness();
+  if (!business) redirect("/login");
+
+  // Every figure on the page comes from the business's own records; the
+  // ranges are month-aligned, so one set of monthly aggregations answers all three.
+  const messages = await listMessages();
+  const dashboard = await loadDashboard(business, messages);
 
   // Cache reads only — `cachedInsight` cannot start a billable request, so it
   // is safe on the render path. Anything missing is fetched by the card, for
@@ -43,7 +42,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <DashboardRangeProvider revenue={revenue}>
+    <DashboardRangeProvider ranges={dashboard.ranges} alerts={dashboard.alerts} ads={dashboard.ads}>
       <div className="flex flex-col gap-4">
         <DashboardHeader />
         <KpiGrid />

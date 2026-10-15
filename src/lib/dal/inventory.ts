@@ -17,6 +17,7 @@ import type {
   BatchDraw,
   InventoryItem,
   InventoryItemDocument,
+  RevenueMonthBucket,
   StockBatch,
   StockBatchDocument,
   StockMove,
@@ -558,4 +559,35 @@ export async function recordStockMove(
     throw new Error(`Movement ${ref} was written but could not be read back.`);
   }
   return toMove(written);
+}
+
+/**
+ * What the shop paid for goods received, by calendar month: the dashboard's
+ * Expenses. Every goods-received movement counts, whether it was typed into
+ * Inventory or posted from a supplier receipt, since a receipt records its
+ * stock through the same movement. Bucketed the way `revenueByMonth` buckets
+ * revenue, so the two subtract month for month.
+ */
+export async function purchasesByMonth(from: Date, to: Date): Promise<RevenueMonthBucket[]> {
+  const collection = await moves();
+  const rows = await collection
+    .aggregate([
+      { $match: { reason: "Goods received", occurredAt: { $gte: from, $lt: to } } },
+      {
+        $group: {
+          _id: { year: { $year: "$occurredAt" }, month: { $month: "$occurredAt" } },
+          total: { $sum: "$amountCents" },
+        },
+      },
+    ])
+    .toArray();
+  return rows.map((row) => {
+    const { year, month } = row._id as { year: number; month: number };
+    const date = new Date(year, month - 1, 1);
+    return {
+      monthIso: date.toISOString(),
+      label: date.toLocaleDateString("en-US", { month: "short" }),
+      totalCents: row.total as number,
+    };
+  });
 }

@@ -95,8 +95,7 @@ export function ReportSummary({ range, insight, initial, aiEnabled }: ReportSumm
             <SummaryList title="Suggested next steps" icon="arrow-right" items={summary.actions} empty="None follow from these figures." />
           </div>
           <p style={{ margin: 0, fontSize: "11px", color: "var(--text-muted)" }}>
-            Written by AI from the real figures in this report. The sample tiles marked DEMO DATA were not
-            given to it. Suggestions only; a person decides.
+            Written by AI from the figures in this report. Suggestions only; a person decides.
           </p>
         </div>
       )}

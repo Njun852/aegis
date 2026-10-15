@@ -12,6 +12,8 @@
  */
 import assert from "node:assert/strict";
 import {
+  dayTally,
+  tallyByDay,
   bookingsByDay,
   dateKeyOf,
   longDayLabel,
@@ -73,3 +75,21 @@ assert.equal(days.get("2026-10-03"), undefined);
 assert.equal(startTime({ time: "09:00 – 09:45" }), "09:00");
 
 console.log("✓ calendar: month grids, filler days, year ends, day grouping");
+
+// ---- Booked and served per day -------------------------------------------------
+
+const day = (dateKey: string, status: Booking["status"]) => ({ dateKey, status });
+const sept3 = [
+  day("2026-09-03", "Completed"),
+  day("2026-09-03", "Completed"),
+  day("2026-09-03", "Confirmed"),
+  day("2026-09-03", "Pending"),
+  day("2026-09-03", "In progress"),
+  day("2026-09-03", "Cancelled"),
+  day("2026-09-04", "Completed"),
+];
+assert.deepEqual(dayTally(sept3, "2026-09-03"), { booked: 5, served: 2, toServe: 3, cancelled: 1 }, "a cancellation is not a booking; served means completed");
+assert.deepEqual(dayTally(sept3, "2026-09-05"), { booked: 0, served: 0, toServe: 0, cancelled: 0 });
+assert.equal(tallyByDay(sept3).get("2026-09-04")?.served, 1, "each day counts only its own bookings");
+
+console.log("✓ booked and served per day");

@@ -18,13 +18,14 @@ import {
   DEFAULT_BOOKING_RANGE,
 } from "@/lib/data/bookings";
 import { useToast } from "@/components/layout/toast-provider";
-import { monthLabel, monthOfKey, monthPrefix } from "@/lib/booking-calendar";
+import { dayTally, monthLabel, monthOfKey, monthPrefix } from "@/lib/booking-calendar";
 import type { CalendarMonth } from "@/lib/booking-calendar";
 import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
 import { BookingsCalendar } from "./bookings-calendar";
 import { NewBookingModal } from "./new-booking-modal";
 import type {
+  AdCampaignOption,
   Booking,
   BookingRange,
   BookingStatusFilter,
@@ -54,6 +55,12 @@ export interface BookingsWorkspaceProps {
   todayIso: string;
   /** The same "now" as a calendar day, "2026-10-01", for the calendar view. */
   todayKey: string;
+  /** Synced Meta campaigns, for crediting a booking by hand. Empty without a connected ad account. */
+  campaigns: AdCampaignOption[];
+  /** Messenger chats with no booking yet. Null when no Facebook Page is connected. */
+  chatsWaiting: number | null;
+  /** A booking to open on arrival, from `?booking=`, as the Ads drill-down links. */
+  initialOpenRef: string | null;
 }
 
 type BookingsView = "List" | "Calendar";
@@ -68,13 +75,16 @@ export function BookingsWorkspace({
   businessName,
   todayIso,
   todayKey,
+  campaigns,
+  chatsWaiting,
+  initialOpenRef,
 }: BookingsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<BookingStatusFilter>("All");
   const [range, setRange] = useState<BookingRange>(DEFAULT_BOOKING_RANGE);
-  const [openRef, setOpenRef] = useState<string | null>(null);
+  const [openRef, setOpenRef] = useState<string | null>(initialOpenRef);
   // Null while closed; a date key while open from a calendar day, which the
   // form then starts on; "" while open from the New Booking button.
   const [composing, setComposing] = useState<string | null>(null);
@@ -123,12 +133,16 @@ export function BookingsWorkspace({
         )}`
       : null;
 
+  // Counted over every booking, not the filtered list: "how many today" must
+  // not change because a status chip is selected.
+  const todayCount = dayTally(bookings, todayKey);
+
   const stats = [
     {
-      label: `Today · ${formatDay(today)}`,
+      label: `Booked today · ${todayCount.served} served`,
       // By the server's calendar day, so the tile and the calendar's "today"
       // cell can never disagree.
-      value: String(inWindow.filter((booking) => booking.dateKey === todayKey).length),
+      value: `${todayCount.served} / ${todayCount.booked}`,
       icon: "calendar",
       bg: "var(--accent-soft)",
       fg: "var(--accent-primary)",
@@ -238,6 +252,11 @@ export function BookingsWorkspace({
                 );
               })}
             </div>
+            {chatsWaiting !== null && (
+              <Button variant="secondary" icon="inbox" onClick={() => router.push("/bookings/messenger")}>
+                Messenger{chatsWaiting > 0 ? ` (${chatsWaiting})` : ""}
+              </Button>
+            )}
             <Button icon="plus" onClick={() => setComposing("")}>
               New Booking
             </Button>
@@ -394,6 +413,7 @@ export function BookingsWorkspace({
           {calendar && (
             <BookingsCalendar
               bookings={matching}
+              allBookings={bookings}
               month={month}
               onMonthChange={setMonth}
               todayKey={todayKey}
@@ -623,6 +643,7 @@ export function BookingsWorkspace({
           customers={customers}
           fleetEnabled={fleetEnabled}
           matches={requestMatches[selected.ref] ?? null}
+          campaigns={campaigns}
           onClose={() => setOpenRef(null)}
         />
       )}
@@ -633,6 +654,7 @@ export function BookingsWorkspace({
           fleetEnabled={fleetEnabled}
           customers={customers}
           initialDate={composing || null}
+          campaigns={campaigns}
           onClose={() => setComposing(null)}
           onCreated={(ref, note) => {
             toast({

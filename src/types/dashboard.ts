@@ -46,7 +46,15 @@ export interface AlertRow {
 export interface AdTile {
   label: string;
   value: string;
-  delta: string;
+  /** Meta reports rolling windows, so there is no month-on-month figure to show. */
+  delta?: string;
+}
+
+/** The Ads Summary card: the connected account's last 30 days, or why there is none. */
+export interface AdSummary {
+  tiles: AdTile[];
+  /** "Last 30 days · synced 2 hours ago". */
+  note: string;
 }
 
 /**
@@ -78,6 +86,4 @@ export interface DashboardRangeData {
   bookingsTotal: string;
   bookingsDelta: string;
   bookingRows: BookingRow[];
-  adTiles: AdTile[];
-  insight: string;
 }

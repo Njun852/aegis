@@ -57,7 +57,7 @@ const INSTRUCTIONS = [
  */
 export interface InsightFacts {
   range: DateRange;
-  currency: "USD";
+  currency: "PHP";
   revenue: { total: string; changeVsPrevious: string };
   revenueByMonth: { month: string; total: number }[];
   bookings?: {
@@ -87,7 +87,7 @@ export async function buildInsightFacts(
 
   const facts: InsightFacts = {
     range,
-    currency: "USD",
+    currency: "PHP",
     revenue: { total: figures.total, changeVsPrevious: figures.delta },
     revenueByMonth: figures.months.map((month) => ({
       month: month.label,

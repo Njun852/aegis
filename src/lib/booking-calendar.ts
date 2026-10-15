@@ -102,6 +102,41 @@ export function bookingsByDay(bookings: Booking[]): Map<string, Booking[]> {
   return days;
 }
 
+/**
+ * One day's bookings, counted the way the front desk asks about them.
+ * "Booked" is every appointment still standing for the day, so a cancellation
+ * does not count; "served" is the ones completed. The rest are still to
+ * serve: waiting, confirmed or in the bay.
+ */
+export interface DayTally {
+  booked: number;
+  served: number;
+  toServe: number;
+  cancelled: number;
+}
+
+const EMPTY_TALLY: DayTally = { booked: 0, served: 0, toServe: 0, cancelled: 0 };
+
+export function dayTally(bookings: Pick<Booking, "dateKey" | "status">[], dateKey: string): DayTally {
+  return tallyByDay(bookings.filter((booking) => booking.dateKey === dateKey)).get(dateKey) ?? EMPTY_TALLY;
+}
+
+/** Every day's tally at once, for the calendar grid. */
+export function tallyByDay(bookings: Pick<Booking, "dateKey" | "status">[]): Map<string, DayTally> {
+  const days = new Map<string, DayTally>();
+  for (const booking of bookings) {
+    const tally = days.get(booking.dateKey) ?? { booked: 0, served: 0, toServe: 0, cancelled: 0 };
+    if (booking.status === "Cancelled") tally.cancelled += 1;
+    else {
+      tally.booked += 1;
+      if (booking.status === "Completed") tally.served += 1;
+      else tally.toServe += 1;
+    }
+    days.set(booking.dateKey, tally);
+  }
+  return days;
+}
+
 /** "09:00" from the server's "09:00 – 09:45". */
 export function startTime(booking: Pick<Booking, "time">): string {
   return booking.time.split(" ")[0];

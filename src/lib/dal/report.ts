@@ -1,8 +1,8 @@
 import "server-only";
 
 import { accountTotals, rowsAtLevel } from "@/lib/ads";
-import { buildLedgerRevenue, revenueWindow } from "@/lib/dashboard";
-import { DASHBOARD_RANGES } from "@/lib/data/dashboard";
+import { revenueWindow } from "@/lib/dashboard";
+import { loadDashboardRanges } from "./dashboard";
 import { belowReorder, totalValueCents } from "@/lib/inventory";
 import { changeBetween, periodBounds, periodFor, summariseBookings } from "@/lib/report";
 import { readActiveMetaAdsStatus } from "./ad-account";
@@ -190,9 +190,8 @@ export async function buildReport(range: DateRange, today = new Date()): Promise
   if (!business) return null;
   const has = (key: "bookings" | "inventory" | "fleet" | "crm") => business.modules.includes(key);
 
-  const [revenue, ledger, bookings, ads, mail, inventory, fleet, customers] = await Promise.all([
+  const [revenue, bookings, ads, mail, inventory, fleet, customers] = await Promise.all([
     revenueSection(range, today),
-    revenueByMonth(revenueWindow(today).from, revenueWindow(today).to),
     has("bookings") ? bookingsSection(range, today) : Promise.resolve(null),
     adsSection(),
     mailSection(range, today),
@@ -201,15 +200,8 @@ export async function buildReport(range: DateRange, today = new Date()): Promise
     has("crm") ? customersSection(range, today) : Promise.resolve(null),
   ]);
 
-  // The dashboard's own tiles for this range: Revenue from the ledger, exactly
-  // as `DashboardRangeProvider` overrides it, and the rest still samples with
-  // their `demo` flag, which is what puts the badge on them.
-  const real = buildLedgerRevenue(ledger, today)[range];
-  const kpis = DASHBOARD_RANGES[range].kpis.map((kpi) =>
-    kpi.label === "Revenue"
-      ? { ...kpi, value: real.total, delta: real.delta, points: real.points, demo: false }
-      : kpi,
-  );
+  // The dashboard's own tiles for this range, built the same way.
+  const kpis = (await loadDashboardRanges(business, today))[range].kpis;
 
   return {
     businessName: business.name,

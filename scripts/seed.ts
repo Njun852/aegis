@@ -544,7 +544,7 @@ async function seedCrmIndexes(db: Db) {
  */
 async function seedBookingPageIndexes(db: Db) {
   for (const index of BOOKING_PAGE_INDEXES) {
-    await db.collection(index.collection).createIndex(index.keys, index.options);
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
   }
   console.log(`✓ booking page indexes (${BOOKING_PAGE_INDEXES.length}), page off for every business`);
 }

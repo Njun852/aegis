@@ -109,3 +109,12 @@ export function countByFlag(messages: MailMessage[], flag: MailFlagFilter) {
   if (flag === "Unread") return messages.filter((m) => m.unread).length;
   return messages.filter(needsAction).length;
 }
+
+/**
+ * Messages the AI marked as needing something done, with no reply sent from
+ * AEGIS yet. A reply sent from Gmail directly is not seen here, so this can
+ * overcount for a business that answers outside AEGIS.
+ */
+export function countAwaitingReply(messages: Pick<MailMessage, "actionItems" | "sentReplies">[]): number {
+  return messages.filter((message) => message.actionItems.length > 0 && message.sentReplies.length === 0).length;
+}

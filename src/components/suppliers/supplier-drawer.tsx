@@ -10,7 +10,7 @@ import {
   setSupplierActiveAction,
   updateSupplierItemAction,
 } from "@/app/actions/suppliers";
-import { CELL, NUMBER_CELL, Notice, SELECT } from "@/components/forms/form-kit";
+import { CELL, Field, NUMBER_CELL, Notice, SELECT } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { amountInput, formatPeso, parseAmount } from "@/lib/quotations";
@@ -221,23 +221,23 @@ function PriceBook({
       )}
 
       <div className="flex flex-col gap-2" style={{ padding: 12, border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-md)" }}>
-        <span style={{ fontSize: "12px", fontWeight: 600 }}>Add a part</span>
+        <span style={{ fontSize: "12px", fontWeight: 600 }}>Add a part they sell</span>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)", textWrap: "pretty" }}>
+          Records what {supplier.name} charges for one unit. Quantities are entered when you order or receive goods.
+        </span>
         {error && <Notice tone="error">{error}</Notice>}
-        {inventoryEnabled && (
-          <select style={SELECT} value={sku} onChange={(event) => pickItem(event.target.value)} aria-label="Inventory item">
-            <option value="">Not linked to an Inventory item</option>
-            {inventory.map((option) => (
-              <option key={option.sku} value={option.sku}>
-                {option.name} · {option.sku}
-              </option>
-            ))}
-          </select>
-        )}
-        <div className="grid grid-cols-[minmax(0,1fr)_70px_110px] gap-2">
-          <input aria-label="Description" style={CELL} value={description} maxLength={160} placeholder="As the supplier writes it" onChange={(event) => setDescription(event.target.value)} />
-          <input aria-label="Unit" style={CELL} value={unit} maxLength={20} placeholder="pc" onChange={(event) => setUnit(event.target.value)} />
-          <input aria-label="Cost per unit" style={NUMBER_CELL} inputMode="decimal" value={cost} placeholder="Cost" onChange={(event) => setCost(event.target.value)} />
-        </div>
+        <PartFields
+          inventory={inventory}
+          inventoryEnabled={inventoryEnabled}
+          sku={sku}
+          description={description}
+          unit={unit}
+          cost={cost}
+          onSku={pickItem}
+          onDescription={setDescription}
+          onUnit={setUnit}
+          onCost={setCost}
+        />
         <div>
           <Button size="sm" icon="plus" onClick={add} disabled={pending}>
             {pending ? "Adding…" : "Add"}
@@ -303,21 +303,18 @@ function PriceRow({
     <div style={{ padding: "10px 12px", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: 6 }}>
       {editing ? (
         <>
-          {inventoryEnabled && (
-            <select style={SELECT} value={sku} onChange={(event) => setSku(event.target.value)} aria-label="Inventory item">
-              <option value="">Not linked to an Inventory item</option>
-              {inventory.map((option) => (
-                <option key={option.sku} value={option.sku}>
-                  {option.name} · {option.sku}
-                </option>
-              ))}
-            </select>
-          )}
-          <div className="grid grid-cols-[minmax(0,1fr)_70px_110px] gap-2">
-            <input aria-label="Description" style={CELL} value={description} maxLength={160} onChange={(event) => setDescription(event.target.value)} />
-            <input aria-label="Unit" style={CELL} value={unit} maxLength={20} onChange={(event) => setUnit(event.target.value)} />
-            <input aria-label="Cost per unit" style={NUMBER_CELL} inputMode="decimal" value={cost} onChange={(event) => setCost(event.target.value)} />
-          </div>
+          <PartFields
+            inventory={inventory}
+            inventoryEnabled={inventoryEnabled}
+            sku={sku}
+            description={description}
+            unit={unit}
+            cost={cost}
+            onSku={setSku}
+            onDescription={setDescription}
+            onUnit={setUnit}
+            onCost={setCost}
+          />
           <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>A new cost is kept in the history with the old one.</span>
           <div className="flex items-center gap-2">
             <Button size="sm" icon="check" onClick={save} disabled={pending}>
@@ -398,6 +395,62 @@ function PriceRow({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The four things a price-book entry holds, each with a label: a placeholder
+ * alone left "pc" reading as a quantity, when it is the unit the cost is for.
+ */
+function PartFields({
+  inventory,
+  inventoryEnabled,
+  sku,
+  description,
+  unit,
+  cost,
+  onSku,
+  onDescription,
+  onUnit,
+  onCost,
+}: {
+  inventory: InventoryOption[];
+  inventoryEnabled: boolean;
+  sku: string;
+  description: string;
+  unit: string;
+  cost: string;
+  onSku: (value: string) => void;
+  onDescription: (value: string) => void;
+  onUnit: (value: string) => void;
+  onCost: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {inventoryEnabled && (
+        <Field label="Which stock item is this?" hint="Link it so its cost can be compared across suppliers and used on quotations.">
+          <select style={SELECT} value={sku} onChange={(event) => onSku(event.target.value)}>
+            <option value="">Not a stock item</option>
+            {inventory.map((option) => (
+              <option key={option.sku} value={option.sku}>
+                {option.name} · {option.sku}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <div className="grid grid-cols-[minmax(0,1fr)_96px_120px] gap-2">
+        <Field label="Name on their receipt">
+          <input style={CELL} value={description} maxLength={160} placeholder="Inj. washer copper" onChange={(event) => onDescription(event.target.value)} />
+        </Field>
+        <Field label="Unit">
+          <input style={CELL} value={unit} maxLength={20} placeholder="pc, set, L" onChange={(event) => onUnit(event.target.value)} />
+        </Field>
+        <Field label="Your cost per unit">
+          <input style={NUMBER_CELL} inputMode="decimal" value={cost} placeholder="0.00" onChange={(event) => onCost(event.target.value)} />
+        </Field>
+      </div>
     </div>
   );
 }

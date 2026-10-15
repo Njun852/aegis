@@ -31,12 +31,14 @@ import { formatMoneyIn } from "@/lib/format";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
 import { activateOnKey } from "@/lib/interaction";
 import { AdDrawer } from "./ad-drawer";
+import { CampaignFunnelPanel } from "./campaign-funnel";
 import type {
   AdLevel,
   AdRange,
   AdRow,
   AdSource,
   AdStateFilter,
+  CampaignFunnel,
   MetaAdsStatus,
 } from "@/types";
 
@@ -69,6 +71,8 @@ export interface AdsWorkspaceProps {
   /** The connection, when there is one. Never carries the token. */
   meta: MetaAdsStatus | null;
   range: AdRange;
+  /** Spend to confirmed bookings per campaign. Null for sample data or without Bookings. */
+  funnel: CampaignFunnel | null;
 }
 
 export function AdsWorkspace({
@@ -80,6 +84,7 @@ export function AdsWorkspace({
   source,
   meta,
   range,
+  funnel,
 }: AdsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
@@ -218,31 +223,37 @@ export function AdsWorkspace({
 
   // ---- AI commentary ------------------------------------------------------
   const [insight, setInsight] = useState<string | null>(cachedInsight);
-  const [generating, setGenerating] = useState(false);
-  const requested = useRef(false);
+  const [insightNote, setInsightNote] = useState<string | null>(null);
+  // The one request for this page, kept across effect runs. React runs an
+  // effect twice in development, and the second run must listen to the same
+  // request rather than drop its answer or pay for a second one.
+  const request = useRef<ReturnType<typeof generateAdsInsightAction> | null>(null);
 
   useEffect(() => {
-    if (!aiEnabled || insight || requested.current) return;
+    if (!aiEnabled || insight) return;
 
-    requested.current = true;
-    setGenerating(true);
     let live = true;
+    request.current ??= generateAdsInsightAction();
 
-    generateAdsInsightAction()
+    request.current
       .then((result) => {
-        if (live) {
-          setInsight(result.text);
-          setGenerating(false);
-        }
+        if (!live) return;
+        setInsight(result.text);
+        // Why there is none, when there is none: over budget, timed out.
+        setInsightNote(result.text ? null : (result.note ?? "No commentary was written for these figures."));
       })
       .catch(() => {
-        if (live) setGenerating(false);
+        if (!live) return;
+        setInsightNote("The commentary could not be written just now.");
       });
 
     return () => {
       live = false;
     };
   }, [aiEnabled, insight]);
+
+  // Waiting on the request: AI is on and neither an answer nor a reason has come back.
+  const generating = aiEnabled && !insight && !insightNote;
 
   // Reveal a freshly generated insight; show a cached one whole, since it was
   // never "being written" in front of anyone.
@@ -586,13 +597,15 @@ export function AdsWorkspace({
             shown ||
             (!live
               ? fallbackInsight
-              : aiEnabled
-                ? "Commentary appears once the account has campaign figures to analyse."
-                : "AI commentary is switched off on this server.")
+              : !aiEnabled
+                ? "AI commentary is switched off on this server."
+                : (insightNote ?? (generating ? "Writing commentary on these figures…" : "Commentary appears once the account has campaign figures to analyse.")))
           }
           loading={generating}
           action={live ? undefined : "Rebalance budgets"}
         />
+
+        {funnel && <CampaignFunnelPanel funnel={funnel} currency={currency} />}
 
         <section
           style={{

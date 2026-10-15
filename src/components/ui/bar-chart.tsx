@@ -19,7 +19,7 @@ export function BarChart({
   height = 230,
   highlight,
   yTicks = 5,
-  formatY = (value) => `$${Math.round(value / 1000)}K`,
+  formatY = (value) => `₱${Math.round(value / 1000)}K`,
   style,
 }: BarChartProps) {
   const max = Math.max(...data.map((d) => d.value), 1);
@@ -43,7 +43,7 @@ export function BarChart({
         }}
       >
         {ticks.map((tick) => (
-          <span key={tick}>{tick === 0 ? "$0" : formatY(tick)}</span>
+          <span key={tick}>{tick === 0 ? "₱0" : formatY(tick)}</span>
         ))}
       </div>
       <div

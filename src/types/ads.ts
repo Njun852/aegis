@@ -166,6 +166,82 @@ export interface AdSyncDocument {
   spentTodayCents: number | null;
 }
 
+/** A synced Meta campaign, as the booking form's Ad source picker offers it. */
+export interface AdCampaignOption {
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
+/** One Messenger chat, as the inbox lists it. */
+export interface MessengerConversation {
+  psid: string;
+  /** "Messenger customer · 4821" until the customer gives a name in a booking. */
+  label: string;
+  campaignId: string | null;
+  campaignName: string | null;
+  adId: string | null;
+  firstSeen: string;
+  lastMessage: string;
+  lastMessageAt: string;
+  messages: { mid: string; text: string; at: string; fromPage: boolean }[];
+  /** Bookings already made from this chat, newest first. */
+  bookings: { ref: string; status: string; day: string }[];
+}
+
+/**
+ * One campaign from Meta spend to confirmed bookings, over one period. Kept
+ * apart from Meta's own result figures: conversations are Meta's count,
+ * bookings are AEGIS's, and the two are only ever divided, never added.
+ */
+export interface CampaignFunnelRow {
+  campaignId: string;
+  name: string;
+  enabled: boolean;
+  spendCents: number;
+  /** Meta's "messaging conversations started". Null when the campaign is optimised for something else. */
+  conversations: number | null;
+  costPerConversationCents: number | null;
+  /** Staff-confirmed bookings credited to the campaign, made in the period. Cancelled and unconfirmed are left out. */
+  confirmedBookings: number;
+  costPerBookingCents: number | null;
+  /** Confirmed bookings / conversations × 100, one decimal. */
+  conversionPercent: number | null;
+  /** Chats AEGIS received from this campaign's ads in the period, for audit. */
+  chatsReceived: number;
+  flag: { tone: "warning" | "positive"; text: string } | null;
+}
+
+/** A booking credited to a campaign, for the drill-down. */
+export interface CampaignBooking {
+  ref: string;
+  campaignId: string;
+  customer: string;
+  service: string;
+  status: string;
+  /** Whether it counts toward Confirmed Bookings. */
+  counted: boolean;
+  origin: "messenger" | "manual";
+  /** "Sep 14", when it was made. */
+  madeDay: string;
+}
+
+export interface CampaignFunnel {
+  /** "Sep 4 – Oct 3, 2026", or "All time". The same days for spend, conversations and bookings. */
+  periodLabel: string;
+  rows: CampaignFunnelRow[];
+  totals: {
+    spendCents: number;
+    conversations: number | null;
+    confirmedBookings: number;
+    costPerBookingCents: number | null;
+    conversionPercent: number | null;
+  };
+  bookings: CampaignBooking[];
+  /** Confirmed bookings made in the period with no campaign: walk-ins, calls, organic chats. */
+  uncreditedConfirmed: number;
+}
+
 /** What screens may know about a Meta connection. Never the token. */
 export interface MetaAdsStatus {
   connected: boolean;

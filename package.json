@@ -15,6 +15,7 @@
     "triage:check": "node --env-file=.env.local --experimental-strip-types --import ./scripts/register-alias.mjs scripts/triage-check.ts",
     "mail:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/mail-check.ts",
     "ads:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/ads-check.ts",
+    "attribution:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/booking-attribution-check.ts",
     "booking:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/booking-page-check.ts",
     "calendar:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/calendar-check.ts",
     "crm:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/crm-check.ts",

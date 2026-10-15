@@ -1,11 +1,19 @@
-import { Card, DemoBadge, ListRow } from "@/components/ui";
-import { ALERT_ROWS } from "@/lib/data/dashboard";
+"use client";
 
+import { Card, ListRow } from "@/components/ui";
+import { useDashboardRange } from "./dashboard-range-provider";
+
+/** What needs attention now, worked out on the server from each module. */
 export function AlertsCard() {
+  const { alerts } = useDashboardRange();
+
   return (
-    <Card title="Alerts" padding="16px" action={<DemoBadge />}>
+    <Card title="Alerts" padding="16px">
       <div className="flex flex-col overflow-hidden">
-        {ALERT_ROWS.map((alert) => (
+        {alerts.length === 0 && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Nothing needs attention right now.</span>
+        )}
+        {alerts.map((alert) => (
           <ListRow
             key={alert.title}
             title={alert.title}

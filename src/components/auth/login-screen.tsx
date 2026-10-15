@@ -6,6 +6,7 @@ import { signInAction } from "@/app/actions/auth";
 import type { SignInState } from "@/app/actions/auth";
 import { Button, Icon, IconButton } from "@/components/ui";
 import { ORGANIZATION } from "@/lib/data/workspace";
+import { BootScreen } from "./boot-screen";
 
 const INITIAL: SignInState = { error: null };
 
@@ -15,6 +16,8 @@ export function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
 
   return (
+    <>
+    <BootScreen />
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto"
       style={{ background: "var(--bg-app)", padding: "32px 24px" }}
@@ -208,6 +211,7 @@ export function LoginScreen() {
         </p>
       </form>
     </div>
+    </>
   );
 }
 

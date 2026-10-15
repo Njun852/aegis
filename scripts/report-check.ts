@@ -12,6 +12,14 @@
  */
 import assert from "node:assert/strict";
 import {
+  bookingFigures,
+  bucketsFromDays,
+  buildKpis,
+  buildMonthlyFigures,
+  subtractBuckets,
+} from "@/lib/dashboard";
+import { countAwaitingReply } from "../src/lib/mail.ts";
+import {
   REPORT_RANGE_SLUGS,
   changeBetween,
   parseReportSummary,
@@ -125,3 +133,70 @@ assert.equal(parseReportSummary({ headline: "h", highlights: ["a"], risks: "none
 assert.equal(parseReportSummary({ headline: "h", highlights: [1], risks: [], actions: [] }), null);
 
 console.log("✓ AI summary: malformed replies rejected, limits enforced");
+
+// ---- The dashboard, from real figures only ---------------------------------------
+
+const midOctober = new Date(2026, 9, 15);
+const bucket = (year: number, index: number, totalCents: number) => ({
+  monthIso: new Date(year, index, 1).toISOString(),
+  label: "",
+  totalCents,
+});
+const revenueBuckets = [bucket(2026, 9, 9_000_000), bucket(2026, 8, 6_000_000)];
+const purchaseBuckets = [bucket(2026, 9, 2_500_000), ...bucketsFromDays([{ dateKey: "2026-10-03", cents: 500_000 }])];
+
+const revenueFig = buildMonthlyFigures(revenueBuckets, midOctober);
+const expenseFig = buildMonthlyFigures(purchaseBuckets, midOctober);
+const netFig = buildMonthlyFigures(subtractBuckets(revenueBuckets, purchaseBuckets), midOctober);
+assert.equal(expenseFig["This month"].total, "₱ 30,000.00", "purchases from stock movements and cost-only receipts add up");
+assert.equal(netFig["This month"].total, "₱ 60,000.00", "revenue less purchases, month for month");
+assert.equal(netFig["Last month"].total, "₱ 60,000.00", "a month with no purchases nets its whole revenue");
+
+const kpis = buildKpis({
+  revenue: revenueFig["This month"],
+  expenses: expenseFig["This month"],
+  net: netFig["This month"],
+  quoted: null,
+  stockValueCents: 1_234_500,
+});
+assert.deepEqual(
+  kpis.map((kpi) => kpi.label),
+  ["Revenue", "Expenses (purchases)", "Revenue − purchases", "Stock value"],
+  "no balance tile: there is nothing real to read one from",
+);
+assert.ok(kpis.every((kpi) => !kpi.demo), "no tile is marked as a sample");
+assert.equal(kpis[3].value, "₱ 12,345.00");
+
+const loss = buildMonthlyFigures(
+  subtractBuckets([bucket(2026, 9, 100_000), bucket(2026, 8, 100_000)], [bucket(2026, 9, 150_000), bucket(2026, 8, 300_000)]),
+  midOctober,
+);
+assert.equal(loss["This month"].delta, "75.0%", "a loss shrinking from -2,000 to -500 reads as an improvement");
+
+const figures = bookingFigures(
+  [
+    { dateKey: "2026-10-02", status: "Confirmed", channel: "Walk-in", valueCents: 850_000 },
+    { dateKey: "2026-10-05", status: "Completed", channel: "Walk-in", valueCents: 350_000 },
+    { dateKey: "2026-10-06", status: "Pending", channel: "Messenger", valueCents: 0 },
+    { dateKey: "2026-10-07", status: "Cancelled", channel: "Phone", valueCents: 900_000 },
+    { dateKey: "2026-09-20", status: "Completed", channel: "Phone", valueCents: 100_000 },
+  ],
+  midOctober,
+);
+assert.equal(figures["This month"].bookingsTotal, "3", "cancellations are not bookings");
+assert.equal(figures["This month"].bookingsDelta, "200.0%", "against the one booking the month before");
+assert.equal(figures["This month"].bookingRows[0].label, "Walk-in");
+assert.equal(figures["This month"].bookingRows[0].percent, "67%");
+assert.equal(figures["This month"].bookingRows[0].detail.right, "₱ 12,000");
+
+assert.equal(
+  countAwaitingReply([
+    { actionItems: ["Send quote"], sentReplies: [] },
+    { actionItems: ["Confirm"], sentReplies: [{ body: "ok", sentAt: "" }] },
+    { actionItems: [], sentReplies: [] },
+  ] as never),
+  1,
+  "awaiting reply: action needed and nothing sent yet",
+);
+
+console.log("✓ dashboard: purchases, net, no balance tile, no samples, bookings by channel, awaiting reply");

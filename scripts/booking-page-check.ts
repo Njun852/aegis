@@ -100,7 +100,7 @@ const isDuplicate = (error: unknown) => (error as { code?: number })?.code === 1
 
 try {
   for (const index of BOOKING_PAGE_INDEXES) {
-    await db.collection(index.collection).createIndex(index.keys, index.options);
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
   }
   console.log(`✓ ${BOOKING_PAGE_INDEXES.length} booking page indexes present on ${process.env.MONGODB_DB_NAME}`);
 

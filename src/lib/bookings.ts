@@ -20,6 +20,17 @@ export function getStatusStyle(status: BookingStatus) {
 /** Both formatters moved to `src/lib/format.ts` once Inventory needed them too. */
 export { formatDay, formatMoney } from "./format";
 
+/**
+ * A booking staff have confirmed, and that still stands. Only these count as
+ * Confirmed Bookings for Cost per Booking: a request nobody has confirmed, or a
+ * booking later cancelled, is not a booking the ads paid for.
+ */
+export const CONFIRMED_STATUSES: BookingStatus[] = ["Confirmed", "In progress", "Completed"];
+
+export function isConfirmed(status: BookingStatus): boolean {
+  return CONFIRMED_STATUSES.includes(status);
+}
+
 export function formatDuration(minutes: number) {
   if (minutes < 60) return `${minutes} min`;
   if (minutes % 60 === 0) {

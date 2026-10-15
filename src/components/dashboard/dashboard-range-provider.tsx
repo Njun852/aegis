@@ -2,13 +2,15 @@
 
 import { createContext, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { DASHBOARD_RANGES, DEFAULT_DATE_RANGE } from "@/lib/data/dashboard";
-import type { DashboardRangeData, DateRange, LedgerRevenue } from "@/types";
+import { DEFAULT_DATE_RANGE } from "@/lib/data/dashboard";
+import type { AdSummary, AlertRow, DashboardRangeData, DateRange } from "@/types";
 
 interface DashboardRangeContextValue {
   range: DateRange;
   setRange: (range: DateRange) => void;
   data: DashboardRangeData;
+  alerts: AlertRow[];
+  ads: AdSummary | null;
 }
 
 const DashboardRangeContext = createContext<DashboardRangeContextValue | null>(
@@ -17,52 +19,25 @@ const DashboardRangeContext = createContext<DashboardRangeContextValue | null>(
 
 export interface DashboardRangeProviderProps {
   children: ReactNode;
-  /** Real revenue from the `transactions` ledger, aggregated per range. */
-  revenue: LedgerRevenue;
+  /** Every range's figures, built on the server from the business's records. */
+  ranges: Record<DateRange, DashboardRangeData>;
+  /** What needs attention now; the same whatever range is picked. */
+  alerts: AlertRow[];
+  /** The ad account's last 30 days, or null without one. */
+  ads: AdSummary | null;
 }
 
 /**
  * Shares the selected date range across the header and every card it drives.
- *
- * Revenue comes from the ledger and overrides the sample figures; the rest of
- * `DASHBOARD_RANGES` — balance, expenses, net profit, bookings, ads, alerts —
- * is still invented, because nothing feeds those yet.
+ * All three ranges arrive from the server at once, so switching is instant.
  */
-export function DashboardRangeProvider({
-  children,
-  revenue,
-}: DashboardRangeProviderProps) {
+export function DashboardRangeProvider({ children, ranges, alerts, ads }: DashboardRangeProviderProps) {
   const [range, setRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
 
-  const value = useMemo<DashboardRangeContextValue>(() => {
-    const sample = DASHBOARD_RANGES[range];
-    const real = revenue[range];
-
-    return {
-      range,
-      setRange,
-      data: {
-        ...sample,
-        revenueTotal: real.total,
-        revenueDelta: real.delta,
-        revenueMonths: real.months,
-        revenueHighlightMonth: real.highlightMonth,
-        kpis: sample.kpis.map((kpi) =>
-          kpi.label === "Revenue"
-            ? {
-                ...kpi,
-                value: real.total,
-                delta: real.delta,
-                points: real.points,
-                // Real ledger aggregation, so this one sheds the marker every
-                // other KPI in the fixture carries.
-                demo: false,
-              }
-            : kpi,
-        ),
-      },
-    };
-  }, [range, revenue]);
+  const value = useMemo<DashboardRangeContextValue>(
+    () => ({ range, setRange, data: ranges[range], alerts, ads }),
+    [range, ranges, alerts, ads],
+  );
 
   return (
     <DashboardRangeContext.Provider value={value}>

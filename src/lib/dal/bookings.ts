@@ -1,6 +1,6 @@
 import "server-only";
 
-import { formatDay, formatDuration, formatTimeRange } from "@/lib/bookings";
+import { CONFIRMED_STATUSES, formatDay, formatDuration, formatTimeRange } from "@/lib/bookings";
 import { dateKeyOf } from "@/lib/booking-calendar";
 import { syncBookingService } from "./fleet";
 import { postEntry, setEntryStatus } from "./ledger";
@@ -10,8 +10,11 @@ import type {
   Booking,
   BookingDocument,
   BookingInput,
+  BookingSource,
   BookingStatus,
+  CampaignBooking,
 } from "@/types";
+import { InputError } from "./refs";
 
 const COLLECTION = "bookings";
 
@@ -60,6 +63,9 @@ function toBooking(doc: BookingDocument): Booking {
           vehicle: doc.request.vehicle,
         }
       : null,
+    source: doc.source ?? null,
+    messengerPsid: doc.messengerPsid ?? null,
+    createdAt: (doc.createdAt ?? doc.startsAt).toISOString(),
   };
 }
 
@@ -142,6 +148,8 @@ export async function createBooking(input: BookingInput): Promise<Booking> {
         notes: input.notes,
         ...(input.vehicleRef ? { vehicleRef: input.vehicleRef } : {}),
         ...(input.customerRef ? { customerRef: input.customerRef } : {}),
+        ...(input.source ? { source: input.source } : {}),
+        ...(input.messengerPsid ? { messengerPsid: input.messengerPsid } : {}),
         createdAt: new Date(),
       });
 
@@ -321,6 +329,98 @@ export async function rescheduleBooking(
 }
 
 /** Which business the current request is scoped to — handy for page headers. */
+// ---- Ad attribution -------------------------------------------------------------
+
+function madeBetween(from: Date | null, to: Date | null) {
+  const createdAt: Record<string, Date> = {};
+  if (from) createdAt.$gte = from;
+  if (to) createdAt.$lt = to;
+  return from || to ? { createdAt } : {};
+}
+
+/**
+ * Confirmed bookings per campaign, made within the window. The window is the
+ * one Meta's spend covers (`windowForRange`), so Cost per Booking divides
+ * like by like. A booking is counted on the day it was made, not the day of
+ * the appointment, so it lands in the same period as the spend that won it.
+ */
+export async function countConfirmedByCampaign(
+  from: Date | null,
+  to: Date | null,
+): Promise<Record<string, number>> {
+  const collection = await bookings();
+  const rows = await collection
+    .aggregate([
+      {
+        $match: {
+          "source.campaignId": { $exists: true, $ne: "" },
+          status: { $in: CONFIRMED_STATUSES },
+          ...madeBetween(from, to),
+        },
+      },
+      { $group: { _id: "$source.campaignId", count: { $sum: 1 } } },
+    ])
+    .toArray();
+  return Object.fromEntries(rows.map((row) => [String(row._id), Number(row.count)]));
+}
+
+/** Confirmed bookings made in the window that no campaign is credited with. */
+export async function countUncreditedConfirmed(from: Date | null, to: Date | null): Promise<number> {
+  const collection = await bookings();
+  return collection.countDocuments({
+    $or: [{ source: { $exists: false } }, { source: null }],
+    status: { $in: CONFIRMED_STATUSES },
+    ...madeBetween(from, to),
+  });
+}
+
+/**
+ * Every booking credited to a campaign and made in the window, counted or not,
+ * so the owner can audit each campaign's number: the drill-down shows which
+ * ones count and why the others do not.
+ */
+export async function listCampaignBookings(from: Date | null, to: Date | null): Promise<CampaignBooking[]> {
+  const collection = await bookings();
+  const docs = await collection
+    .find({ "source.campaignId": { $exists: true, $ne: "" }, ...madeBetween(from, to) })
+    .sort({ createdAt: -1 })
+    .limit(1000)
+    .toArray();
+  return docs.map((doc) => ({
+    ref: doc.ref,
+    campaignId: doc.source!.campaignId,
+    customer: doc.customer,
+    service: doc.service,
+    status: doc.status,
+    counted: CONFIRMED_STATUSES.includes(doc.status),
+    origin: doc.source!.origin,
+    madeDay: formatDay(doc.createdAt ?? doc.startsAt),
+  }));
+}
+
+/** Bookings made from these Messenger chats, for the inbox and the duplicate guard. */
+export async function listBookingsForChats(psids: string[]): Promise<Booking[]> {
+  if (psids.length === 0) return [];
+  const collection = await bookings();
+  const docs = await collection.find({ messengerPsid: { $in: psids } }).sort({ createdAt: -1 }).toArray();
+  return docs.map(toBooking);
+}
+
+/**
+ * Corrects a manual campaign credit. A credit that came from a Messenger chat
+ * is the record of which ad brought the customer in, and is refused here: the
+ * checklist requires it to stay as it was.
+ */
+export async function setManualSource(ref: string, source: BookingSource | null): Promise<void> {
+  const collection = await bookings();
+  const doc = await collection.findOne({ ref });
+  if (!doc) throw new InputError(`${ref} is no longer on file.`);
+  if (doc.source?.origin === "messenger") {
+    throw new InputError("This booking's campaign came from the Messenger chat and stays as it is.");
+  }
+  await collection.updateOne({ ref }, source ? { $set: { source } } : { $unset: { source: "" } });
+}
+
 export async function activeBusinessId(): Promise<string> {
   const { activeBusinessId: id } = await verifySession();
   return id;

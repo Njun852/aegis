@@ -9,7 +9,7 @@ import { Button, Icon, IconButton } from "@/components/ui";
 import { phoneKey } from "@/lib/crm";
 import { BOOKING_CHANNELS, DEFAULT_STAFF_CHANNEL } from "@/lib/data/bookings";
 import { plateKey } from "@/lib/fleet";
-import type { Customer, VehicleOption } from "@/types";
+import type { AdCampaignOption, Customer, VehicleOption } from "@/types";
 
 const INITIAL: BookingFormState = { error: null };
 
@@ -31,6 +31,16 @@ export interface NewBookingModalProps {
   customers: Customer[] | null;
   /** "2026-10-01" to start the form on that day, as from a calendar cell. */
   initialDate?: string | null;
+  /**
+   * Synced Meta campaigns, for crediting a call, walk-in or untracked message
+   * by hand. Empty without a connected ad account, and the picker is hidden.
+   */
+  campaigns?: AdCampaignOption[];
+  /**
+   * The Messenger chat this request is made from. Its campaign is taken from
+   * the stored chat on the server and locked; the form only shows it.
+   */
+  fromChat?: { psid: string; label: string; campaignName: string | null; existingRef: string | null } | null;
   onClose: () => void;
   /** Fired once the server confirms the write, so the list can refresh. */
   onCreated: (ref: string, note?: string) => void;
@@ -60,11 +70,17 @@ export function NewBookingModal({
   fleetEnabled,
   customers,
   initialDate,
+  campaigns = [],
+  fromChat = null,
   onClose,
   onCreated,
 }: NewBookingModalProps) {
   const [state, formAction] = useActionState(createBookingAction, INITIAL);
-  const [channel, setChannel] = useState(DEFAULT_STAFF_CHANNEL);
+  const [channel, setChannel] = useState(fromChat ? "Messenger" : DEFAULT_STAFF_CHANNEL);
+  const [campaignId, setCampaignId] = useState("");
+  // A chat that already has a request needs staff to say this is another booking.
+  const [anotherFromChat, setAnotherFromChat] = useState(false);
+  const existingRef = fromChat?.existingRef ?? state.duplicateOf ?? null;
   // From the calendar the day is already chosen; 9am is a starting point the
   // person then adjusts.
   const [startsAt, setStartsAt] = useState(() =>
@@ -201,7 +217,7 @@ export function NewBookingModal({
               letterSpacing: "-.01em",
             }}
           >
-            New booking
+            {fromChat ? "Booking request from Messenger" : "New booking"}
           </span>
           <IconButton icon="x" size={32} label="Close" onClick={onClose} />
         </div>
@@ -234,6 +250,39 @@ export function NewBookingModal({
               >
                 {state.error}
               </span>
+            </div>
+          )}
+
+          {fromChat && (
+            <div
+              className="flex flex-col gap-1.5"
+              style={{
+                padding: "10px 12px",
+                border: "1px solid var(--blue-200)",
+                background: "var(--accent-soft)",
+                borderRadius: "var(--radius-md)",
+                fontSize: "12px",
+              }}
+            >
+              <span>
+                From <strong>{fromChat.label}</strong>.{" "}
+                {fromChat.campaignName
+                  ? <>Credited to <strong>{fromChat.campaignName}</strong>, the ad the chat started from. This cannot be changed.</>
+                  : "The chat did not start from an ad, so no campaign is credited unless you pick one below."}
+              </span>
+              <span style={{ color: "var(--text-secondary)" }}>
+                This is a request until staff confirm it. Only confirmed bookings count toward Cost per Booking.
+              </span>
+              {existingRef && (
+                <label className="flex items-start gap-2" style={{ color: "var(--text-primary)", cursor: "pointer" }}>
+                  <input type="checkbox" checked={anotherFromChat} onChange={(event) => setAnotherFromChat(event.target.checked)} style={{ marginTop: 2 }} />
+                  <span>
+                    This chat already has <strong>{existingRef}</strong>. Tick only if this is a separate booking.
+                  </span>
+                </label>
+              )}
+              <input type="hidden" name="messengerPsid" value={fromChat.psid} />
+              <input type="hidden" name="anotherFromChat" value={anotherFromChat ? "1" : ""} />
             </div>
           )}
 
@@ -398,6 +447,7 @@ export function NewBookingModal({
               name="channel"
               style={SELECT}
               value={channel}
+              disabled={fromChat !== null}
               onChange={(event) => setChannel(event.target.value)}
             >
               {BOOKING_CHANNELS.map((option) => (
@@ -405,6 +455,28 @@ export function NewBookingModal({
               ))}
             </select>
           </Field>
+
+          {campaigns.length > 0 && !fromChat?.campaignName && (
+            <Field label="Ad source">
+              <select
+                name="campaignId"
+                style={SELECT}
+                value={campaignId}
+                onChange={(event) => setCampaignId(event.target.value)}
+              >
+                <option value="">Not from an ad</option>
+                {campaigns.map((campaign) => (
+                  <option key={campaign.id} value={campaign.id}>
+                    {campaign.name}
+                    {campaign.enabled ? "" : " (off)"}
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                For a call, walk-in or untracked message that came from an ad. Chats that start from an ad are credited automatically.
+              </span>
+            </Field>
+          )}
 
           {fleetEnabled && (
             <div className="flex flex-col gap-1.5">
@@ -546,7 +618,7 @@ export function NewBookingModal({
                 style={INPUT}
               />
             </Field>
-            <Field label="Value ($)">
+            <Field label="Value (₱)">
               <input
                 name="valueCents"
                 inputMode="decimal"

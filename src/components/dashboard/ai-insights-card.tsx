@@ -37,41 +37,45 @@ export interface AiInsightsCardProps {
  */
 export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
   const router = useRouter();
-  const { range, data } = useDashboardRange();
+  const { range } = useDashboardRange();
   const [generated, setGenerated] =
     useState<Partial<Record<DateRange, string>>>(cached);
-  const [pending, setPending] = useState<DateRange | null>(null);
+  const [failed, setFailed] = useState<Partial<Record<DateRange, true>>>({});
 
-  // Ranges already asked about on this mount, so switching back and forth
-  // cannot fire a second request for the same one.
-  const requested = useRef(
-    new Set<DateRange>(Object.keys(cached) as DateRange[]),
-  );
+  // One request per range for this mount, kept across effect runs: switching
+  // back and forth cannot fire a second one, and React's second run of the
+  // effect in development listens to the same request instead of dropping it.
+  const requests = useRef(new Map<DateRange, ReturnType<typeof generateInsightAction>>());
 
   useEffect(() => {
-    if (!aiEnabled || generated[range] || requested.current.has(range)) return;
+    if (!aiEnabled || generated[range] || failed[range]) return;
 
-    requested.current.add(range);
-    setPending(range);
     let live = true;
+    let request = requests.current.get(range);
+    if (!request) {
+      request = generateInsightAction(range);
+      requests.current.set(range, request);
+    }
 
-    generateInsightAction(range)
+    request
       .then((result) => {
         if (!live) return;
         const text = result.text;
         if (text) setGenerated((current) => ({ ...current, [range]: text }));
-        setPending(null);
+        else setFailed((current) => ({ ...current, [range]: true }));
       })
       .catch(() => {
-        // A failed generation falls back to the sample copy; the reason is
-        // already in the usage log.
-        if (live) setPending(null);
+        // The reason is already in the usage log.
+        if (live) setFailed((current) => ({ ...current, [range]: true }));
       });
 
     return () => {
       live = false;
     };
-  }, [aiEnabled, generated, range]);
+  }, [aiEnabled, generated, failed, range]);
+
+  // Waiting on this range's request: no commentary and no failure yet.
+  const pending = aiEnabled && !generated[range] && !failed[range] ? range : null;
 
   const text = generated[range] ?? null;
   const { shown } = useTypewriter(text, {
@@ -81,7 +85,12 @@ export function AiInsightsCard({ cached, aiEnabled }: AiInsightsCardProps) {
   return (
     <InsightPanel
       title="AI Insights"
-      body={shown || data.insight}
+      body={
+        shown ||
+        (aiEnabled
+          ? "Commentary on this period's figures appears here once it has been written."
+          : "AI commentary is switched off on this server.")
+      }
       loading={pending === range}
       action="View Full Report"
       // The report opens for the range being looked at, so its revenue total

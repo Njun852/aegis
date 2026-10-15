@@ -7,7 +7,10 @@ import {
   messengerConversationsCollection,
   messengerStateCollection,
 } from "./db";
-import type { AdRowDocument, MessengerConversationDocument } from "@/types";
+import { formatStamp } from "@/lib/format";
+import { listBookingsForChats } from "./bookings";
+import { tenantScope } from "./tenant";
+import type { AdRowDocument, MessengerConversation, MessengerConversationDocument } from "@/types";
 
 /**
  * Messenger chats, written by the webhook.
@@ -197,4 +200,66 @@ export async function readMessengerHealth(businessId: string): Promise<Messenger
     lastSignatureFailureAt: doc?.lastSignatureFailureAt ?? null,
     conversationCount,
   };
+}
+
+// ---- Reads for the screens (tenant-scoped) ----------------------------------------
+
+const scopedConversations = () => tenantScope<MessengerConversationDocument>("messengerConversations");
+
+/** "Messenger customer · 4821": the page-scoped id is all Meta gives without a profile lookup. */
+function chatLabel(psid: string): string {
+  return `Messenger customer · ${psid.slice(-4)}`;
+}
+
+/**
+ * The chats for the inbox, newest activity first, each with the bookings
+ * already made from it so staff can see a request exists before making one.
+ */
+export async function listConversations(limit = 200): Promise<MessengerConversation[]> {
+  const collection = await scopedConversations();
+  const docs = await collection.find().sort({ lastMessageAt: -1 }).limit(limit).toArray();
+  const made = await listBookingsForChats(docs.map((doc) => doc.psid));
+  return docs.map((doc) => {
+    const own = made.filter((booking) => booking.messengerPsid === doc.psid);
+    const named = own.find((booking) => booking.customer.trim());
+    const last = doc.messages[doc.messages.length - 1];
+    return {
+      psid: doc.psid,
+      label: named ? `${named.customer} · Messenger` : chatLabel(doc.psid),
+      campaignId: doc.campaignId,
+      campaignName: doc.campaignName,
+      adId: doc.adId,
+      firstSeen: formatStamp(doc.firstSeenAt),
+      lastMessage: last?.text ?? "",
+      lastMessageAt: doc.lastMessageAt.toISOString(),
+      messages: doc.messages.map((message) => ({
+        mid: message.mid,
+        text: message.text,
+        at: formatStamp(message.at),
+        fromPage: message.fromPage,
+      })),
+      bookings: own.map((booking) => ({ ref: booking.ref, status: booking.status, day: booking.day })),
+    };
+  });
+}
+
+/** One chat, read on the server when a request is made from it: the attribution is taken from here, never from the browser. */
+export async function findConversation(psid: string): Promise<MessengerConversationDocument | null> {
+  const collection = await scopedConversations();
+  return collection.findOne({ psid });
+}
+
+/** Chats started from each campaign's ads within the window, for the funnel's audit figure. */
+export async function countChatsByCampaign(from: Date | null, to: Date | null): Promise<Record<string, number>> {
+  const collection = await scopedConversations();
+  const firstSeenAt: Record<string, Date> = {};
+  if (from) firstSeenAt.$gte = from;
+  if (to) firstSeenAt.$lt = to;
+  const rows = await collection
+    .aggregate([
+      { $match: { campaignId: { $ne: null }, ...(from || to ? { firstSeenAt } : {}) } },
+      { $group: { _id: "$campaignId", count: { $sum: 1 } } },
+    ])
+    .toArray();
+  return Object.fromEntries(rows.map((row) => [String(row._id), Number(row.count)]));
 }

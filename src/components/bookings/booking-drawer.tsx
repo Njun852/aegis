@@ -6,13 +6,14 @@ import { useState, useTransition } from "react";
 import {
   linkBookingCustomerAction,
   rescheduleBookingAction,
+  setBookingSourceAction,
   setBookingStatusAction,
   updateBookingDetailsAction,
 } from "@/app/actions/bookings";
 import { Badge, Avatar, Button, Icon, IconButton, Select } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
 import { bookingTimeline, formatMoney, getStatusStyle } from "@/lib/bookings";
-import type { Booking, BookingStatus, Customer, RequestMatches, VehicleOption } from "@/types";
+import type { AdCampaignOption, Booking, BookingStatus, Customer, RequestMatches, VehicleOption } from "@/types";
 import { RequestPanel } from "./request-panel";
 
 const NOT_LINKED = "Not linked";
@@ -39,6 +40,8 @@ export interface BookingDrawerProps {
   fleetEnabled: boolean;
   /** For an online request still being linked: what its mobile and plate match. */
   matches: RequestMatches | null;
+  /** Synced Meta campaigns, for a manual credit. Empty without a connected ad account. */
+  campaigns: AdCampaignOption[];
   onClose: () => void;
 }
 
@@ -49,6 +52,7 @@ export function BookingDrawer({
   customers,
   fleetEnabled,
   matches,
+  campaigns,
   onClose,
 }: BookingDrawerProps) {
   const router = useRouter();
@@ -227,6 +231,9 @@ export function BookingDrawer({
       label: "Value",
       value: `${formatMoney(booking.valueCents)} · booked via ${booking.channel}`,
     },
+    ...(booking.source || campaigns.length > 0
+      ? [{ icon: "megaphone", label: "Ad source", value: (<AdSource booking={booking} campaigns={campaigns} />) as React.ReactNode }]
+      : []),
   ];
 
   return (
@@ -652,5 +659,71 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     >
       {children}
     </span>
+  );
+}
+
+/**
+ * Which campaign the booking is credited to. A credit from a Messenger chat is
+ * shown and cannot be changed; a manual one, for a call or walk-in, can be
+ * corrected, which is the fallback the checklist keeps.
+ */
+function AdSource({ booking, campaigns }: { booking: Booking; campaigns: AdCampaignOption[] }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+
+  if (booking.source?.origin === "messenger") {
+    return (
+      <span>
+        {booking.source.campaignName || booking.source.campaignId}
+        <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · from the Messenger ad, locked</span>
+      </span>
+    );
+  }
+
+  const change = (campaignId: string) =>
+    startTransition(async () => {
+      const result = await setBookingSourceAction(booking.ref, campaignId || null);
+      if (!result.ok) {
+        toast({ tone: "error", title: "Ad source not changed", description: result.error, key: "booking-source" });
+        return;
+      }
+      const name = campaigns.find((campaign) => campaign.id === campaignId)?.name;
+      toast({
+        tone: "success",
+        title: name ? `Credited to ${name}` : "No longer credited to a campaign",
+        key: "booking-source",
+      });
+      router.refresh();
+    });
+
+  return (
+    <select
+      aria-label="Ad source"
+      value={booking.source?.campaignId ?? ""}
+      disabled={pending}
+      onChange={(event) => change(event.target.value)}
+      style={{
+        width: "100%",
+        font: "inherit",
+        fontSize: "12.5px",
+        padding: "4px 6px",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--surface-card)",
+        color: "var(--text-primary)",
+      }}
+    >
+      <option value="">Not from an ad</option>
+      {booking.source && !campaigns.some((campaign) => campaign.id === booking.source!.campaignId) && (
+        <option value={booking.source.campaignId}>{booking.source.campaignName}</option>
+      )}
+      {campaigns.map((campaign) => (
+        <option key={campaign.id} value={campaign.id}>
+          {campaign.name}
+          {campaign.enabled ? "" : " (off)"}
+        </option>
+      ))}
+    </select>
   );
 }

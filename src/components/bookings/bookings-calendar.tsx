@@ -10,6 +10,7 @@ import {
   monthLabel,
   shiftMonth,
   startTime,
+  tallyByDay,
   type CalendarMonth,
 } from "@/lib/booking-calendar";
 import { formatMoney, getStatusStyle } from "@/lib/bookings";
@@ -22,6 +23,8 @@ const CHIPS_PER_DAY = 3;
 export interface BookingsCalendarProps {
   /** Already narrowed by the status filter and search; every date. */
   bookings: Booking[];
+  /** Every booking, unfiltered, so a day's booked and served counts never depend on the filter. */
+  allBookings: Booking[];
   month: CalendarMonth;
   onMonthChange: (month: CalendarMonth) => void;
   /** The server's "today", as a key. */
@@ -41,6 +44,7 @@ export interface BookingsCalendarProps {
  */
 export function BookingsCalendar({
   bookings,
+  allBookings,
   month,
   onMonthChange,
   todayKey,
@@ -53,6 +57,8 @@ export function BookingsCalendar({
   const weeks = useMemo(() => monthGrid(month), [month]);
   const byDay = useMemo(() => bookingsByDay(bookings), [bookings]);
   const agenda = byDay.get(selectedDay) ?? [];
+  const tallies = useMemo(() => tallyByDay(allBookings), [allBookings]);
+  const selectedTally = tallies.get(selectedDay) ?? { booked: 0, served: 0, toServe: 0, cancelled: 0 };
 
   return (
     <div className="grid gap-3 wide:grid-cols-[minmax(0,1fr)_300px]">
@@ -198,6 +204,25 @@ export function BookingsCalendar({
                         +{hidden} more
                       </span>
                     )}
+
+                    {(tallies.get(day.dateKey)?.booked ?? 0) > 0 && (
+                      <span
+                        title={`${tallies.get(day.dateKey)!.served} served of ${tallies.get(day.dateKey)!.booked} booked`}
+                        style={{
+                          marginTop: "auto",
+                          padding: "0 4px",
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          fontVariantNumeric: "tabular-nums",
+                          color:
+                            tallies.get(day.dateKey)!.served === tallies.get(day.dateKey)!.booked
+                              ? "var(--status-positive)"
+                              : "var(--text-muted)",
+                        }}
+                      >
+                        {tallies.get(day.dateKey)!.served}/{tallies.get(day.dateKey)!.booked} served
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -243,10 +268,40 @@ export function BookingsCalendar({
           <div style={{ fontFamily: "var(--font-display)", fontSize: "14px", fontWeight: 700, marginTop: 2 }}>
             {longDayLabel(selectedDay)}
           </div>
-          <div style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: 2 }}>
-            {agenda.length} {agenda.length === 1 ? "booking" : "bookings"}
-          </div>
         </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "Booked", value: selectedTally.booked, color: "var(--text-primary)" },
+            { label: "Served", value: selectedTally.served, color: "var(--status-positive)" },
+            { label: "To serve", value: selectedTally.toServe, color: "var(--status-warning)" },
+          ].map((count) => (
+            <div
+              key={count.label}
+              style={{
+                padding: "8px 9px",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-md)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 1,
+              }}
+            >
+              <span style={{ fontSize: "10px", letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                {count.label}
+              </span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: "17px", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: count.color }}>
+                {count.value}
+              </span>
+            </div>
+          ))}
+        </div>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+          Served means completed.
+          {selectedTally.cancelled > 0 &&
+            ` ${selectedTally.cancelled} cancelled ${selectedTally.cancelled === 1 ? "booking is" : "bookings are"} not counted.`}
+          {agenda.length !== selectedTally.booked + selectedTally.cancelled && " The list below follows the filter."}
+        </span>
 
         {agenda.length === 0 && (
           <p style={{ margin: 0, fontSize: "12.5px", color: "var(--text-muted)" }}>
