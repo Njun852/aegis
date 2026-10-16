@@ -20,6 +20,15 @@ export function formatMoney(cents: number, withCents = true) {
   return `₱ ${amount}`;
 }
 
+/**
+ * "+₱ 500.00", "-₱ 500.00": a change or difference, with the sign before the
+ * currency rather than "₱ -500.00". Zero has no sign.
+ */
+export function formatSignedMoney(cents: number) {
+  const sign = cents > 0 ? "+" : cents < 0 ? "-" : "";
+  return `${sign}${formatMoney(Math.abs(cents))}`;
+}
+
 function currencySymbol(currency: string): string {
   try {
     return (

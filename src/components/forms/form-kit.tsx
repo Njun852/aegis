@@ -207,7 +207,11 @@ export function ColumnLabel({
   );
 }
 
-/** The modal frame the settings and price-list editors share. */
+/**
+ * The modal frame the settings and price-list editors share. It sits above
+ * the side drawers (70 and 71), since several drawers open one of these, and
+ * below toasts (200), so the result of saving stays visible.
+ */
 export function Modal({
   title,
   icon,
@@ -224,7 +228,7 @@ export function Modal({
   width?: number;
 }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-6">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-6">
       <div onClick={onClose} className="absolute inset-0" style={{ background: "rgba(23,28,37,.28)" }} />
       <div
         role="dialog"

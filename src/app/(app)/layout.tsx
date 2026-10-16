@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { BusinessProvider } from "@/components/business/business-provider";
 import { AppShell } from "@/components/layout/app-shell";
+import { isAiConfigured } from "@/lib/ai/client";
+import { suggestedQuestions } from "@/lib/ask";
 import { listBusinessesForUser } from "@/lib/dal/businesses";
 import { verifySession } from "@/lib/dal/session";
 import { findUserById } from "@/lib/dal/users";
@@ -24,13 +26,20 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     redirect("/login");
   }
 
+  // The bubble only appears when AI is configured; its suggested questions
+  // follow the modules the active business has.
+  const active = businesses.find((business) => business.id === session.activeBusinessId) ?? businesses[0];
+  const ask = isAiConfigured()
+    ? { businessName: active.name, suggestions: suggestedQuestions(active.modules) }
+    : null;
+
   return (
     <BusinessProvider
       businesses={businesses}
       activeBusinessId={session.activeBusinessId}
       user={user}
     >
-      <AppShell unreadCount={unread} mailFreshness={mailFreshness}>
+      <AppShell unreadCount={unread} mailFreshness={mailFreshness} ask={ask}>
         {children}
       </AppShell>
     </BusinessProvider>

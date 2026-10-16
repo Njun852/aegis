@@ -5,6 +5,7 @@ export type * from "./bookings";
 export type * from "./business";
 export type * from "./customers";
 export type * from "./dashboard";
+export type * from "./finance";
 export type * from "./fleet";
 export type * from "./inventory";
 export type * from "./ledger";

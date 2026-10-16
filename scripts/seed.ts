@@ -24,7 +24,9 @@ import { FLEET_INDEXES } from "../src/lib/data/fleet.ts";
 import { TEXT_BLAST_INDEXES } from "../src/lib/data/text-blast.ts";
 import { QUOTATION_INDEXES } from "../src/lib/data/quotations.ts";
 import { OWNER_ALERT_INDEXES } from "../src/lib/data/owner-alerts.ts";
+import { ASK_INDEXES } from "../src/lib/data/ask.ts";
 import { SUPPLIER_INDEXES } from "../src/lib/data/suppliers.ts";
+import { FINANCE_INDEXES } from "../src/lib/data/finance.ts";
 import {
   INVENTORY_SEEDS,
   MOVE_REASONS,
@@ -157,6 +159,7 @@ async function main() {
     await seedTextBlastIndexes(db);
     await seedQuotationIndexes(db);
     await seedSupplierIndexes(db);
+    await seedFinanceIndexes(db);
     await seedOwnerAlertIndexes(db);
 
     // Without an administrator nobody can sign in to create one, so say so
@@ -576,6 +579,10 @@ async function seedOwnerAlertIndexes(db: Db) {
     await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
   }
   console.log(`✓ owner alert indexes (${OWNER_ALERT_INDEXES.length}), alerts off for every business`);
+  for (const index of ASK_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ Ask AEGIS indexes (${ASK_INDEXES.length})`);
 }
 
 /** Suppliers get indexes only: a sample supplier's prices would be read as real costs. */
@@ -584,6 +591,14 @@ async function seedSupplierIndexes(db: Db) {
     await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
   }
   console.log(`✓ supplier indexes (${SUPPLIER_INDEXES.length}), no sample suppliers`);
+}
+
+/** Finance gets indexes only: a sample invoice or balance would be read as real money. */
+async function seedFinanceIndexes(db: Db) {
+  for (const index of FINANCE_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
+  console.log(`✓ finance indexes (${FINANCE_INDEXES.length}), no sample records`);
 }
 
 main().catch((error) => {

@@ -4,11 +4,8 @@ import { AdsWorkspace } from "@/components/ads/ads-workspace";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedAdsInsight } from "@/lib/ai/ads-insight";
 import { readActiveMetaAdsStatus } from "@/lib/dal/ad-account";
-import { buildFunnel, periodLabel } from "@/lib/ad-funnel";
+import { loadCampaignFunnel } from "@/lib/dal/ad-funnel";
 import { listAdRows } from "@/lib/dal/ads";
-import { countConfirmedByCampaign, countUncreditedConfirmed, listCampaignBookings } from "@/lib/dal/bookings";
-import { countChatsByCampaign } from "@/lib/dal/messenger";
-import { windowForRange } from "@/lib/meta/ranges";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { AD_FALLBACK_INSIGHT } from "@/lib/data/ads";
 import { AD_RANGE_KEYS, DEFAULT_AD_RANGE } from "@/lib/meta/mapping";
@@ -40,29 +37,9 @@ export default async function AdsPage(props: PageProps<"/ads">) {
     cachedAdsInsight(),
   ]);
 
-  // Spend to confirmed bookings, over exactly the days Meta's figures cover,
-  // so Cost per Booking divides like by like. Only for a connected account on
-  // a business that keeps its bookings in AEGIS: sample campaigns are never
-  // set against real bookings.
-  let funnel = null;
-  if (meta.connected && business.modules.includes("bookings")) {
-    const timeZone = meta.timezone ?? "Asia/Manila";
-    const period = windowForRange(range, timeZone);
-    const [confirmed, chats, bookings, uncredited] = await Promise.all([
-      countConfirmedByCampaign(period.from, period.to),
-      countChatsByCampaign(period.from, period.to),
-      listCampaignBookings(period.from, period.to),
-      countUncreditedConfirmed(period.from, period.to),
-    ]);
-    funnel = buildFunnel({
-      campaigns: rows.filter((row) => row.level === "campaigns"),
-      confirmedByCampaign: confirmed,
-      chatsByCampaign: chats,
-      bookings,
-      uncreditedConfirmed: uncredited,
-      periodLabel: periodLabel(period.from, period.to, timeZone),
-    });
-  }
+  // Spend to confirmed bookings over Meta's own window; null for sample rows
+  // or a business without Bookings. See `loadCampaignFunnel`.
+  const funnel = await loadCampaignFunnel(business, range, rows);
 
   return (
     <AdsWorkspace

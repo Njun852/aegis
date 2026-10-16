@@ -9,7 +9,8 @@ export type OptionalModuleKey =
   | "fleet"
   | "sms"
   | "quotes"
-  | "suppliers";
+  | "suppliers"
+  | "finance";
 
 export type ModuleKey = CoreModuleKey | OptionalModuleKey;
 

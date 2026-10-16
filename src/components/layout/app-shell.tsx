@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { AskAegis, type AskAegisProps } from "@/components/ask/ask-aegis";
 import { Sidebar } from "./sidebar";
 import { SyncProvider } from "./sync-provider";
 import type { MailFreshnessState } from "@/types";
@@ -13,16 +14,19 @@ export interface AppShellProps {
   unreadCount: number;
   /** Real mail freshness, read on the server. Never a timer. */
   mailFreshness: MailFreshnessState;
+  /** The Ask AEGIS bubble. Null when AI is not configured, which hides it. */
+  ask?: AskAegisProps | null;
 }
 
 /**
  * The persistent chrome every signed-in route renders inside: a collapsible
- * sidebar, the top bar, and a scrolling main region.
+ * sidebar, the top bar, a scrolling main region, and the Ask AEGIS bubble.
  */
 export function AppShell({
   children,
   unreadCount,
   mailFreshness,
+  ask,
 }: AppShellProps) {
   return (
     // Keyed by business: `SyncProvider` copies its initial value into state, so
@@ -33,6 +37,8 @@ export function AppShell({
         <ShellFrame unreadCount={unreadCount} mailFreshness={mailFreshness}>
           {children}
         </ShellFrame>
+        {/* Keyed the same way: one business's chat must not carry into another's. */}
+        {ask && <AskAegis key={mailFreshness.businessId} {...ask} />}
       </ToastProvider>
     </SyncProvider>
   );

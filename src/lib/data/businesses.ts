@@ -89,6 +89,13 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
     desc: "Suppliers, what each charges for every part, and how those costs change.",
     href: "/suppliers",
   },
+  {
+    key: "finance",
+    name: "Finance",
+    icon: "wallet",
+    desc: "Monthly income and financial standing reports, receivables, payables, cash and bank.",
+    href: "/finance",
+  },
 ];
 
 export const OPTIONAL_MODULE_KEYS: OptionalModuleKey[] = OPTIONAL_MODULES.map(

@@ -9,7 +9,7 @@ import {
   revenueWindow,
   subtractBuckets,
 } from "@/lib/dashboard";
-import { formatMoney, formatMoneyIn } from "@/lib/format";
+import { formatMoney, formatMoneyIn, formatSignedMoney } from "@/lib/format";
 import { relativeAge } from "@/lib/freshness";
 import { belowReorder, totalValueCents } from "@/lib/inventory";
 import { countByPriority } from "@/lib/mail";
@@ -17,6 +17,7 @@ import { windowForRange } from "@/lib/meta/ranges";
 import { readActiveMetaAdsStatus } from "./ad-account";
 import { listAdRows } from "./ads";
 import { countConfirmedByCampaign, listBookings } from "./bookings";
+import { listOpenDiscrepancies } from "./finance-accounts";
 import { listInventory, purchasesByMonth } from "./inventory";
 import { revenueByMonth } from "./ledger";
 import { listVehicles } from "./fleet";
@@ -226,6 +227,25 @@ async function buildAlerts(
         tag: "Quotations",
         icon: "file-text",
         iconColor: ALERT_COLORS.info,
+      });
+    }
+  }
+
+  if (has("finance")) {
+    // A cash or bank count that disagrees with the book is one of the owner's
+    // critical finance alerts, and stays until an administrator explains it.
+    const open = await listOpenDiscrepancies();
+    if (open.length > 0) {
+      const largest = [...open].sort((a, b) => Math.abs(b.differenceCents) - Math.abs(a.differenceCents))[0];
+      alerts.push({
+        weight: 1,
+        title: open.length === 1 ? "A count differs from the book" : `${open.length} counts differ from the book`,
+        meta: open.slice(0, 2).map((count) => count.accountName).join(", "),
+        amount: formatSignedMoney(largest.differenceCents),
+        amountTone: "negative",
+        tag: "Finance",
+        icon: "wallet",
+        iconColor: ALERT_COLORS.urgent,
       });
     }
   }

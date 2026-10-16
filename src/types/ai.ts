@@ -11,7 +11,9 @@ export type AiKind =
   | "mail-triage"
   | "compose-draft"
   | "mail-reply"
-  | "quote-photo";
+  | "quote-photo"
+  | "ask-plan"
+  | "ask-answer";
 
 /**
  * Why a generation did not produce text. Every one of these is a normal

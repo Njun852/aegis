@@ -14,7 +14,7 @@ import { CELL, Field, NUMBER_CELL, Notice, SELECT } from "@/components/forms/for
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { amountInput, formatPeso, parseAmount } from "@/lib/quotations";
-import { STALE_COST_DAYS, comparisonId, describeAge } from "@/lib/suppliers";
+import { STALE_COST_DAYS, comparisonId, describeAge, planningCost } from "@/lib/suppliers";
 import { SupplierModal } from "./supplier-modal";
 import type { InventoryOption, Supplier, SupplierItem } from "@/types";
 
@@ -273,6 +273,14 @@ function PriceRow({
     [others, item.costCents],
   );
   const stale = item.costAgeDays > STALE_COST_DAYS;
+  // With nobody marked preferred, quotations use the most recently confirmed
+  // price; the button shows when that automatic pick is this one, so the
+  // drawer agrees with Compare costs.
+  const autoPicked = useMemo(() => {
+    const entries = [item, ...others];
+    const planning = planningCost({ entries, preferred: entries.find((entry) => entry.preferred) ?? null });
+    return !item.preferred && planning?.ref === item.ref;
+  }, [item, others]);
 
   const run = (work: () => Promise<{ ok: boolean; error?: string }>, success: string) =>
     startTransition(async () => {
@@ -363,6 +371,13 @@ function PriceRow({
               type="button"
               onClick={() => run(() => setPreferredItemAction(item.ref, !item.preferred), item.preferred ? "No longer preferred" : `${item.supplierName} is preferred for this part`)}
               disabled={pending}
+              title={
+                item.preferred
+                  ? "Marked preferred. Click to go back to the automatic choice."
+                  : autoPicked
+                    ? "Picked automatically as the most recently confirmed price. Click to keep it even when another supplier's price is newer."
+                    : "Use this supplier's price for this part on quotations."
+              }
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -370,9 +385,9 @@ function PriceRow({
                 height: 24,
                 padding: "0 9px",
                 borderRadius: "var(--radius-pill)",
-                border: `1px solid ${item.preferred ? "var(--blue-200)" : "var(--border-default)"}`,
+                border: `1px ${autoPicked ? "dashed" : "solid"} ${item.preferred || autoPicked ? "var(--blue-200)" : "var(--border-default)"}`,
                 background: item.preferred ? "var(--accent-soft)" : "transparent",
-                color: item.preferred ? "var(--text-accent)" : "var(--text-secondary)",
+                color: item.preferred || autoPicked ? "var(--text-accent)" : "var(--text-secondary)",
                 fontFamily: "var(--font-body)",
                 fontSize: "11px",
                 fontWeight: 600,
@@ -380,7 +395,7 @@ function PriceRow({
               }}
             >
               <Icon name="check" size={11} />
-              {item.preferred ? "Preferred" : "Make preferred"}
+              {item.preferred ? "Preferred" : autoPicked ? "Preferred (automatic)" : "Make preferred"}
             </button>
             {cheaper && (
               <span style={{ fontSize: "11px", color: "var(--status-warning)" }}>

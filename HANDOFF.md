@@ -1,11 +1,13 @@
 # AEGIS handoff
 
-Written 26 September 2026, updated 28 September 2026 after Fleet and CRM.
-Read this first, then `DATABASE_AND_AUTH_doc.md` for the database,
-authentication, authorization and integration detail.
+Written 26 September 2026, last updated 15 October 2026 after the quotation
+workflow, job orders and owner text alerts. Read this first, then
+`DATABASE_AND_AUTH_doc.md` for the database, authentication, authorization and
+integration detail.
 
-**Latest work: the Fleet and CRM modules.** Their state and what is left is
-the last section.
+**Latest work (15 Oct 2026): Quotation & Costing completed against the Final
+Completion checklist, job orders, bookings following their job orders, and
+owner text alerts.** See the last three sections.
 
 ---
 
@@ -21,6 +23,15 @@ sixty-day retention. The checklist is at
 `C:\Users\njunj\Downloads\AEGIS_Final_Development_Payment_Acceptance_Checklist.pdf`.
 New requirements are meant to be agreed by both parties, so say plainly when
 something falls outside it.
+
+The current scope is `C:\Users\njunj\Downloads\AEGIS Final Completion & Demo
+Checklist.pdf` (frozen): Meta → Messenger → Booking, Meta performance, the
+booking workflow, system status and security, backup and handover, **Quotation
+& Costing (required)**, and the final demo sequence: Meta Ad → Messenger →
+Booking Request → Staff Confirmation → Confirmed Booking → Quotation →
+Customer Approval → Job Order. It says no new features before these are done
+unless the owner approves, and that Quotation & Costing must never be left out
+of a completion summary.
 
 ## Ground rules, learned the hard way
 
@@ -70,9 +81,17 @@ the 1 Oct removal of the ads ↔ bookings link were both reversed by the owner's
 *Meta-to-Bookings Final Acceptance Checklist* (Nicole). Requests are now made by
 staff from a Messenger inbox, with no AI; see "Meta to Bookings" at the end.
 
-Not done: production deployment (the booking page needs a real address to be
-useful to customers); backups and a restore test; the dashboard honesty items
-(booked value kept apart from actual revenue).
+- **Quotations and job orders.** The full workflow the Final Completion
+  checklist asks for: statuses, special pricing approval, customer approval,
+  revisions, the customer PDF and conversion to a job order. Checked in the
+  browser by the developer on 15 Oct 2026. See "Quotation workflow" below.
+
+Not done (none of it code, all of it on the Final Completion checklist):
+production deployment on a company-controlled server and domain (the booking
+page and the permanent Meta webhook both need a real address); automatic
+backups and an actual restore test; Meta App Review; restart, deploy, restore
+and troubleshooting procedures; the end-to-end acceptance demo, which depends
+on all of these.
 
 Local snags worth knowing: Meta reaches this laptop through a temporary
 `cloudflared tunnel --url http://localhost:3000`, whose address changes on each
@@ -85,22 +104,27 @@ business has no internet domain, which blocks Meta business verification.
 - Run the dev server through the Browser pane's `preview_start` (`aegis-dev` in
   `.claude/launch.json`), never a raw shell.
 - Before finishing: `npx tsc --noEmit`, `npx eslint src scripts`,
-  `npx next build`, plus `npm run ads:check` and `npm run messenger:simulate`
-  when either area is touched.
+  `npx next build`, plus the check for each area touched: `npm run ads:check`,
+  `npm run messenger:simulate`, `npm run quote:check` (quotations, job orders
+  and the booking sync), `npm run alerts:check` (owner text alerts).
+- A new route under `src/app` needs `npx next typegen` before `tsc` knows its
+  `PageProps` type; `next dev` and `next build` regenerate it too.
 - Verify in the browser wherever a change is visible. The developer signs in;
   Claude does not type passwords.
 - Owner reports are PDFs built with reportlab
   (`C:\Users\njunj\AppData\Local\Python\bin\python.exe`), one page where it
   fits, **bold only, no colour, no em dashes, plain words**.
-- The developer commits. Do not commit unless asked. Fleet is committed at
-  `b8ac7a2 fleet`; CRM is uncommitted on top of it.
+- The developer commits. Do not commit unless asked. The last commit is
+  `f52de24`; the quotation workflow, job orders and owner text alerts were
+  uncommitted on top of it as of 15 Oct 2026.
 
 ## Map
 
 ```
 src/app/(app)/…            screens: dashboard, mail, ads, bookings, inventory, fleet,
-                           crm, quotations, account, admin/businesses, admin/users, status,
-                           modules/[key]
+                           crm, quotations (and quotations/jobs/[ref], the job orders),
+                           suppliers, text-blast, account, admin/businesses, admin/users,
+                           status, modules/[key]
 src/app/actions/…          server actions, one file per area
 src/app/api/meta/webhook   the only unauthenticated route; Meta's signature is its auth
 src/lib/dal/…              all database access: session, tenant, and per-area modules
@@ -111,7 +135,8 @@ src/components/…           screens by area, plus ui/ design system
 src/app/book/…             the public booking page, outside the app shell
 scripts/                   seed, reconcile, mail-check, ads-check, messenger-simulate,
                            fleet-check, crm-check, booking-page-check, report-check,
-                           calendar-check, text-blast-check, text-blast-run, quote-check
+                           calendar-check, text-blast-check, text-blast-run, quote-check,
+                           supplier-check, booking-attribution-check, owner-alerts-check
 ```
 
 Types live in `src/types/*` and are re-exported from `@/types`.
@@ -316,10 +341,13 @@ expiry).
 
 ## Quotations
 
-A new optional module (`quotes`, "Quotations", `/quotations`), outside the
-frozen acceptance checklist like Fleet and CRM. It prints the shop's own
-quotation form as a PDF, emails it, and drafts one from a photo. Granted to no
-business by default; an admin switches it on in Business Management.
+An optional module (`quotes`, "Quotations", `/quotations`). It began outside
+the first checklist; the Final Completion checklist (section 6) now makes it
+**required**. It prints the shop's own quotation form as a PDF, emails it, and
+drafts one from a photo. Granted to no business by default; an admin switches
+it on in Business Management (AUTOBLITZ has it). The approval workflow, the
+revisions and the job orders added in October are in "Quotation workflow"
+below; this section is the document itself.
 
 - **Data:** `quotations` (QT-…), `quotePriceItems` (the price list),
   `quotePhotos` (QP-…), all tenant-scoped through `src/lib/dal/quotations.ts`.
@@ -342,8 +370,12 @@ business by default; an admin switches it on in Business Management.
   clash). Served by `/api/quotations/[ref]/pdf` for the preview and the
   download, and attached to the email, so all three are the same document.
   Built-in fonts: Latin-1 (Iñigo) prints, the peso sign does not, so amounts
-  are plain numbers as on the paper form. A quotation with an unpriced line
-  can be previewed but not downloaded or emailed.
+  are plain numbers as on the paper form. A quotation with an unpriced line,
+  or special pricing nobody approved, can be previewed but not downloaded or
+  emailed. The form's **P.O.** column is a free-text box per line, kept
+  because the paper form has it; it is not linked to Suppliers' purchase
+  orders. The PDF prints "Rev 2" from the second revision and the Valid Until
+  date in the row under Technician. `?rev=N` prints an earlier revision.
 - **Email:** through the business's connected mailbox; `sendMail` now takes
   attachments. A person checks the address, subject and message and presses
   Send; the quotation is marked Sent only after SMTP accepts it. Gmail keeps
@@ -374,8 +406,9 @@ Check: `npm run quote:check` (the owner's sample totals, markup, rounding,
 typed amounts, price-list matching, photo reply validation and draft pricing
 order, indexes and the price list's one-entry-per-wording rule).
 
-Left to do: browser verification signed in; a first real photo read; VAT
-other than the printed "zero rated" note, if the owner wants it.
+Left to do: a first real photo read; VAT other than the printed "zero rated"
+note, if the owner wants it; asking the owner what the shop writes in the
+P.O. column.
 
 ## Inventory: stock batches (Suppliers & Costing, step 1)
 
@@ -589,3 +622,256 @@ business's records by `loadDashboard` (`src/lib/dal/dashboard.ts`), maths in
 Check: `npm run report:check` covers purchases, net, the tile set, bookings by
 channel and awaiting reply. It found and fixed a real fault: two buckets for
 one month (purchases and cost-only receipts) were replaced instead of added.
+
+## Quotation workflow (Final Completion checklist, section 6, 15 Oct 2026)
+
+Everything section 6 asks for, on top of the document described under
+"Quotations". Pure rules in `src/lib/quotations.ts`; data in
+`src/lib/dal/quotations.ts`; actions in `src/app/actions/quotations.ts`.
+
+- **The order of things:** booking (the appointment) → quotation (after the
+  car is looked at) → customer approval → job order. The booking link is
+  optional, so a walk-in or a price asked over the phone is quoted with no
+  booking. A booking cannot be made from an approved quotation; that was
+  discussed and left out as new scope.
+- **Link to a booking:** a Booking picker in the editor (non-cancelled
+  bookings from the last 120 days) fills in the customer and car where empty.
+  The booking drawer lists its quotations and has "+ New quotation", which
+  opens `/quotations/new?booking=BK-…` already filled in.
+- **Statuses:** Draft, Sent, Approved, Partially Approved, Declined are
+  stored. **Expired is never stored:** a Sent quotation past its
+  `validUntil` reads as Expired (`effectiveStatus`). Validity defaults to the
+  quote date plus Settings' "Valid for (days)" (30), editable per quotation.
+  Sent means emailed from AEGIS, or "Mark as given" (printed, shown, sent
+  from a phone).
+- **Margin:** the editor's Totals panel shows the customer total and, in a
+  grey "Internal · never printed" box, cost and gross profit with margin %.
+  Margin % is profit over what the costed lines sell for, both after the
+  discount (`quoteTotals().marginPercent`).
+- **Discounts and special pricing:** a discount needs a written reason. A
+  discount, or any line priced below its cost, is **special pricing** and
+  needs an administrator's approval before the quotation can be emailed,
+  downloaded or marked as given. The approval is stored with a key of the
+  exact figures (`specialPricingKey`): change the discount or a below-cost
+  line and it lapses; edit an ordinary line and it stands. Members can type a
+  discount but not approve one.
+- **Customer approval:** "Record answer" takes the outcome, the date and time
+  (Manila), who answered, how, a note, and for a partial approval the lines
+  agreed and the discount on them (never more than quoted). The approved
+  amount is worked out on the server. "Undo" clears an answer recorded by
+  mistake while no job order exists.
+- **Who did what:** `preparedBy` (name at the time), the pricing approver,
+  and who recorded the answer are stored. Every save, discount change,
+  approval, send, answer and conversion is a line in `quoteEvents`
+  (append-only), shown under History.
+- **Revisions:** a Draft is edited in place, each save logged. Once a
+  quotation has left the shop (any status but Draft), saving a change first
+  copies the version the customer holds into `quotationRevisions` (written
+  once; a unique index refuses a racing second save), then carries on as the
+  next revision, a Draft again, with the answer and sent details cleared. Old
+  revisions keep their own PDF. Only a first draft never sent can be deleted.
+  Once a job order exists the quotation is locked.
+- **The editor's layout:** one progress strip under the title (Draft → Sent →
+  Customer answer → Job order) shows each step and the one next button;
+  History is folded away at the bottom.
+
+## Job orders and bookings (15 Oct 2026)
+
+`jobOrders` (JO-…), made only from an approved quotation with **Make job
+order**; there is no other way to create one. List: Quotations → Job orders
+tab; page: `/quotations/jobs/[ref]`. Data in `src/lib/dal/job-orders.ts`; the
+booking rules are pure, in `src/lib/job-orders.ts`.
+
+- **What carries over:** the approved lines only, the approved discount and
+  the customer-approved total, fixed at conversion, plus who approved and
+  when. Each line keeps its quoted cost and an empty `actualCostCents`, and
+  the job order has an empty `invoiceRef`, for Quoted Cost → Actual Cost →
+  Invoice → Actual Gross Profit later.
+- **One per quotation:** a unique index on `quotationRef`; a second click or a
+  retry returns the first job order.
+- **No duplicate revenue:** a job order posts nothing to the ledger. The sale
+  stays the booking's single ledger entry: converting a quotation linked to a
+  booking sets that booking's value to the approved amount (through
+  `updateBookingDetails`, which upserts the same entry). A job order with no
+  booking records no sale; invoicing will.
+- **One job, tracked once:** the booking owns the appointment (Pending →
+  Confirmed); once it has a job order, the job order owns the work (Open → In
+  progress → Completed) and the booking follows: starting the job order makes
+  the booking In progress, completing it makes it Completed (which writes the
+  Fleet service line as before), reopening or going back to Open moves the
+  booking back. Work cannot start on a booking still Pending. A booking with
+  open work cannot be cancelled from Bookings; cancelling the job order
+  leaves the booking Confirmed for staff to decide. With several job orders,
+  the booking is Completed only when every one still standing is. In the
+  drawer, Start/Complete becomes "Work on JO-…". `setBookingStatusAction`
+  now returns refusals instead of throwing, because Next hides thrown
+  messages in production.
+
+Check: `npm run quote:check` covers margin %, special pricing keys, validity
+and Expired, partial approval, Manila times, the booking sync rules, and the
+unique indexes on revisions and job orders.
+
+## Owner text alerts (15 Oct 2026)
+
+Short SMS to the business's own people, set per business in Business
+Management → **Owner text alerts**. **Outside the frozen checklist: needs the
+owner's approval.** **No SMS provider is connected, so no alert has reached a
+phone**; each is recorded as "Not sent". Connecting one is
+`src/lib/sms/provider.ts`, the same single file Text Blast waits on.
+
+- **Settings** (`ownerAlerts` on the business record): on/off, up to three
+  named Philippine mobiles, which kinds, and a daily limit (20).
+- **Kinds:** quotation sent / approved / partly approved / declined; approval
+  needed (a member saved special pricing; an admin saving it is not texted);
+  new bookings from the online booking page or a Messenger chat (staff-typed
+  bookings are not); job order completed or cancelled. Hooks are in the
+  quotation, booking and public booking actions.
+- **Cost bounds:** one text per event per person (unique index on business,
+  event key and number, written before sending); one GSM part at most
+  (`fitSms` swaps the peso sign, dots and curly quotes, drops emoji, and cuts
+  rather than splits); the daily limit, past which alerts are Skipped; and an
+  alert recorded while no provider is connected is never sent later, so
+  connecting one does not release a backlog.
+- **Never in the way:** a failed alert is logged and the action that raised it
+  carries on. The public booking page has no session, so it uses
+  `notifyOwnerFor(businessId, …)`; the rest use `notifyOwner`.
+- Data in `src/lib/dal/owner-alerts.ts` (`ownerAlerts`), wording in
+  `src/lib/owner-alerts.ts`, panel `src/components/admin/owner-alerts-panel.tsx`.
+
+Check: `npm run alerts:check` (every message one plain SMS part, the
+character swaps, cutting, the mobile rule, and one text per event per person).
+
+## Ask AEGIS (15 Oct 2026)
+
+A floating bubble, bottom right on every signed-in screen, where staff ask
+questions in plain words ("which quotations are waiting for an answer?").
+**Outside the frozen checklist: needs the owner's approval.** Shown only when
+`OPENAI_API_KEY` is set.
+
+- **Actions, each confirmed.** Asked to do something, it proposes it as a
+  card; nothing changes until the person presses Confirm, except `open`
+  (go to a record or screen). Kinds: booking status, draft a quotation (saved
+  as a Draft, lines tagged as suggested, never sent), mark a quotation as
+  given, record a full approval or a decline, approve special pricing
+  (administrators only), make a job order, move a job order. Each proposal
+  is checked against the record as it is now and its card is written from
+  that record, not from the model's words (`src/lib/dal/ask-actions.ts`).
+  Confirm runs `runAskProposalAction` (`src/app/actions/ask.ts`), which calls
+  the very server action the screen's own button uses, so every permission
+  and rule applies unchanged. Not offered: sending email, partial approvals,
+  editing prices; the assistant opens the screen for those instead. While an
+  action runs, the bubble goes to the record, shows each step with a spinner
+  then a check, refreshes the page, and a soft glow pulses round the screen.
+  Every proposal and every confirmed run is logged in `askLog`.
+- **Reads** go through the same tenant-scoped DAL functions the screens use
+  (`src/lib/dal/ask-data.ts`). Tools: bookings,
+  quotations, job orders, ads (the same `loadCampaignFunnel` the Ads screen now
+  uses), money (the dashboard figures), inventory, customers and cars, service
+  due, mail, and an app guide. A tool for a module the business lacks is not
+  offered.
+- **Two calls through `generate`** (`src/lib/ai/ask.ts`): a plan (fast model:
+  which tools, which period, status or search; it sees no records) and an
+  answer from what the tools returned. Figures reach the model already
+  formatted, so it copies rather than calculates; it is told to say when the
+  data does not hold the answer. Refs like QT-1004 in an answer become links.
+- **Cost:** both steps cached (the same question over the same records is
+  free); at most 60 questions per business per day (`OPENAI_ASK_PER_DAY`);
+  paused at 75% of the monthly token budget, keeping the rest for mail triage;
+  tool output cut to about 14,000 characters. Usage shows on System Status as
+  "Ask AEGIS".
+- **Privacy:** customer names, plates and amounts are sent to OpenAI when a
+  question needs them; phone numbers and email addresses are not. Every
+  question is logged in `askLog` with who asked, the tools used and the answer.
+- **Not yet asked a real question** at the time of writing; the first one
+  should be checked against the screen it describes.
+
+Check: `npm run ask:check` (Manila periods, plan checking, ref links, the
+index).
+
+## Finance (16 Oct 2026, phase 1 of 9)
+
+Built against the owner's *AEGIS Finance Reporting Checklist* (frozen
+specification, printed): a Monthly Income Report and a Financial Standing
+Report, kept separate, generated automatically after each month, archived with
+revisions, every figure traceable. An optional module (`finance`, "Finance",
+icon `wallet`), granted to no business, with no screen yet (no `href`, so it
+shows as a module stub).
+
+Decided with the developer on 16 Oct 2026:
+
+- **Sales are invoices** (INV-…), by invoice date, made from a completed job
+  order or typed in; a cash sale is an invoice paid at once. Unpaid invoices
+  are AR. The old `transactions` ledger is not a source: it counts Pending
+  bookings, and `revenueByMonth` groups by UTC month, so a sale before 8 AM on
+  the 1st lands in the previous month.
+- **Costs are bills** (BL-…), by bill date, in the nine categories of the
+  spec. Parts count when bought (a bill from a supplier receipt), not when
+  used. Unpaid bills are AP.
+- **Payments** (PY-…) move account balances and settle invoices and bills; they
+  are never income or expense. Transfers between own accounts are two legs.
+- **A passbook is a bank account,** a kind of `bank`; a unique `accountKey`
+  (institution plus number) stops one account being entered twice.
+- **The month closes automatically on the 1st** (Manila) as Revision 1; later
+  entries dated in a closed month need an admin-approved correction, which
+  makes the next revision.
+- **Members enter, admins own:** the owner screen, corrections and
+  reconciliation differences are for administrators.
+- Assumed until told otherwise: critical overdue AP is more than 30 days past
+  due; AR ages from the invoice date, so 90+ starts on day 91.
+
+Phase 1 (done): types (`src/types/finance.ts`), Manila periods
+(`src/lib/finance-periods.ts`), the pure rules (`src/lib/finance.ts`: income,
+standing, drill-down rows, aging, the 90+ control, AP groups, reconciliation,
+report titles), indexes (`src/lib/data/finance.ts`, also created by the seed).
+Check: `npm run finance:check` (the spec's September example, a hand total,
+the independent position, no double-counted passbook, AP not yet due, aging,
+the 90+ control, AP groups, Manila month turnover, and the unique indexes).
+
+Phase 2 (built, checked in the browser on AUTOBLITZ on 16 Oct 2026, which now
+has the Finance module): `/finance`, the Accounts screen. Browser-checked:
+add cash and bank accounts, a passbook for the same BDO number typed
+differently refused, a transfer too large refused, a transfer recorded, a count
+with a difference shown on the screen and the dashboard, a short explanation
+refused, explaining with and without adjusting the book, setting aside a
+non-empty account refused, voiding a transfer. The test records (MA-1001,
+MA-1002, PY-1001, PY-1002, RC-1001, RC-1002 and their nine audit lines) were
+deleted afterwards at the developer's request, so AUTOBLITZ's Finance is empty
+and the next account it gets will be MA-1001 again. The
+shared `Modal` (`form-kit.tsx`) moved from z-60 to z-80 so it opens above side
+drawers; before that, any form-kit modal opened from a drawer (including
+Suppliers' Edit details) sat behind it. Data in `src/lib/dal/finance-accounts.ts` (accounts, transfers, counts)
+and `src/lib/dal/finance.ts` (collections, `financeEvents` audit log); actions
+in `src/app/actions/finance.ts`; screen in `src/components/finance/`.
+
+- **Accounts** (MA-…): cash, bank account, passbook, e-wallet, each with an
+  opening balance as of a day. A bank, passbook or e-wallet needs its number:
+  it is hashed with the bank into `accountKey` (unique index) and only the last
+  four digits are kept, so the same account cannot be entered twice, as a bank
+  account and again as a passbook. Balances are never stored; each is opening
+  plus payments since, and the drawer lists those rows with their total.
+  The opening balance is fixed once money has moved or the account was
+  counted. An account is set aside only when empty.
+- **Transfers** are one payment (PY-…) out of one account and into another
+  (`toAccountRef`), not two legs, since the local Mongo has no transactions.
+  Refused if it would take the source below zero on that day or any later day
+  (`lowestBalance`). Transfers and adjustments can be voided (kept, with the
+  reason) unless that would leave an account below zero.
+- **Counts** (RC-…): a cash count or passbook/statement balance for a day,
+  entered blind (the form does not show the book figure). The server records
+  the book for that day and the difference. A difference stays open, on the
+  Finance screen and as a dashboard alert, until an administrator explains it,
+  optionally adjusting the book by an `other` payment that moves the balance
+  only and is never income or expense.
+- **Members enter, admins own:** anyone with the module records transfers and
+  counts; accounts, voids and resolving differences are for administrators.
+
+Still to come: bills and AP; invoices and AR; live reports, drill-down and the owner screen; the month-end close with
+PDFs, archive and revisions; year-end reports; an optional AI summary that
+may only repeat figures in the frozen report; the acceptance run.
+
+## Known issue
+
+The booking drawer's timeline (`bookingTimeline`, `src/lib/bookings.ts`) shows
+"Confirmation email sent · automated" and "Reminder scheduled", which never
+happen. It breaks the no-invented-figures rule and should be rebuilt from real
+events or removed.

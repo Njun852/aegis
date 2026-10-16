@@ -109,7 +109,7 @@ export function PriceComparison({
                     {index === 0 && group.entries.length > 1 && <Badge tone="positive">Cheapest</Badge>}
                     {entry.preferred && <Badge tone="accent">Preferred</Badge>}
                     {planning?.ref === entry.ref && !entry.preferred && (
-                      <Badge tone="neutral">Used for quotes</Badge>
+                      <Badge tone="accent">Preferred (automatic)</Badge>
                     )}
                     <span style={{ fontSize: "13px", fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 96, textAlign: "right" }}>
                       {formatPeso(entry.costCents)}
