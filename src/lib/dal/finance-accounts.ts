@@ -303,18 +303,29 @@ export async function recordTransfer(input: TransferInput, actor: FinanceActor):
 }
 
 /**
- * Voids a transfer or an adjustment recorded by mistake. Kept, marked void,
- * with the reason. Refused when taking it back would leave an account below
- * zero, which would mean money already spent from it.
+ * Voids a payment recorded by mistake. Kept, marked void, with the reason.
+ * Refused when taking it back would leave an account below zero, which would
+ * mean money already spent from it. The Accounts screen voids transfers and
+ * adjustments; a bill or invoice voids its own payments, so each is undone
+ * where the person can see what it settled.
  */
-export async function voidPayment(ref: string, reason: string, actor: FinanceActor): Promise<void> {
+export async function voidPayment(
+  ref: string,
+  reason: string,
+  actor: FinanceActor,
+  kinds: PaymentDocument["kind"][] = ["transfer", "other"],
+): Promise<PaymentDocument> {
   const why = reason.trim();
   if (why.length < 5) throw new InputError("Say why this is being voided.");
   const { accounts, recorded } = await readAll();
   const target = recorded.find((payment) => payment.ref === ref);
   if (!target) throw new InputError("That payment is already void or no longer on record.");
-  if (target.kind !== "transfer" && target.kind !== "other") {
-    throw new InputError("Collections and bill payments are voided from the invoice or bill they settle.");
+  if (!kinds.includes(target.kind)) {
+    throw new InputError(
+      target.kind === "transfer" || target.kind === "other"
+        ? "Transfers and adjustments are voided from the account."
+        : "Collections and bill payments are voided from the invoice or bill they settle.",
+    );
   }
 
   const remaining = recorded.filter((payment) => payment.ref !== ref);
@@ -330,6 +341,35 @@ export async function voidPayment(ref: string, reason: string, actor: FinanceAct
   const result = await collection.updateOne({ ref, status: "recorded" }, { $set: { status: "void", voidReason: why } });
   if (result.modifiedCount === 0) throw new InputError("That payment is already void.");
   await logFinanceEvent(actor, "payment.voided", ref, `${formatMoney(target.amountCents)} · ${why}`);
+  return target;
+}
+
+/**
+ * Checks money can leave an account on a day, before anything is written:
+ * the account is in use, existed then, and stays at or above zero on that day
+ * and every day after.
+ */
+export async function assertCanPayOut(accountRef: string, amountCents: number, paidOn: DateKey): Promise<MoneyAccount> {
+  const { accounts, recorded } = await readAll();
+  const account = accounts.find((entry) => entry.ref === accountRef);
+  if (!account) throw new InputError("Choose the account it was paid from.");
+  if (!account.active) throw new InputError(`${account.name} is no longer used.`);
+  if (paidOn < account.openingDate) {
+    throw new InputError(`${account.name} has no balance on record before ${formatQuoteDay(account.openingDate)}.`);
+  }
+  const candidate = {
+    ref: "PENDING",
+    accountRef,
+    direction: "out" as const,
+    kind: "bill" as const,
+    amountCents,
+    paidOn,
+    note: "",
+    status: "recorded" as const,
+  };
+  const lowest = lowestBalance(account, [...recorded, candidate], paidOn, todayKey());
+  if (lowest.cents < 0) throw new InputError(belowZero(account.name, lowest));
+  return account;
 }
 
 export async function recordCount(

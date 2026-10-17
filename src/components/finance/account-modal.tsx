@@ -8,6 +8,7 @@ import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
 import { accountInputProblem } from "@/lib/finance";
 import { amountInput, parseAmount } from "@/lib/quotations";
+import { locked } from "./locked";
 import type { BankAccountKind, MoneyAccountSummary, MoneyAccountType } from "@/types";
 
 type Choice = "cash" | "bank-account" | "passbook" | "ewallet";
@@ -164,7 +165,7 @@ export function AccountModal({
           hint={openingLocked ? "Fixed: money has moved through this account or it has been counted." : undefined}
         >
           <input
-            style={INPUT}
+            style={locked(INPUT, openingLocked)}
             inputMode="decimal"
             value={opening}
             disabled={openingLocked}
@@ -174,7 +175,7 @@ export function AccountModal({
         </Field>
         <Field label="Balance as of" required hint={openingLocked ? undefined : "The start of this day, before anything that day."}>
           <input
-            style={INPUT}
+            style={locked(INPUT, openingLocked)}
             type="date"
             value={openingDate}
             max={today}

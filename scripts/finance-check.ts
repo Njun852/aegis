@@ -34,6 +34,10 @@ import {
   transferProblem,
   apStatusGroup,
   ar90Problems,
+  billInputProblem,
+  billPayState,
+  billPaymentProblem,
+  termsDays,
   arAgingBucket,
   daysOutstanding,
   dueLabel,
@@ -316,6 +320,31 @@ const groups = (
   ] as const
 ).map(([due, expected]) => [apStatusGroup(due, today), expected]);
 for (const [actual, expected] of groups) assert.equal(actual, expected);
+// Bills as typed, and payments against them.
+assert.deepEqual(
+  ["30 days", "Net 15 days", "60-day PDC", "Cash", "COD", "cash on delivery", "15d", "", "Monthly"].map(termsDays),
+  [30, 15, 60, 0, 0, 0, 15, null, null],
+);
+const typed = { payee: "Davao Light", billDate: "2026-10-05", dueDate: "2026-10-20", amountCents: peso(4_500), category: "utilities" as const };
+assert.equal(billInputProblem(typed, today), null);
+assert.match(billInputProblem({ ...typed, payee: " " }, today)!, /payee/);
+assert.match(billInputProblem({ ...typed, billDate: "2026-10-17" }, today)!, /future/);
+assert.match(billInputProblem({ ...typed, dueDate: "2026-10-04" }, today)!, /before the bill/);
+assert.match(billInputProblem({ ...typed, amountCents: 0 }, today)!, /above zero/);
+assert.match(billInputProblem({ ...typed, category: "fuel" as never }, today)!, /category/);
+const owing = { billDate: "2026-10-05", outstandingCents: peso(4_500), status: "open" as const };
+assert.equal(billPaymentProblem({ amountCents: peso(2_000), paidOn: "2026-10-10" }, owing, today), null);
+assert.match(billPaymentProblem({ amountCents: peso(5_000), paidOn: "2026-10-10" }, owing, today)!, /more than is still owed/);
+assert.match(billPaymentProblem({ amountCents: peso(100), paidOn: "2026-10-01" }, owing, today)!, /before the bill/);
+assert.match(billPaymentProblem({ amountCents: peso(100), paidOn: "2026-10-17" }, owing, today)!, /future/);
+assert.match(billPaymentProblem({ amountCents: peso(100), paidOn: "2026-10-10" }, { ...owing, outstandingCents: 0 }, today)!, /paid in full/);
+assert.match(billPaymentProblem({ amountCents: peso(100), paidOn: "2026-10-10" }, { ...owing, status: "void" }, today)!, /void/);
+assert.deepEqual(
+  [billPayState(100, 0, "open"), billPayState(100, 40, "open"), billPayState(100, 100, "open"), billPayState(100, 0, "void")],
+  ["Unpaid", "Part paid", "Paid", "Void"],
+);
+console.log("✓ bills: terms read as days, no future dates, no paying more than is owed or before the bill");
+
 assert.equal(dueLabel("2026-10-21", today), "Due in 5 days");
 assert.equal(dueLabel("2026-10-16", today), "Due today");
 assert.equal(dueLabel("2026-10-15", today), "1 day overdue");

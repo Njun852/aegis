@@ -4,6 +4,7 @@ import { tenantScope } from "./tenant";
 import { verifySession } from "./session";
 import { findUserById } from "./users";
 import type {
+  BillDocument,
   FinanceActor,
   FinanceEventDocument,
   MoneyAccountDocument,
@@ -18,6 +19,7 @@ import type {
  * pure, in `src/lib/finance.ts`.
  */
 export const moneyAccounts = () => tenantScope<MoneyAccountDocument>("moneyAccounts");
+export const bills = () => tenantScope<BillDocument>("bills");
 export const payments = () => tenantScope<PaymentDocument>("payments");
 export const reconciliations = () => tenantScope<ReconciliationDocument>("reconciliations");
 const financeEvents = () => tenantScope<FinanceEventDocument>("financeEvents");

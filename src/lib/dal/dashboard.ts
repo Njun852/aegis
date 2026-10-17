@@ -1,6 +1,7 @@
 import "server-only";
 
 import { buildFunnel, CONVERSATION_RESULT } from "@/lib/ad-funnel";
+import { manilaDateKey } from "@/lib/booking-slots";
 import {
   bookingFigures,
   bucketsFromDays,
@@ -18,6 +19,7 @@ import { readActiveMetaAdsStatus } from "./ad-account";
 import { listAdRows } from "./ads";
 import { countConfirmedByCampaign, listBookings } from "./bookings";
 import { listOpenDiscrepancies } from "./finance-accounts";
+import { listBills } from "./finance-bills";
 import { listInventory, purchasesByMonth } from "./inventory";
 import { revenueByMonth } from "./ledger";
 import { listVehicles } from "./fleet";
@@ -246,6 +248,37 @@ async function buildAlerts(
         tag: "Finance",
         icon: "wallet",
         iconColor: ALERT_COLORS.urgent,
+      });
+    }
+
+    // Overdue bills, and bills falling due in the next seven days: the other
+    // two payables alerts on the owner's critical list.
+    const owed = (await listBills(manilaDateKey(today))).filter((bill) => bill.outstandingCents > 0);
+    const total = (list: typeof owed) => list.reduce((sum, bill) => sum + bill.outstandingCents, 0);
+    const late = owed.filter((bill) => bill.group === "overdue" || bill.group === "critical-overdue");
+    if (late.length > 0) {
+      alerts.push({
+        weight: 1,
+        title: `${plural(late.length, "bill", "bills")} overdue`,
+        meta: late.slice(0, 2).map((bill) => bill.payee).join(", "),
+        amount: formatMoney(total(late)),
+        amountTone: "negative",
+        tag: "Payables",
+        icon: "file-text",
+        iconColor: ALERT_COLORS.urgent,
+      });
+    }
+    const soon = owed.filter((bill) => bill.group === "due-today" || bill.group === "due-7");
+    if (soon.length > 0) {
+      alerts.push({
+        weight: 2,
+        title: `${plural(soon.length, "bill", "bills")} due within 7 days`,
+        meta: soon.slice(0, 2).map((bill) => bill.payee).join(", "),
+        amount: formatMoney(total(soon)),
+        amountTone: "neutral",
+        tag: "Payables",
+        icon: "file-text",
+        iconColor: ALERT_COLORS.attention,
       });
     }
   }

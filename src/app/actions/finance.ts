@@ -12,8 +12,10 @@ import {
   updateAccount,
   voidPayment,
 } from "@/lib/dal/finance-accounts";
+import { createBill, recordBillPayment, updateBill, voidBill, voidBillPayment } from "@/lib/dal/finance-bills";
 import { InputError } from "@/lib/dal/refs";
-import type { MoneyAccountInput, TransferInput } from "@/types";
+import { EXPENSE_CATEGORIES } from "@/lib/finance";
+import type { BillInput, BillPaymentInput, ExpenseCategory, MoneyAccountInput, TransferInput } from "@/types";
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -144,6 +146,90 @@ export async function recordCountAction(
     const result = await recordCount(text(accountRef, 20), text(asOf, 10), cents(countedCents), actor);
     refresh();
     return { ok: true, ...result };
+  });
+}
+
+// ---- Bills --------------------------------------------------------------------
+
+const CATEGORIES: ExpenseCategory[] = EXPENSE_CATEGORIES.map((entry) => entry.key);
+
+function readBill(raw: BillInput): Omit<BillInput, "supplierRef" | "receiptRef" | "paidFrom"> {
+  return {
+    payee: text(raw.payee, 120),
+    reference: text(raw.reference, 80),
+    billDate: text(raw.billDate, 10),
+    dueDate: text(raw.dueDate, 10),
+    amountCents: cents(raw.amountCents),
+    category: CATEGORIES.includes(raw.category) ? raw.category : ("" as ExpenseCategory),
+    responsiblePerson: text(raw.responsiblePerson, 80),
+    remarks: text(raw.remarks, 600),
+  };
+}
+
+export async function createBillAction(raw: BillInput): Promise<Result<{ ref: string }>> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    const paidFrom =
+      raw.paidFrom && typeof raw.paidFrom === "object"
+        ? { accountRef: text(raw.paidFrom.accountRef, 20), paidOn: text(raw.paidFrom.paidOn, 10) }
+        : null;
+    const ref = await createBill(
+      {
+        ...readBill(raw),
+        supplierRef: text(raw.supplierRef, 20) || null,
+        receiptRef: text(raw.receiptRef, 20) || null,
+        paidFrom,
+      },
+      actor,
+    );
+    refresh();
+    return { ok: true, ref };
+  });
+}
+
+export async function updateBillAction(ref: string, raw: BillInput): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    await updateBill(text(ref, 20), readBill(raw), actor);
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function payBillAction(ref: string, raw: BillPaymentInput): Promise<Result<{ ref: string }>> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    const paymentRef = await recordBillPayment(
+      text(ref, 20),
+      { accountRef: text(raw.accountRef, 20), amountCents: cents(raw.amountCents), paidOn: text(raw.paidOn, 10), note: text(raw.note, 200) },
+      actor,
+    );
+    refresh();
+    return { ok: true, ref: paymentRef };
+  });
+}
+
+/** Administrators only: a void bill leaves the month's costs. */
+export async function voidBillAction(ref: string, reason: string): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await adminActor();
+    await voidBill(text(ref, 20), text(reason, 300), actor);
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function voidBillPaymentAction(paymentRef: string, reason: string): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await adminActor();
+    await voidBillPayment(text(paymentRef, 20), text(reason, 300), actor);
+    refresh();
+    return { ok: true };
   });
 }
 

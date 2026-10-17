@@ -4,9 +4,12 @@ import type {
   ArAgingBucket,
   ArFollowUp,
   BillDocument,
+  BillInput,
+  BillPayState,
   DateKey,
   ExpenseCategory,
   Figure,
+  FinanceDocumentStatus,
   FinanceReportKind,
   IncomeFigures,
   InvoiceDocument,
@@ -474,6 +477,60 @@ export function lowestBalance(
     if (cents < lowest.cents) lowest = { cents, dateKey: day };
   }
   return lowest;
+}
+
+// ---- Bills --------------------------------------------------------------------
+
+/**
+ * Days of credit in a supplier's terms as typed: "30 days" is 30, "Cash" or
+ * "COD" is 0. Null when the terms say nothing that can be read as a number of
+ * days, so a person sets the due date rather than AEGIS guessing one.
+ */
+export function termsDays(terms: string): number | null {
+  const text = terms.toLowerCase();
+  const days = text.match(/(\d{1,3})\s*(?:-\s*)?(?:days?|d\b)/);
+  if (days) return Number(days[1]);
+  if (/\b(cash|cod|c\.o\.d|on delivery|upon delivery)\b/.test(text)) return 0;
+  return null;
+}
+
+export function billPayState(amountCents: number, paidCents: number, status: FinanceDocumentStatus): BillPayState {
+  if (status === "void") return "Void";
+  if (paidCents <= 0) return "Unpaid";
+  return paidCents >= amountCents ? "Paid" : "Part paid";
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Why a bill cannot be saved as typed, or null when it can. */
+export function billInputProblem(
+  input: Pick<BillInput, "payee" | "billDate" | "dueDate" | "amountCents" | "category">,
+  today: DateKey,
+): string | null {
+  if (!input.payee.trim()) return "Name the supplier or payee.";
+  if (!EXPENSE_CATEGORIES.some((entry) => entry.key === input.category)) return "Choose a category.";
+  if (!isAmount(input.amountCents)) return "Enter the bill's amount, above zero.";
+  if (!DAY.test(input.billDate)) return "Choose the bill's date.";
+  if (input.billDate > today) return "A bill cannot be dated in the future. Date it the day it was issued.";
+  if (!DAY.test(input.dueDate)) return "Choose the due date.";
+  if (input.dueDate < input.billDate) return "The due date cannot be before the bill's date.";
+  return null;
+}
+
+/** Why a payment against a bill cannot be recorded, or null when it can. */
+export function billPaymentProblem(
+  payment: { amountCents: number; paidOn: DateKey },
+  bill: { billDate: DateKey; outstandingCents: number; status: FinanceDocumentStatus },
+  today: DateKey,
+): string | null {
+  if (bill.status === "void") return "This bill is void.";
+  if (bill.outstandingCents <= 0) return "This bill is already paid in full.";
+  if (!isAmount(payment.amountCents)) return "Enter the amount paid, above zero.";
+  if (payment.amountCents > bill.outstandingCents) return "That is more than is still owed on this bill.";
+  if (!DAY.test(payment.paidOn)) return "Choose the day it was paid.";
+  if (payment.paidOn > today) return "A payment cannot be dated in the future.";
+  if (payment.paidOn < bill.billDate) return "A payment cannot be dated before the bill.";
+  return null;
 }
 
 // ---- Reconciliation -----------------------------------------------------------

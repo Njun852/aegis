@@ -132,6 +132,12 @@ export interface BillDocument {
   opening: boolean;
   responsiblePerson: string;
   remarks: string;
+  /**
+   * A void bill gives up `receiptRef` and keeps it here, so the receipt can be
+   * billed again correctly while the unique index still allows one live bill.
+   */
+  voidedReceiptRef?: string;
+  voidReason?: string;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -226,6 +232,77 @@ export interface Reconciliation {
   resolution: string;
   resolvedBy: string;
   createdBy: string;
+}
+
+export interface BillInput {
+  payee: string;
+  supplierRef: string | null;
+  /** Set when the bill is made from a supplier receipt. */
+  receiptRef: string | null;
+  reference: string;
+  billDate: DateKey;
+  dueDate: DateKey;
+  amountCents: number;
+  category: ExpenseCategory;
+  responsiblePerson: string;
+  remarks: string;
+  /** Paid in full when it was entered: a cash expense. */
+  paidFrom: { accountRef: string; paidOn: DateKey } | null;
+}
+
+export interface BillPaymentInput {
+  accountRef: string;
+  amountCents: number;
+  paidOn: DateKey;
+  note: string;
+}
+
+/** "Unpaid", "Part paid", "Paid", or "Void". */
+export type BillPayState = "Unpaid" | "Part paid" | "Paid" | "Void";
+
+/** One bill as the Payables tab lists it, worked out for today. */
+export interface BillSummary {
+  ref: string;
+  payee: string;
+  supplierRef: string | null;
+  receiptRef: string | null;
+  reference: string;
+  billDate: DateKey;
+  dueDate: DateKey;
+  amountCents: number;
+  paidCents: number;
+  outstandingCents: number;
+  category: ExpenseCategory;
+  state: BillPayState;
+  /** Only for a bill with something still to pay. */
+  group: ApStatusGroup | null;
+  daysUntilDue: number;
+  responsiblePerson: string;
+  remarks: string;
+  voidReason: string;
+  createdBy: string;
+  /** Recorded and void, newest first. */
+  payments: (Payment & { accountName: string })[];
+}
+
+/** A posted supplier receipt no bill has been made from yet. */
+export interface UnbilledReceipt {
+  ref: string;
+  supplierRef: string;
+  supplierName: string;
+  terms: string;
+  receiptNo: string;
+  receivedDate: DateKey;
+  totalCents: number;
+  /** From the supplier's terms when they can be read ("30 days", "Cash"). */
+  suggestedDueDate: DateKey | null;
+}
+
+/** A supplier to pick as a bill's payee. */
+export interface PayeeOption {
+  ref: string;
+  name: string;
+  terms: string;
 }
 
 /** A count as the screen lists it, with what the book says for that day now. */

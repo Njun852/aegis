@@ -865,7 +865,49 @@ in `src/app/actions/finance.ts`; screen in `src/components/finance/`.
 - **Members enter, admins own:** anyone with the module records transfers and
   counts; accounts, voids and resolving differences are for administrators.
 
-Still to come: bills and AP; invoices and AR; live reports, drill-down and the owner screen; the month-end close with
+Phase 3 (built, checked in the browser on AUTOBLITZ on 17 Oct 2026): the
+**Payables** tab (`/finance?tab=payables`), bills and Accounts Payable. Data in
+`src/lib/dal/finance-bills.ts`; rules (`termsDays`, `billInputProblem`,
+`billPaymentProblem`, `billPayState`) in `src/lib/finance.ts`; screen in
+`src/components/finance/payables-panel.tsx`, `bill-modal.tsx`,
+`bill-drawer.tsx`, `pay-bill-modal.tsx`. The Finance page now has tabs
+(`finance-workspace.tsx`); the old Accounts content is `accounts-panel.tsx`.
+
+- **Bills** (BL-…): payee, optional supplier link, invoice/reference,
+  invoice date (the month the cost belongs to), due date, amount, one of the
+  nine categories, responsible person, remarks. Paid, outstanding and status
+  are worked out from payments, never stored. A bill can be entered as
+  already paid (a cash expense); the payment is checked before the bill is
+  written, so a refused payment never leaves an unpaid bill behind.
+- **From a supplier receipt:** posted receipts with no bill are listed (and
+  warned about on the tab), and "Make bill" fills in the supplier, receipt
+  number, date, total, category Parts / Materials, and the due date from the
+  supplier's terms when they read as days ("30 days", "Cash"). One live bill
+  per receipt (unique index); voiding a bill moves its link to
+  `voidedReceiptRef` so the receipt can be billed again.
+- **Payments** (PY-…, kind `bill`): full or part, never more than is owed,
+  never before the bill or in the future, never taking the account below
+  zero on any later day. Amount, date and category lock once anything is
+  paid. Voiding a payment or a bill is for administrators and keeps the
+  record with its reason; a bill with payments must have them voided first.
+- **The AP screen** lists every outstanding bill, due or not, grouped Critical
+  overdue (over 30 days), Overdue, Due today, Due within 7 days, Due within 30
+  days, Due later, with all twelve columns the spec asks for; Paid and Void
+  are filters.
+- **Dashboard alerts:** overdue bills and bills due within 7 days, with the
+  amounts, beside the count-difference alert.
+
+Browser-checked: three bills landing in Critical overdue, Due within 7 days
+and Due later; an overpayment refused; a part payment; the locked fields
+(now greyed out); a bill entered as paid, and one refused for taking cash
+below zero with nothing written; the receipt prefill (opened, not saved);
+both dashboard alerts; voiding a payment then its bill; the cash account
+showing the bill payment by payee. The test records (MA-1001, BL-1001 to
+BL-1004, PY-1001, PY-1002 and nine audit lines) were deleted afterwards at the
+developer's request; AUTOBLITZ's Finance is empty again. The four real posted
+supplier receipts (GR-1001 to GR-1004) still have no bill.
+
+Still to come: invoices and AR; live reports, drill-down and the owner screen; the month-end close with
 PDFs, archive and revisions; year-end reports; an optional AI summary that
 may only repeat figures in the frozen report; the acceptance run.
 
