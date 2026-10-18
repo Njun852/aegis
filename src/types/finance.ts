@@ -95,6 +95,9 @@ export interface InvoiceDocument {
    */
   opening: boolean;
   followUp: ArFollowUp;
+  /** As with bills: a void invoice gives up its job order so the work can be invoiced again. */
+  voidedJobOrderRef?: string;
+  voidReason?: string;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -305,6 +308,76 @@ export interface PayeeOption {
   terms: string;
 }
 
+export interface InvoiceInput {
+  customerName: string;
+  customerRef: string | null;
+  /** Set when the invoice bills a completed job order. */
+  jobOrderRef: string | null;
+  number: string;
+  invoiceDate: DateKey;
+  dueDate: DateKey;
+  amountCents: number;
+  responsiblePerson: string;
+  remarks: string;
+  nextFollowUpDate: DateKey | null;
+  /** Collected in full when it was entered: a cash sale. */
+  collectedInto: { accountRef: string; paidOn: DateKey } | null;
+}
+
+/** A collection is a bill payment in the other direction: money into an account. */
+export type CollectionInput = BillPaymentInput;
+
+/** One invoice as the Receivables tab lists it, worked out for today. */
+export interface InvoiceSummary {
+  ref: string;
+  number: string;
+  customerName: string;
+  customerRef: string | null;
+  jobOrderRef: string | null;
+  invoiceDate: DateKey;
+  dueDate: DateKey;
+  amountCents: number;
+  collectedCents: number;
+  outstandingCents: number;
+  state: BillPayState;
+  daysOutstanding: number;
+  /** Only for an invoice with something still to collect. */
+  bucket: ArAgingBucket | null;
+  daysUntilDue: number;
+  followUp: ArFollowUp;
+  /** What the 90+ day control still needs; empty when met or not yet 90 days. */
+  problems: { field: keyof ArFollowUp; message: string }[];
+  voidReason: string;
+  createdBy: string;
+  /** Recorded and void, newest first. */
+  payments: (Payment & { accountName: string })[];
+}
+
+/** A completed job order with no live invoice. */
+export interface UninvoicedJob {
+  ref: string;
+  customerName: string;
+  customerRef: string | null;
+  vehicle: string;
+  approvedTotalCents: number;
+  /** "2026-10-15", when the customer approved it. */
+  approvedDate: DateKey;
+}
+
+/** A CRM customer to pick as who is billed. */
+export interface CustomerOption {
+  ref: string;
+  name: string;
+}
+
+/** One line of an invoice's history, from the audit log. */
+export interface FinanceEventLine {
+  at: string;
+  actor: string;
+  action: string;
+  detail: string;
+}
+
 /** A count as the screen lists it, with what the book says for that day now. */
 export interface CountRow extends Reconciliation {
   /** Differs from `bookCents` once a payment for that day is recorded later. */
@@ -355,11 +428,13 @@ export interface ReconciliationDocument {
  * make it up and add back to the same total.
  */
 export interface SourceRow {
-  kind: "invoice" | "bill" | "payment" | "opening";
+  kind: "invoice" | "bill" | "payment" | "opening" | "count";
   ref: string;
   dateKey: DateKey;
   label: string;
   amountCents: number;
+  /** For an opening balance, payment or count: the account it belongs to, so the row can open it. */
+  accountRef?: string;
 }
 
 export interface Figure {
@@ -383,11 +458,51 @@ export interface StandingFigures {
   cash: Figure;
   /** Bank accounts and passbooks together, each account once. */
   bank: Figure;
+  /** The two parts of `bank`, shown as separate lines; they add up to it. */
+  bankAccounts: Figure;
+  passbooks: Figure;
   ewallet: Figure;
   receivable: Figure;
   payable: Figure;
   /** Cash + Bank/Passbook + E-wallet + AR - AP. */
   positionCents: number;
+}
+
+/**
+ * The exceptions the Financial Standing Report lists below the position, each
+ * worked out for the same day so they can be frozen with it.
+ */
+export interface StandingAttention {
+  asOf: DateKey;
+  /** Outstanding on invoices more than 90 days old on `asOf`. */
+  ar90: Figure;
+  /** Outstanding on bills past their due date on `asOf`. */
+  apOverdue: Figure;
+  /** Outstanding on bills due from `asOf` to seven days after. */
+  apDue7: Figure;
+  /** Counts on or before `asOf` whose difference nobody has explained. */
+  differences: Figure;
+}
+
+/** One line on the owner's critical list. */
+export interface FinanceAlert {
+  key: "ar90" | "ap-overdue" | "ap-due7" | "differences" | "follow-up" | "uninvoiced" | "unbilled";
+  title: string;
+  detail: string;
+  /** Empty for an alert that counts records rather than money. */
+  amount: string;
+  /** Where to deal with it. */
+  href: string;
+  tone: "negative" | "warning";
+}
+
+/** The owner's Finance screen: five figures, and only what needs attention. */
+export interface FinanceOverview {
+  today: DateKey;
+  month: MonthKey;
+  income: IncomeFigures;
+  standing: StandingFigures;
+  alerts: FinanceAlert[];
 }
 
 // ---- Aging and due dates ------------------------------------------------------

@@ -13,10 +13,12 @@ import type {
   FinanceReportKind,
   IncomeFigures,
   InvoiceDocument,
+  InvoiceInput,
   MoneyAccount,
   MonthKey,
   PaymentDocument,
   SourceRow,
+  StandingAttention,
   StandingFigures,
 } from "@/types";
 
@@ -166,6 +168,7 @@ export function accountRows(account: MoneyAccount, payments: StandingPayment[], 
       dateKey: account.openingDate,
       label: `${account.name} · opening balance`,
       amountCents: account.openingBalanceCents,
+      accountRef: account.ref,
     },
   ];
   for (const payment of payments) {
@@ -180,6 +183,7 @@ export function accountRows(account: MoneyAccount, payments: StandingPayment[], 
       dateKey: payment.paidOn,
       label: payment.note ? `${kind} · ${payment.note}` : kind,
       amountCents: arrives || payment.direction === "in" ? payment.amountCents : -payment.amountCents,
+      accountRef: account.ref,
     });
   }
   return rows.sort((a, b) => (a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0));
@@ -237,12 +241,22 @@ export function standingFigures(
   );
 
   const cash = ofType("cash");
-  const bank = ofType("bank");
   const ewallet = ofType("ewallet");
+  const bankOf = (passbook: boolean) =>
+    figureOf(
+      accounts
+        .filter((account) => account.type === "bank" && (account.bankKind === "passbook") === passbook)
+        .flatMap((account) => accountRows(account, payments, asOf)),
+    );
+  const bankAccounts = bankOf(false);
+  const passbooks = bankOf(true);
+  const bank = figureOf([...bankAccounts.rows, ...passbooks.rows]);
   return {
     asOf,
     cash,
     bank,
+    bankAccounts,
+    passbooks,
     ewallet,
     receivable,
     payable,
@@ -261,6 +275,44 @@ export function accountIdentity(institution: string, number: string): string | n
   if (!digits) return null;
   const bank = institution.toLowerCase().replace(/[^a-z0-9]/g, "");
   return `${bank}:${digits}`;
+}
+
+/**
+ * The exceptions the Financial Standing Report lists, for the same day as its
+ * figures: receivables over 90 days, bills overdue and due within seven days,
+ * and counts with an unexplained difference. Each is a figure with its rows,
+ * so it opens into the records like every other number.
+ */
+export function standingAttention(
+  asOf: DateKey,
+  standing: Pick<StandingFigures, "receivable" | "payable">,
+  invoices: Pick<StandingInvoice, "ref" | "invoiceDate">[],
+  bills: Pick<StandingBill, "ref" | "dueDate">[],
+  counts: { ref: string; accountRef: string; asOf: DateKey; differenceCents: number; status: string }[],
+): StandingAttention {
+  const invoiceDates = new Map(invoices.map((invoice) => [invoice.ref, invoice.invoiceDate]));
+  const dueDates = new Map(bills.map((bill) => [bill.ref, bill.dueDate]));
+  const due = (row: SourceRow) => daysUntilDue(dueDates.get(row.ref) ?? asOf, asOf);
+  return {
+    asOf,
+    ar90: figureOf(
+      standing.receivable.rows.filter((row) => isOver90(invoiceDates.get(row.ref) ?? row.dateKey, asOf)),
+    ),
+    apOverdue: figureOf(standing.payable.rows.filter((row) => due(row) < 0)),
+    apDue7: figureOf(standing.payable.rows.filter((row) => due(row) >= 0 && due(row) <= 7)),
+    differences: figureOf(
+      counts
+        .filter((count) => count.status === "open" && count.asOf <= asOf)
+        .map((count) => ({
+          kind: "count" as const,
+          ref: count.ref,
+          dateKey: count.asOf,
+          label: "Count differs from the book",
+          amountCents: count.differenceCents,
+          accountRef: count.accountRef,
+        })),
+    ),
+  };
 }
 
 // ---- Receivables --------------------------------------------------------------
@@ -531,6 +583,73 @@ export function billPaymentProblem(
   if (payment.paidOn > today) return "A payment cannot be dated in the future.";
   if (payment.paidOn < bill.billDate) return "A payment cannot be dated before the bill.";
   return null;
+}
+
+// ---- Invoices -----------------------------------------------------------------
+
+/**
+ * The number after the highest one issued, keeping its prefix and width:
+ * after "SI-0099" comes "SI-0100". "0001" when nothing has been issued. Only
+ * a suggestion; the shop's own printed numbers win.
+ */
+export function nextInvoiceNumber(numbers: string[]): string {
+  let best: { prefix: string; digits: string; value: number } | null = null;
+  for (const number of numbers) {
+    const match = number.trim().match(/^(.*?)(\d+)$/);
+    if (!match) continue;
+    const value = Number(match[2]);
+    if (!best || value > best.value) best = { prefix: match[1], digits: match[2], value };
+  }
+  if (!best) return "0001";
+  return `${best.prefix}${String(best.value + 1).padStart(best.digits.length, "0")}`;
+}
+
+/** Why an invoice cannot be saved as typed, or null when it can. */
+export function invoiceInputProblem(
+  input: Pick<InvoiceInput, "customerName" | "number" | "invoiceDate" | "dueDate" | "amountCents" | "nextFollowUpDate">,
+  today: DateKey,
+): string | null {
+  if (!input.customerName.trim()) return "Name the customer or company.";
+  if (!input.number.trim()) return "Give the invoice number.";
+  if (!isAmount(input.amountCents)) return "Enter the invoice amount, above zero.";
+  if (!DAY.test(input.invoiceDate)) return "Choose the invoice date.";
+  if (input.invoiceDate > today) return "An invoice cannot be dated in the future. Date it the day it was issued.";
+  if (!DAY.test(input.dueDate)) return "Choose the due date.";
+  if (input.dueDate < input.invoiceDate) return "The due date cannot be before the invoice date.";
+  if (input.nextFollowUpDate && !DAY.test(input.nextFollowUpDate)) return "Choose a valid follow-up date, or leave it empty.";
+  return null;
+}
+
+/** Why money cannot be recorded as collected on an invoice, or null when it can. */
+export function collectionProblem(
+  payment: { amountCents: number; paidOn: DateKey },
+  invoice: { invoiceDate: DateKey; outstandingCents: number; status: FinanceDocumentStatus },
+  today: DateKey,
+): string | null {
+  if (invoice.status === "void") return "This invoice is void.";
+  if (invoice.outstandingCents <= 0) return "This invoice is already collected in full.";
+  if (!isAmount(payment.amountCents)) return "Enter the amount collected, above zero.";
+  if (payment.amountCents > invoice.outstandingCents) return "That is more than is still owed on this invoice.";
+  if (!DAY.test(payment.paidOn)) return "Choose the day it was collected.";
+  if (payment.paidOn > today) return "A collection cannot be dated in the future.";
+  if (payment.paidOn < invoice.invoiceDate) return "A collection cannot be dated before the invoice.";
+  return null;
+}
+
+/** Over 90 days since the invoice date, the line the 90+ day control starts from. */
+export function isOver90(invoiceDate: DateKey, today: DateKey): boolean {
+  return arAgingBucket(daysOutstanding(invoiceDate, today)) === "90+";
+}
+
+/**
+ * What a follow-up save is missing. Under 90 days nothing is required; over
+ * 90 all six fields of the 90+ day control are, and a vague remark is refused.
+ */
+export function followUpProblems(followUp: ArFollowUp, invoiceDate: DateKey, today: DateKey): FollowUpProblem[] {
+  if (followUp.nextFollowUpDate && !DAY.test(followUp.nextFollowUpDate)) {
+    return [{ field: "nextFollowUpDate", message: "Choose a valid follow-up date." }];
+  }
+  return isOver90(invoiceDate, today) ? ar90Problems(followUp, today) : [];
 }
 
 // ---- Reconciliation -----------------------------------------------------------

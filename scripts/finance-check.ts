@@ -37,6 +37,11 @@ import {
   billInputProblem,
   billPayState,
   billPaymentProblem,
+  collectionProblem,
+  followUpProblems,
+  invoiceInputProblem,
+  isOver90,
+  nextInvoiceNumber,
   termsDays,
   arAgingBucket,
   daysOutstanding,
@@ -46,6 +51,7 @@ import {
   netMarginPercent,
   reconcile,
   reportTitle,
+  standingAttention,
   standingFigures,
   type StandingBill,
   type StandingInvoice,
@@ -219,6 +225,31 @@ assert.notEqual(accountIdentity("BDO", "001234567890"), accountIdentity("BPI", "
 assert.equal(accountIdentity("", ""), null);
 console.log("✓ a passbook counts once, under Bank/Passbook; one account cannot be listed twice or registered twice");
 
+// Bank accounts and passbooks are shown as separate lines that add up to Bank/Passbook once.
+assert.equal(standing.bankAccounts.cents + standing.passbooks.cents, standing.bank.cents);
+assert.ok(standing.passbooks.rows.every((row) => row.accountRef === "MA-PASS"));
+assert.ok(!standing.bankAccounts.rows.some((row) => row.accountRef === "MA-PASS"));
+assert.ok(figureAddsUp(standing.bankAccounts) && figureAddsUp(standing.passbooks));
+console.log("✓ bank accounts and passbooks are separate lines that add up to Bank/Passbook, each account once");
+
+// The exceptions listed under the position, for the same day.
+const attention = standingAttention("2026-09-30", standing, invoices, bills, [
+  { ref: "RC-1", accountRef: "MA-CASH", asOf: "2026-09-28", differenceCents: peso(-500), status: "open" },
+  { ref: "RC-2", accountRef: "MA-CASH", asOf: "2026-10-05", differenceCents: peso(-200), status: "open" },
+  { ref: "RC-3", accountRef: "MA-BANK", asOf: "2026-09-15", differenceCents: peso(100), status: "resolved" },
+]);
+assert.deepEqual(attention.apOverdue.rows.map((row) => row.ref).sort(), ["BL-4", "BL-5", "BL-6", "BL-7"]);
+assert.deepEqual(attention.apDue7.rows.map((row) => row.ref).sort(), ["BL-1", "BL-2"]);
+assert.equal(attention.apDue7.rows.find((row) => row.ref === "BL-1")!.amountCents, peso(300_000), "what is still owed, not the original");
+assert.deepEqual(attention.differences.rows.map((row) => row.ref), ["RC-1"], "open, and counted on or before the day");
+assert.deepEqual(attention.ar90.rows, [], "nothing 90 days old on Sep 30");
+const december = standingFigures("2026-12-15", accounts, payments, invoices, bills);
+const later = standingAttention("2026-12-15", december, invoices, bills, []);
+assert.deepEqual(later.ar90.rows.map((row) => row.ref).sort(), ["INV-2", "INV-4"]);
+assert.equal(later.ar90.cents, peso(600_000 + 500_000));
+for (const figure of [attention.apOverdue, attention.apDue7, attention.differences, later.ar90]) assert.ok(figureAddsUp(figure));
+console.log("✓ standing exceptions: AR 90+, overdue AP, AP due in 7 days and open count differences, each for the same day");
+
 // Acceptance test 6: every outstanding payable is there, not only overdue ones.
 const notYetDue = standingFigures("2026-09-30", accounts, payments, invoices, [bill("BL-9", "2026-09-29", 5_000, "other", "2026-12-31")]);
 assert.equal(notYetDue.payable.rows.length, 1);
@@ -302,6 +333,34 @@ assert.deepEqual(
   "a follow-up date that has passed",
 );
 console.log("✓ 90+ control: all six fields required, \"Not yet paid\" refused, passed follow-ups flagged");
+
+// Follow-up saves: nothing required under 90 days, everything over.
+assert.deepEqual(followUpProblems(empty, "2026-07-19", "2026-10-16"), [], "day 89: no control yet");
+assert.deepEqual(followUpProblems(empty, "2026-07-18", "2026-10-16"), [], "day 90: still 61-90");
+assert.equal(followUpProblems(empty, "2026-07-17", "2026-10-16").length, 6, "day 91: all six required");
+assert.equal(followUpProblems({ ...complete, remarks: "Not yet paid" }, "2026-07-17", "2026-10-16")[0].field, "remarks");
+assert.deepEqual(followUpProblems(complete, "2026-07-17", "2026-10-16"), []);
+assert.equal(isOver90("2026-07-17", "2026-10-16"), true);
+assert.equal(isOver90("2026-07-18", "2026-10-16"), false);
+console.log("✓ follow-up saves: free under 90 days, refused over 90 until all six fields are filled properly");
+
+// Invoices as typed, numbering, and collections.
+assert.equal(nextInvoiceNumber([]), "0001");
+assert.equal(nextInvoiceNumber(["0007", "0012", "0009"]), "0013");
+assert.equal(nextInvoiceNumber(["SI-0099", "SI-0100"]), "SI-0101");
+assert.equal(nextInvoiceNumber(["A-9", "cash sale"]), "A-10");
+const issued = { customerName: "Reyes Trucking", number: "0001", invoiceDate: "2026-10-05", dueDate: "2026-11-04", amountCents: peso(12_500), nextFollowUpDate: null };
+assert.equal(invoiceInputProblem(issued, "2026-10-16"), null);
+assert.match(invoiceInputProblem({ ...issued, customerName: "" }, "2026-10-16")!, /customer/);
+assert.match(invoiceInputProblem({ ...issued, number: " " }, "2026-10-16")!, /invoice number/);
+assert.match(invoiceInputProblem({ ...issued, invoiceDate: "2026-10-17" }, "2026-10-16")!, /future/);
+assert.match(invoiceInputProblem({ ...issued, dueDate: "2026-10-04" }, "2026-10-16")!, /before the invoice/);
+const owed = { invoiceDate: "2026-10-05", outstandingCents: peso(12_500), status: "open" as const };
+assert.equal(collectionProblem({ amountCents: peso(5_000), paidOn: "2026-10-10" }, owed, "2026-10-16"), null);
+assert.match(collectionProblem({ amountCents: peso(13_000), paidOn: "2026-10-10" }, owed, "2026-10-16")!, /more than is still owed/);
+assert.match(collectionProblem({ amountCents: peso(100), paidOn: "2026-10-04" }, owed, "2026-10-16")!, /before the invoice/);
+assert.match(collectionProblem({ amountCents: peso(100), paidOn: "2026-10-10" }, { ...owed, outstandingCents: 0 }, "2026-10-16")!, /collected in full/);
+console.log("✓ invoices: next number keeps its prefix and width; no future dates; no collecting more than is owed");
 
 // ---- Part four: AP status groups ---------------------------------------------
 

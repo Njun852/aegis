@@ -52,7 +52,7 @@ function hashIdentity(identity: string): string {
   return createHash("sha256").update(identity).digest("hex");
 }
 
-function toAccount(doc: MoneyAccountDocument): MoneyAccount {
+export function toAccount(doc: MoneyAccountDocument): MoneyAccount {
   return {
     ref: doc.ref,
     type: doc.type,
@@ -342,6 +342,17 @@ export async function voidPayment(
   if (result.modifiedCount === 0) throw new InputError("That payment is already void.");
   await logFinanceEvent(actor, "payment.voided", ref, `${formatMoney(target.amountCents)} · ${why}`);
   return target;
+}
+
+/** Checks money can arrive in an account on a day: the account is in use and existed then. */
+export async function assertCanPayIn(accountRef: string, paidOn: DateKey): Promise<MoneyAccount> {
+  const account = await findAccount(accountRef);
+  if (!account) throw new InputError("Choose the account it was paid into.");
+  if (!account.active) throw new InputError(`${account.name} is no longer used.`);
+  if (paidOn < account.openingDate) {
+    throw new InputError(`${account.name} has no balance on record before ${formatQuoteDay(account.openingDate)}.`);
+  }
+  return account;
 }
 
 /**

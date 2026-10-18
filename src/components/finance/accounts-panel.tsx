@@ -41,7 +41,9 @@ export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: Acc
   const openCounts = counts.filter((count) => count.status === "open");
 
   const select = (ref: string | null) => {
-    startNavigation(() => router.replace(ref ? `/finance?account=${encodeURIComponent(ref)}` : "/finance", { scroll: false }));
+    startNavigation(() =>
+      router.replace(ref ? `/finance?tab=accounts&account=${encodeURIComponent(ref)}` : "/finance?tab=accounts", { scroll: false }),
+    );
   };
 
   const total = (type: MoneyAccountSummary["type"]) =>

@@ -907,7 +907,103 @@ BL-1004, PY-1001, PY-1002 and nine audit lines) were deleted afterwards at the
 developer's request; AUTOBLITZ's Finance is empty again. The four real posted
 supplier receipts (GR-1001 to GR-1004) still have no bill.
 
-Still to come: invoices and AR; live reports, drill-down and the owner screen; the month-end close with
+Phase 4 (built, checked in the browser on AUTOBLITZ on 18 Oct 2026): the
+**Receivables** tab (`/finance?tab=receivables`), invoices and Accounts
+Receivable. Data in `src/lib/dal/finance-invoices.ts`; rules
+(`nextInvoiceNumber`, `invoiceInputProblem`, `collectionProblem`, `isOver90`,
+`followUpProblems`) in `src/lib/finance.ts`; screen in
+`receivables-panel.tsx`, `invoice-modal.tsx`, `invoice-drawer.tsx`,
+`collect-modal.tsx`. Tabs are now Accounts, Receivables, Payables.
+
+- **Invoices** (INV-…): customer or company (optionally a CRM customer),
+  invoice number (unique; the next one is suggested, keeping prefix and
+  width), invoice date (the month the sale belongs to), due date (quick
+  buttons: on receipt, 15, 30 days), amount. Collected, outstanding, days
+  outstanding and aging are worked out, never stored. A cash sale is an
+  invoice collected in full when issued, checked before anything is written.
+- **From a completed job order:** completed job orders with no live invoice
+  are listed and warned about; "Invoice" fills in who is billed (company, else
+  name), the CRM link and the customer-approved total, and writes the job
+  order's `invoiceRef`. One live invoice per job order; voiding the invoice
+  frees the job order (`voidedJobOrderRef`) and clears its `invoiceRef`.
+- **Collections** (PY-…, kind `collection`): into an account, full or part,
+  never more than is owed, never before the invoice or in the future.
+  Amount and invoice date lock once anything is collected. Voids are for
+  administrators and keep the record and reason.
+- **Follow-up** on every invoice: remarks, responsible person, next follow-up
+  date, last and next action, saved from the drawer and logged in the
+  invoice's History (`financeEvents`, shown in the drawer). **Over 90 days**
+  (day 91 on) the 90+ day control applies: reason unpaid, detailed remarks
+  (30 characters at least, vague phrases such as "not yet paid" refused),
+  responsible person, last action, next action and a next follow-up date
+  not in the past are all required, or the save is refused on the client and
+  the server. Until met, the invoice is marked "Needs follow-up", counted on
+  the tab, and named on the dashboard.
+- **The AR screen** groups outstanding invoices 90+, 61-90, 31-60, 0-30 days
+  with all twelve columns the spec asks for; Collected and Void are filters.
+- **Dashboard alert:** receivables over 90 days, with the amount and how many
+  lack the required follow-up.
+
+Browser-checked: a 0-30 and a 90+ invoice; the 90+ one flagged until a
+proper follow-up was saved, "Not yet paid" refused; a cash sale; a duplicate
+number refused with nothing collected; a part collection and an
+overcollection refused; the job order prefill (opened, not saved); the
+dashboard alert; voiding a collection then its invoice. The test records
+(MA-1001, INV-1001 to INV-1003, PY-1001, PY-1002 and eleven audit lines) were
+deleted afterwards at the developer's request; no job order was touched.
+AUTOBLITZ's three completed job orders (JO-1001 to JO-1003) still have no
+invoice.
+
+Phase 5 (built, checked in the browser on AUTOBLITZ on 18 Oct 2026): the
+owner's screens, live. Three tabs for **administrators only**, before the
+working tabs: **Overview** (the default for an administrator; a member's
+default is Accounts and a member asking for an owner tab gets Accounts),
+**Income** and **Standing**. Tab list in `src/lib/finance-tabs.ts` (a plain
+module: the page is a server component and a "use client" file's exports
+reach it only as references, which broke the page once). Data in
+`src/lib/dal/finance-reports.ts` (`loadOverview`, `loadIncome`,
+`loadStanding`, all `requireAdmin`); screens `overview-panel.tsx`,
+`income-panel.tsx`, `standing-panel.tsx`, `drill-down.tsx`.
+
+- **Overview:** Net income this month so far, Current financial position,
+  Cash + Bank/Passbook (+ E-wallets when there are any), Total AR, Total AP;
+  then "Needs attention", critical items only: receivables over 90 days, ones
+  missing the required follow-up, overdue bills, bills due within 7 days,
+  count differences, completed job orders not invoiced, supplier receipts not
+  billed. Each opens the tab where it is dealt with. "Nothing needs
+  attention" when empty.
+- **Income (Report A, live):** a month at a time (earlier / later, back to the
+  first dated record), Sales, Costs & Expenses, Net Income, Net Margin and the
+  nine-line breakdown. Only invoices and bills dated in the month; no balance
+  of any kind. The running month is labelled as still changing.
+- **Standing (Report B, live):** as of the end of any day up to today. Cash,
+  Bank accounts and Passbook accounts as separate lines (they add up to
+  Bank/Passbook once; `standingFigures` now returns `bankAccounts` and
+  `passbooks` too), E-wallets, AR, AP, the position with its formula; then
+  AR 90+, overdue AP, AP due within 7 days and unexplained count
+  differences for the same day (`standingAttention`, pure, so the month-end
+  close can freeze it), and the owner-attention items (today only).
+- **Drill-down:** every figure opens the records behind it, grouped and signed
+  for derived figures (net income, position), each row linking to its
+  invoice, bill or account, with a footer that says the rows add up to the
+  figure shown, or says in red that they do not. `SourceRow` now carries
+  `accountRef` for account rows.
+
+Browser-checked on a seeded TEST copy of the specification's September 2026
+example: the Income tab showed Sales 2,800,000, Costs 1,950,000, Net Income
+850,000, Net Margin 30.4% (acceptance test 1); Standing on Sep 30 showed
+170,000 + 1,200,000 + 50,000 + 10,000 + 1,320,000 - 570,000 = 2,180,000, the
+same as worked by hand (acceptance test 2); the Overview's five figures and
+seven alerts matched a hand calculation for Oct 18; drill-downs for the
+position (20 records) and net income (9 records) added up to the figure
+shown; a drill-down row opened its invoice. Not browser-checked: the member
+view of the tabs, as no member account was signed in. The seed was inserted
+by a scratch script straight into the database, so those records had no
+audit lines; it and the TEST records were removed afterwards.
+
+Still to come:
+
+Still to come: live reports, drill-down and the owner screen; the month-end close with
 PDFs, archive and revisions; year-end reports; an optional AI summary that
 may only repeat figures in the frozen report; the acceptance run.
 

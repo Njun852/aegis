@@ -20,6 +20,7 @@ import { listAdRows } from "./ads";
 import { countConfirmedByCampaign, listBookings } from "./bookings";
 import { listOpenDiscrepancies } from "./finance-accounts";
 import { listBills } from "./finance-bills";
+import { listInvoices } from "./finance-invoices";
 import { listInventory, purchasesByMonth } from "./inventory";
 import { revenueByMonth } from "./ledger";
 import { listVehicles } from "./fleet";
@@ -268,6 +269,23 @@ async function buildAlerts(
         iconColor: ALERT_COLORS.urgent,
       });
     }
+    // Receivables over 90 days, the AR alert on the owner's critical list, with
+    // how many still lack the follow-up the 90+ day control requires.
+    const stale = (await listInvoices(manilaDateKey(today))).filter((invoice) => invoice.bucket === "90+");
+    if (stale.length > 0) {
+      const missing = stale.filter((invoice) => invoice.problems.length > 0).length;
+      alerts.push({
+        weight: 1,
+        title: `${plural(stale.length, "receivable", "receivables")} over 90 days`,
+        meta: missing > 0 ? `${missing} without the required follow-up` : stale.slice(0, 2).map((invoice) => invoice.customerName).join(", "),
+        amount: formatMoney(stale.reduce((sum, invoice) => sum + invoice.outstandingCents, 0)),
+        amountTone: "negative",
+        tag: "Receivables",
+        icon: "inbox",
+        iconColor: ALERT_COLORS.urgent,
+      });
+    }
+
     const soon = owed.filter((bill) => bill.group === "due-today" || bill.group === "due-7");
     if (soon.length > 0) {
       alerts.push({

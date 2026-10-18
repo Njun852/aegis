@@ -13,9 +13,26 @@ import {
   voidPayment,
 } from "@/lib/dal/finance-accounts";
 import { createBill, recordBillPayment, updateBill, voidBill, voidBillPayment } from "@/lib/dal/finance-bills";
+import {
+  createInvoice,
+  recordCollection,
+  saveFollowUp,
+  updateInvoice,
+  voidCollection,
+  voidInvoice,
+} from "@/lib/dal/finance-invoices";
 import { InputError } from "@/lib/dal/refs";
 import { EXPENSE_CATEGORIES } from "@/lib/finance";
-import type { BillInput, BillPaymentInput, ExpenseCategory, MoneyAccountInput, TransferInput } from "@/types";
+import type {
+  ArFollowUp,
+  BillInput,
+  BillPaymentInput,
+  CollectionInput,
+  ExpenseCategory,
+  InvoiceInput,
+  MoneyAccountInput,
+  TransferInput,
+} from "@/types";
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -228,6 +245,119 @@ export async function voidBillPaymentAction(paymentRef: string, reason: string):
   return guard(async () => {
     const actor = await adminActor();
     await voidBillPayment(text(paymentRef, 20), text(reason, 300), actor);
+    refresh();
+    return { ok: true };
+  });
+}
+
+// ---- Invoices -----------------------------------------------------------------
+
+function day(value: unknown): string {
+  return text(value, 10);
+}
+
+export async function createInvoiceAction(raw: InvoiceInput): Promise<Result<{ ref: string }>> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    const collectedInto =
+      raw.collectedInto && typeof raw.collectedInto === "object"
+        ? { accountRef: text(raw.collectedInto.accountRef, 20), paidOn: day(raw.collectedInto.paidOn) }
+        : null;
+    const ref = await createInvoice(
+      {
+        customerName: text(raw.customerName, 120),
+        customerRef: text(raw.customerRef, 20) || null,
+        jobOrderRef: text(raw.jobOrderRef, 20) || null,
+        number: text(raw.number, 40),
+        invoiceDate: day(raw.invoiceDate),
+        dueDate: day(raw.dueDate),
+        amountCents: cents(raw.amountCents),
+        responsiblePerson: text(raw.responsiblePerson, 80),
+        remarks: text(raw.remarks, 1000),
+        nextFollowUpDate: day(raw.nextFollowUpDate) || null,
+        collectedInto,
+      },
+      actor,
+    );
+    refresh();
+    revalidatePath("/quotations");
+    return { ok: true, ref };
+  });
+}
+
+export async function updateInvoiceAction(ref: string, raw: InvoiceInput): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    await updateInvoice(
+      text(ref, 20),
+      {
+        customerName: text(raw.customerName, 120),
+        number: text(raw.number, 40),
+        invoiceDate: day(raw.invoiceDate),
+        dueDate: day(raw.dueDate),
+        amountCents: cents(raw.amountCents),
+      },
+      actor,
+    );
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function saveFollowUpAction(ref: string, raw: ArFollowUp): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    await saveFollowUp(
+      text(ref, 20),
+      {
+        reasonUnpaid: text(raw.reasonUnpaid, 300),
+        remarks: text(raw.remarks, 1000),
+        responsiblePerson: text(raw.responsiblePerson, 80),
+        lastAction: text(raw.lastAction, 300),
+        nextAction: text(raw.nextAction, 300),
+        nextFollowUpDate: day(raw.nextFollowUpDate) || null,
+      },
+      actor,
+    );
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function collectInvoiceAction(ref: string, raw: CollectionInput): Promise<Result<{ ref: string }>> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    const paymentRef = await recordCollection(
+      text(ref, 20),
+      { accountRef: text(raw.accountRef, 20), amountCents: cents(raw.amountCents), paidOn: day(raw.paidOn), note: text(raw.note, 200) },
+      actor,
+    );
+    refresh();
+    return { ok: true, ref: paymentRef };
+  });
+}
+
+/** Administrators only: a void invoice leaves the month's sales. */
+export async function voidInvoiceAction(ref: string, reason: string): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await adminActor();
+    await voidInvoice(text(ref, 20), text(reason, 300), actor);
+    refresh();
+    revalidatePath("/quotations");
+    return { ok: true };
+  });
+}
+
+export async function voidCollectionAction(paymentRef: string, reason: string): Promise<Result> {
+  await requireModule("finance");
+  return guard(async () => {
+    const actor = await adminActor();
+    await voidCollection(text(paymentRef, 20), text(reason, 300), actor);
     refresh();
     return { ok: true };
   });
