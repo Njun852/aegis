@@ -12,7 +12,7 @@ import { InvoiceDrawer } from "./invoice-drawer";
 import { InvoiceModal } from "./invoice-modal";
 import { StateBadge } from "./bill-badges";
 import { StatTiles, type StatTile } from "./stat-tiles";
-import type { ArAgingBucket, CustomerOption, FinanceEventLine, InvoiceSummary, MoneyAccountSummary, UninvoicedJob } from "@/types";
+import type { ArAgingBucket, CustomerOption, FeeRule, InvoiceSummary, MoneyAccountSummary, RecordTrail, UninvoicedJob } from "@/types";
 
 type View = "outstanding" | "paid" | "void";
 
@@ -23,7 +23,9 @@ export interface ReceivablesPanelProps {
   jobs: UninvoicedJob[];
   suggestedNumber: string;
   openRef: string | null;
-  history: FinanceEventLine[];
+  /** The open invoice's history and attachments. */
+  trail: RecordTrail;
+  feeRules: FeeRule[];
   isAdmin: boolean;
   today: string;
   userName: string;
@@ -58,7 +60,8 @@ export function ReceivablesPanel({
   jobs,
   suggestedNumber,
   openRef,
-  history,
+  trail,
+  feeRules,
   isAdmin,
   today,
   userName,
@@ -320,7 +323,7 @@ export function ReceivablesPanel({
         <InvoiceDrawer
           key={open.ref}
           invoice={open}
-          history={history}
+          trail={trail}
           isAdmin={isAdmin}
           today={today}
           canCollect={active.length > 0}
@@ -335,6 +338,7 @@ export function ReceivablesPanel({
           job={fromJob}
           customers={customers}
           accounts={active}
+          feeRules={feeRules}
           suggestedNumber={suggestedNumber}
           today={today}
           defaultPerson={userName}
@@ -351,7 +355,7 @@ export function ReceivablesPanel({
           }}
         />
       )}
-      {collecting && <CollectModal invoice={collecting} accounts={active} today={today} onClose={() => setCollecting(null)} />}
+      {collecting && <CollectModal invoice={collecting} accounts={active} feeRules={feeRules} today={today} onClose={() => setCollecting(null)} />}
       {choosingJob && (
         <Modal title="Completed job orders with no invoice" icon="wrench" width={620} onClose={() => setChoosingJob(false)}>
           <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>

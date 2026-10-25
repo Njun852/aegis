@@ -20,6 +20,8 @@ const GRID =
 export function CampaignFunnelPanel({ funnel, currency }: { funnel: CampaignFunnel; currency: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const money = (cents: number | null) => (cents === null ? "—" : formatMoneyIn(cents, currency, false));
+  // Meta's figures for the chosen day are not here: spend is unknown, not zero.
+  const spend = (cents: number) => (funnel.missingFigures ? "—" : money(cents));
   const open = funnel.rows.find((row) => row.campaignId === openId) ?? null;
   const flagged = funnel.rows.filter((row) => row.flag);
   const ordered = [...funnel.rows].sort((a, b) => b.spendCents - a.spendCents);
@@ -49,6 +51,30 @@ export function CampaignFunnelPanel({ funnel, currency }: { funnel: CampaignFunn
             ones drop out.
           </span>
         </div>
+
+        {funnel.missingFigures && (
+          <div
+            role="status"
+            className="flex items-start gap-2"
+            style={{
+              margin: "0 4px",
+              padding: "8px 10px",
+              borderRadius: "var(--radius-md)",
+              background: "var(--status-warning-soft)",
+              fontSize: "12px",
+              color: "var(--text-primary)",
+              textWrap: "pretty",
+            }}
+          >
+            <span style={{ flex: "0 0 auto", marginTop: 1, display: "inline-flex" }}>
+              <Icon name="alert-triangle" size={13} color="var(--status-warning)" />
+            </span>
+            <span>
+              {funnel.missingFigures} Until then spend, conversations and cost per booking are unknown; the confirmed
+              bookings below are AEGIS&apos;s own and are complete.
+            </span>
+          </div>
+        )}
 
         {flagged.length > 0 && (
           <div className="flex flex-col gap-1.5" style={{ padding: "0 4px" }}>
@@ -100,7 +126,7 @@ export function CampaignFunnelPanel({ funnel, currency }: { funnel: CampaignFunn
         </div>
 
         {ordered.map((row) => (
-          <FunnelRow key={row.campaignId} row={row} money={money} onOpen={() => setOpenId(row.campaignId)} />
+          <FunnelRow key={row.campaignId} row={row} money={money} spend={spend} onOpen={() => setOpenId(row.campaignId)} />
         ))}
         {ordered.length === 0 && (
           <div style={{ padding: "20px 10px", textAlign: "center", fontSize: "12.5px", color: "var(--text-muted)" }}>
@@ -111,7 +137,7 @@ export function CampaignFunnelPanel({ funnel, currency }: { funnel: CampaignFunn
         {ordered.length > 0 && (
           <div className={GRID} style={{ padding: "10px", borderTop: "1px solid var(--border-subtle)", fontWeight: 700 }}>
             <span style={{ fontSize: "12.5px" }}>All campaigns</span>
-            <Num>{money(funnel.totals.spendCents)}</Num>
+            <Num>{spend(funnel.totals.spendCents)}</Num>
             <Num className="hidden wide:block">{funnel.totals.conversations ?? "—"}</Num>
             <Num className="hidden wide:block">{money(funnel.totals.conversations ? Math.round(funnel.totals.spendCents / funnel.totals.conversations) : null)}</Num>
             <Num>{funnel.totals.confirmedBookings}</Num>
@@ -144,10 +170,12 @@ export function CampaignFunnelPanel({ funnel, currency }: { funnel: CampaignFunn
 function FunnelRow({
   row,
   money,
+  spend,
   onOpen,
 }: {
   row: CampaignFunnelRow;
   money: (cents: number | null) => string;
+  spend: (cents: number) => string;
   onOpen: () => void;
 }) {
   return (
@@ -166,7 +194,7 @@ function FunnelRow({
         </span>
         <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{row.enabled ? "On" : "Off"}</span>
       </span>
-      <Num>{money(row.spendCents)}</Num>
+      <Num>{spend(row.spendCents)}</Num>
       <Num className="hidden wide:block">{row.conversations ?? "—"}</Num>
       <Num className="hidden wide:block">{money(row.costPerConversationCents)}</Num>
       <Num strong>{row.confirmedBookings}</Num>
@@ -199,7 +227,7 @@ function Drilldown({
       <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{funnel.periodLabel}</span>
       <div className="grid grid-cols-2 gap-2 wide:grid-cols-4">
         {[
-          { label: "Spend", value: money(row.spendCents) },
+          { label: "Spend", value: funnel.missingFigures ? "—" : money(row.spendCents) },
           { label: "Confirmed bookings", value: String(row.confirmedBookings) },
           { label: "Cost per booking", value: money(row.costPerBookingCents) },
           { label: "Conversion", value: row.conversionPercent === null ? "—" : `${row.conversionPercent}%` },
@@ -211,8 +239,14 @@ function Drilldown({
         ))}
       </div>
       <span style={{ fontSize: "11.5px", color: "var(--text-muted)", textWrap: "pretty" }}>
-        {money(row.spendCents)} ÷ {row.confirmedBookings} confirmed {row.confirmedBookings === 1 ? "booking" : "bookings"} ={" "}
-        {money(row.costPerBookingCents)}.{" "}
+        {funnel.missingFigures ? (
+          `${funnel.missingFigures} `
+        ) : (
+          <>
+            {money(row.spendCents)} ÷ {row.confirmedBookings} confirmed {row.confirmedBookings === 1 ? "booking" : "bookings"} ={" "}
+            {money(row.costPerBookingCents)}.{" "}
+          </>
+        )}
         {row.conversations !== null && `Meta reports ${row.conversations} conversations started. `}
         AEGIS received {row.chatsReceived} {row.chatsReceived === 1 ? "chat" : "chats"} from this campaign&apos;s ads.
       </span>

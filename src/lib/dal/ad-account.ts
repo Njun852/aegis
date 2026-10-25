@@ -5,7 +5,7 @@ import { explainMetaFailure, type MetaFailure } from "@/lib/meta/failures";
 import { adSyncCollection, businessesCollection, getDb } from "./db";
 import { readMessengerHealth } from "./messenger";
 import { requireAdmin, verifySession } from "./session";
-import type { AdSyncDocument, MetaAdsStatus } from "@/types";
+import type { AdDayReports, AdSyncDocument, MetaAdsStatus } from "@/types";
 
 /**
  * Meta ad account credentials and sync state, per business.
@@ -47,6 +47,19 @@ export async function readMetaCredentialsFor(
   const token = decryptSecret(config.secretCipher);
   if (!token) return null;
   return { adAccountId: config.adAccountId, token };
+}
+
+/**
+ * The ad account's own time zone, which is where Meta's days begin and end.
+ * Manila when Meta never said, which is where AEGIS's businesses are.
+ */
+export async function readMetaTimezoneFor(businessId: string): Promise<string> {
+  const businesses = await businessesCollection();
+  const business = await businesses.findOne(
+    { businessId },
+    { projection: { "metaAds.timezone": 1 } },
+  );
+  return business?.metaAds?.timezone || "Asia/Manila";
 }
 
 /** Whether a business has a Meta ad account configured at all. */
@@ -228,6 +241,7 @@ export async function recordAdSyncAttempt(businessId: string, at = new Date()): 
         truncated: false,
         rowCount: 0,
         spentTodayCents: null,
+        days: null,
       },
     },
     { upsert: true },
@@ -236,7 +250,12 @@ export async function recordAdSyncAttempt(businessId: string, at = new Date()): 
 
 export async function recordAdSyncSuccess(
   businessId: string,
-  result: { rowCount: number; truncated: boolean; spentTodayCents: number | null },
+  result: {
+    rowCount: number;
+    truncated: boolean;
+    spentTodayCents: number | null;
+    days: AdDayReports;
+  },
   at = new Date(),
 ): Promise<void> {
   const sync = await adSyncCollection();
@@ -251,6 +270,7 @@ export async function recordAdSyncSuccess(
         truncated: result.truncated,
         rowCount: result.rowCount,
         spentTodayCents: result.spentTodayCents,
+        days: result.days,
       },
     },
     { upsert: true },
@@ -322,6 +342,7 @@ export async function readMetaAdsStatus(businessId: string): Promise<MetaAdsStat
     truncated: sync?.truncated ?? false,
     rowCount: sync?.rowCount ?? 0,
     spentTodayCents: sync?.spentTodayCents ?? null,
+    days: sync?.days ?? null,
     canWrite: config?.canWrite ?? null,
     pageId: config?.pageId ?? null,
     pageName: config?.pageName ?? null,

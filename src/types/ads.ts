@@ -24,7 +24,24 @@ export type AdStateFilter = "All" | AdState;
 export type AdSource = "meta" | "sample";
 
 /** The date ranges a sync pulls, named as Meta's `date_preset` names them. */
-export type AdRange = "last_7d" | "last_30d" | "maximum";
+export type AdRange = "today" | "yesterday" | "last_7d" | "last_30d" | "maximum";
+
+/** The two single-day ranges, whose figures belong to one calendar day. */
+export type AdDayRange = "today" | "yesterday";
+
+/** What the last sync read for one single-day range. */
+export interface AdDayReport {
+  /** "2026-10-19": the calendar day Meta reported, in the ad account's time zone. */
+  date: string;
+  /**
+   * Campaigns, ad sets and ads Meta reported spend or impressions on for that
+   * day. Zero means Meta reported no delivery for the day, which early in a day
+   * usually means it has not reported it yet.
+   */
+  rows: number;
+}
+
+export type AdDayReports = Record<AdDayRange, AdDayReport>;
 
 /** Performance over one date range. Money in the account's minor units. */
 export interface AdMetrics {
@@ -164,6 +181,8 @@ export interface AdSyncDocument {
   rowCount: number;
   /** Today's account spend at the last sync, for the pacing bar. Minor units. */
   spentTodayCents: number | null;
+  /** Which days the last sync's Today and Yesterday figures cover. Absent before those ranges existed. */
+  days?: AdDayReports | null;
 }
 
 /** A synced Meta campaign, as the booking form's Ad source picker offers it. */
@@ -240,6 +259,12 @@ export interface CampaignFunnel {
   bookings: CampaignBooking[];
   /** Confirmed bookings made in the period with no campaign: walk-ins, calls, organic chats. */
   uncreditedConfirmed: number;
+  /**
+   * Set for a single day Meta has no figures for in AEGIS: not synced since the
+   * day began, or Meta has not reported it yet. Spend, conversations and cost
+   * per booking are then unknown, and the panel says so instead of showing zero.
+   */
+  missingFigures: string | null;
 }
 
 /** What screens may know about a Meta connection. Never the token. */
@@ -256,6 +281,8 @@ export interface MetaAdsStatus {
   truncated: boolean;
   rowCount: number;
   spentTodayCents: number | null;
+  /** Which days the last sync's Today and Yesterday figures cover. */
+  days: AdDayReports | null;
   /** Set by a connection test when the token can also change ads. */
   canWrite: boolean | null;
   /** The Page whose chats arrive by webhook, when one is connected. */

@@ -11,12 +11,14 @@ import { AR_AGING_BUCKETS, MIN_DETAILED_REMARK, dueLabel, followUpProblems, isOv
 import { formatMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { StateBadge } from "./bill-badges";
+import { PaymentFeeLine } from "./payment-fee-line";
+import { AuditLines, RecordTrailPanel } from "./record-trail";
 import { useVoid } from "./use-void";
-import type { ArFollowUp, FinanceEventLine, InvoiceSummary } from "@/types";
+import type { ArFollowUp, InvoiceSummary, RecordTrail } from "@/types";
 
 export interface InvoiceDrawerProps {
   invoice: InvoiceSummary;
-  history: FinanceEventLine[];
+  trail: RecordTrail;
   isAdmin: boolean;
   today: string;
   canCollect: boolean;
@@ -27,7 +29,7 @@ export interface InvoiceDrawerProps {
 
 const HEADING = { margin: 0, fontFamily: "var(--font-display)", fontSize: "13.5px", fontWeight: 700 };
 
-export function InvoiceDrawer({ invoice, history, isAdmin, today, canCollect, onCollect, onEdit, onClose }: InvoiceDrawerProps) {
+export function InvoiceDrawer({ invoice, trail, isAdmin, today, canCollect, onCollect, onEdit, onClose }: InvoiceDrawerProps) {
   const collectionVoid = useVoid(voidCollectionAction, "Kept on record as void; the invoice is owed that amount again.");
   const invoiceVoid = useVoid(voidInvoiceAction, "Kept on record as void; it no longer counts as a sale or as receivable.");
   const recorded = invoice.payments.filter((payment) => payment.status === "recorded");
@@ -39,7 +41,6 @@ export function InvoiceDrawer({ invoice, history, isAdmin, today, canCollect, on
     { label: "Invoice date", value: formatQuoteDay(invoice.invoiceDate) },
     { label: "Due date", value: `${formatQuoteDay(invoice.dueDate)}${open ? ` · ${dueLabel(invoice.dueDate, today)}` : ""}` },
     ...(open ? [{ label: "Outstanding for", value: `${invoice.daysOutstanding} ${invoice.daysOutstanding === 1 ? "day" : "days"}${bucket ? ` (${bucket})` : ""}` }] : []),
-    { label: "Issued by", value: invoice.createdBy },
     ...(invoice.state === "Void" ? [{ label: "Voided", value: invoice.voidReason }] : []),
   ];
 
@@ -150,8 +151,9 @@ export function InvoiceDrawer({ invoice, history, isAdmin, today, canCollect, on
                         <span style={{ fontSize: "12.5px" }}>Into {payment.accountName}</span>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>
                           {payment.ref} · {payment.createdBy}
-                          {payment.status === "void" && ` · void: ${payment.voidReason ?? ""}`}
+                          {payment.status === "void" && ` · voided by ${payment.updatedBy ?? "someone"}: ${payment.voidReason ?? ""}`}
                         </span>
+                        <PaymentFeeLine payment={payment} />
                       </span>
                       <span style={{ fontSize: "12.5px", fontWeight: 600, fontVariantNumeric: "tabular-nums", textDecoration: payment.status === "void" ? "line-through" : "none" }}>
                         {formatMoney(payment.amountCents)}
@@ -169,21 +171,8 @@ export function InvoiceDrawer({ invoice, history, isAdmin, today, canCollect, on
             )}
           </section>
 
-          {history.length > 0 && (
-            <details>
-              <summary style={{ ...HEADING, cursor: "pointer" }}>History ({history.length})</summary>
-              <div className="flex flex-col gap-1.5" style={{ marginTop: 8 }}>
-                {history.map((line, index) => (
-                  <div key={`${line.at}-${index}`} style={{ fontSize: "11.5px", color: "var(--text-secondary)", overflowWrap: "anywhere" }}>
-                    <span style={{ color: "var(--text-muted)" }}>
-                      {new Date(line.at).toLocaleString("en-US", { timeZone: "Asia/Manila", month: "short", day: "2-digit", hour: "numeric", minute: "2-digit" })} · {line.actor} ·{" "}
-                    </span>
-                    {line.detail}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
+          <AuditLines audit={invoice.audit} reference={invoice.number} />
+          <RecordTrailPanel recordRef={invoice.ref} trail={trail} canAttach />
 
           {invoiceVoid.target === invoice.ref && (
             <section className="flex flex-col gap-1">
@@ -204,7 +193,7 @@ export function InvoiceDrawer({ invoice, history, isAdmin, today, canCollect, on
           )}
           {invoice.state !== "Void" && (
             <Button variant="secondary" icon="pen-line" onClick={onEdit}>
-              Edit
+              Correct
             </Button>
           )}
           {isAdmin && invoice.state !== "Void" && recorded.length === 0 && invoiceVoid.target !== invoice.ref && (

@@ -6,7 +6,7 @@ import { createAccountAction, updateAccountAction } from "@/app/actions/finance"
 import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
-import { accountInputProblem } from "@/lib/finance";
+import { MIN_CORRECTION_REASON, accountInputProblem } from "@/lib/finance";
 import { amountInput, parseAmount } from "@/lib/quotations";
 import { locked } from "./locked";
 import type { BankAccountKind, MoneyAccountSummary, MoneyAccountType } from "@/types";
@@ -26,7 +26,7 @@ function split(choice: Choice): { type: MoneyAccountType; bankKind: BankAccountK
   return { type: choice, bankKind: null };
 }
 
-/** Adds an account, or edits one when `account` is given. Administrators only. */
+/** Adds an account, or corrects one when `account` is given, with a reason. Administrators only. */
 export function AccountModal({
   account,
   today,
@@ -46,6 +46,7 @@ export function AccountModal({
   const [accountNumber, setAccountNumber] = useState("");
   const [opening, setOpening] = useState(account ? amountInput(account.openingBalanceCents) : "");
   const [openingDate, setOpeningDate] = useState(account?.openingDate ?? today);
+  const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -64,11 +65,14 @@ export function AccountModal({
         setError(problem);
         return;
       }
+    } else if (reason.trim().length < MIN_CORRECTION_REASON) {
+      setError("Say why this account is being changed.");
+      return;
     }
     setError(null);
     startTransition(async () => {
       const result = account
-        ? { ...(await updateAccountAction(account.ref, { name, openingBalanceCents, openingDate })), ref: account.ref }
+        ? { ...(await updateAccountAction(account.ref, { name, openingBalanceCents, openingDate }, reason)), ref: account.ref }
         : await createAccountAction({ type, bankKind, name, institution, accountNumber, openingBalanceCents, openingDate });
       if (!result.ok) {
         setError(result.error);
@@ -184,6 +188,11 @@ export function AccountModal({
           />
         </Field>
       </div>
+      {account && (
+        <Field label="Reason for the change" required hint="Kept in the account's history with the old and new values.">
+          <input style={INPUT} value={reason} maxLength={300} onChange={(event) => setReason(event.target.value)} />
+        </Field>
+      )}
     </Modal>
   );
 }

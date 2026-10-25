@@ -63,6 +63,12 @@ export interface GenerateArgs<T> {
    * (hash the bytes): the text alone does not say which photo was read.
    */
   images?: string[];
+  /**
+   * Files sent with the input, such as a PDF, as data URLs. Billed as their
+   * text plus an image of every page, so callers trim them first; the cache
+   * key must cover their bytes, as for images.
+   */
+  files?: { filename: string; dataUrl: string }[];
   /** Overrides the client default, for a call that is slow by nature (reading a photo). */
   timeoutMs?: number;
   /** Hard ceiling. A truncated answer is discarded, so keep real headroom. */
@@ -110,21 +116,27 @@ export async function generate<T>(args: GenerateArgs<T>): Promise<AiResult<T>> {
     const response = await client.responses.create({
       model: args.model,
       instructions: args.instructions,
-      input: args.images?.length
-        ? [
-            {
-              role: "user",
-              content: [
-                { type: "input_text", text: args.input },
-                ...args.images.map((url) => ({
-                  type: "input_image" as const,
-                  image_url: url,
-                  detail: "high" as const,
-                })),
-              ],
-            },
-          ]
-        : args.input,
+      input:
+        args.images?.length || args.files?.length
+          ? [
+              {
+                role: "user",
+                content: [
+                  { type: "input_text", text: args.input },
+                  ...(args.images ?? []).map((url) => ({
+                    type: "input_image" as const,
+                    image_url: url,
+                    detail: "high" as const,
+                  })),
+                  ...(args.files ?? []).map((file) => ({
+                    type: "input_file" as const,
+                    filename: file.filename,
+                    file_data: file.dataUrl,
+                  })),
+                ],
+              },
+            ]
+          : args.input,
       max_output_tokens: args.maxOutputTokens,
       text: {
         format: {

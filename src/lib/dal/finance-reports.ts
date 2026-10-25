@@ -1,21 +1,26 @@
 import "server-only";
 
 import { manilaDateKey } from "@/lib/booking-slots";
-import { ar90Problems, incomeFigures, isOver90, standingAttention, standingFigures } from "@/lib/finance";
-import { monthKeyOf } from "@/lib/finance-periods";
+import { ar90Problems, isOver90, reportTitle } from "@/lib/finance";
+import { monthDays, monthKeyOf, periodLabel } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
-import { toAccount } from "./finance-accounts";
 import { listUnbilledReceipts } from "./finance-bills";
+import { accountNamesOf, firstMonthOf, incomeOf, readBooksFor, standingOf, type Books } from "./finance-books";
+import { findReport, listArchive } from "./finance-close";
 import { listUninvoicedJobs } from "./finance-invoices";
-import { bills, invoices, moneyAccounts, payments, reconciliations } from "./finance";
 import { requireAdmin } from "./session";
 import type {
+  ArchiveMonth,
   Business,
   DateKey,
   FinanceAlert,
   FinanceOverview,
+  FinanceReportKind,
+  FinanceReportView,
   IncomeFigures,
   MonthKey,
+  MonthlyReportKind,
+  OfficialReport,
   StandingAttention,
   StandingFigures,
 } from "@/types";
@@ -26,48 +31,33 @@ import type {
  * from each other. Administrators only: these are the owner's figures.
  */
 
-async function readBooks() {
-  const [accountCollection, paymentCollection, invoiceCollection, billCollection, countCollection] = await Promise.all([
-    moneyAccounts(),
-    payments(),
-    invoices(),
-    bills(),
-    reconciliations(),
-  ]);
-  const [accountDocs, paymentDocs, invoiceDocs, billDocs, countDocs] = await Promise.all([
-    accountCollection.find().toArray(),
-    paymentCollection.find({ status: "recorded" }).toArray(),
-    invoiceCollection.find().toArray(),
-    billCollection.find().toArray(),
-    countCollection.find().toArray(),
-  ]);
-  return { accounts: accountDocs.map(toAccount), payments: paymentDocs, invoices: invoiceDocs, bills: billDocs, counts: countDocs };
+/** The signed-in administrator's business, and its records. */
+async function readBooks(): Promise<{ businessId: string; books: Books }> {
+  const { activeBusinessId } = await requireAdmin();
+  return { businessId: activeBusinessId, books: await readBooksFor(activeBusinessId) };
 }
 
-type Books = Awaited<ReturnType<typeof readBooks>>;
-
-function standingFrom(books: Books, asOf: DateKey): { standing: StandingFigures; attention: StandingAttention } {
-  const standing = standingFigures(asOf, books.accounts, books.payments, books.invoices, books.bills);
-  const attention = standingAttention(asOf, standing, books.invoices, books.bills, books.counts);
-  return { standing, attention };
+function officialOf(archive: ArchiveMonth[], kind: MonthlyReportKind, month: MonthKey): OfficialReport | null {
+  const entry = archive.find((item) => item.period === month);
+  const latest = entry?.[kind].at(-1);
+  if (!entry || !latest) return null;
+  const changes = kind === "income" ? entry.incomeChanges : entry.standingChanges;
+  return { kind, period: month, title: reportTitle(kind, month, latest.revision), revision: latest.revision, generatedAt: latest.generatedAt, changed: changes.length > 0 };
 }
 
-/** The first month anything is dated in, so the month picker does not go back further. */
-function firstMonthOf(books: Books, fallback: MonthKey): MonthKey {
-  const days = [
-    ...books.invoices.map((doc) => doc.invoiceDate),
-    ...books.bills.map((doc) => doc.billDate),
-  ].sort();
-  return days[0] ? days[0].slice(0, 7) : fallback;
-}
-
-export async function loadIncome(month: MonthKey): Promise<{ income: IncomeFigures; firstMonth: MonthKey; accountNames: Record<string, string> }> {
-  await requireAdmin();
-  const books = await readBooks();
+export async function loadIncome(month: MonthKey): Promise<{
+  income: IncomeFigures;
+  firstMonth: MonthKey;
+  accountNames: Record<string, string>;
+  official: OfficialReport | null;
+}> {
+  const { businessId, books } = await readBooks();
+  const archive = await listArchive(businessId);
   return {
-    income: incomeFigures(month, books.invoices, books.bills),
-    firstMonth: firstMonthOf(books, month),
-    accountNames: Object.fromEntries(books.accounts.map((account) => [account.ref, account.name])),
+    income: incomeOf(books, month),
+    firstMonth: firstMonthOf(books) ?? month,
+    accountNames: accountNamesOf(books),
+    official: officialOf(archive, "income", month),
   };
 }
 
@@ -75,13 +65,13 @@ export async function loadStanding(asOf: DateKey): Promise<{
   standing: StandingFigures;
   attention: StandingAttention;
   accountNames: Record<string, string>;
+  official: OfficialReport | null;
 }> {
-  await requireAdmin();
-  const books = await readBooks();
-  return {
-    ...standingFrom(books, asOf),
-    accountNames: Object.fromEntries(books.accounts.map((account) => [account.ref, account.name])),
-  };
+  const { businessId, books } = await readBooks();
+  // Only a month's last day has a frozen standing report to point at.
+  const month = asOf.slice(0, 7);
+  const archive = asOf === monthDays(month).last ? await listArchive(businessId) : [];
+  return { ...standingOf(books, asOf), accountNames: accountNamesOf(books), official: officialOf(archive, "standing", month) };
 }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -92,18 +82,18 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
  * on the other tabs.
  */
 export async function loadOverview(business: Business): Promise<FinanceOverview & { accountNames: Record<string, string> }> {
-  await requireAdmin();
   const now = new Date();
   const today = manilaDateKey(now);
   const month = monthKeyOf(now);
   const has = (key: "quotes" | "suppliers") => business.modules.includes(key);
-  const [books, jobs, receipts] = await Promise.all([
+  const [{ businessId, books }, jobs, receipts] = await Promise.all([
     readBooks(),
     has("quotes") ? listUninvoicedJobs() : Promise.resolve([]),
     has("suppliers") ? listUnbilledReceipts() : Promise.resolve([]),
   ]);
-  const income = incomeFigures(month, books.invoices, books.bills);
-  const { standing, attention } = standingFrom(books, today);
+  const archive = await listArchive(businessId);
+  const income = incomeOf(books, month);
+  const { standing, attention } = standingOf(books, today);
 
   // The 90+ day control is judged on the follow-up as it stands now.
   const owedRefs = new Set(standing.receivable.rows.map((row) => row.ref));
@@ -185,6 +175,20 @@ export async function loadOverview(business: Business): Promise<FinanceOverview 
       tone: "warning",
     });
   }
+  // A closed month whose records no longer match its report: an entry, edit
+  // or void dated in it since the close. Only an administrator can decide
+  // whether that is a correction and issue the next revision.
+  const changed = archive.filter((entry) => entry.incomeChanges.length > 0 || entry.standingChanges.length > 0);
+  if (changed.length > 0) {
+    alerts.push({
+      key: "corrections",
+      title: `${plural(changed.length, "closed report period has", "closed report periods have")} changes waiting for review`,
+      detail: `${changed.map((entry) => periodLabel(entry.period)).join(", ")}: records dated in ${changed.length === 1 ? "it" : "them"} changed after the report was made.`,
+      amount: "",
+      href: "/finance?tab=reports",
+      tone: "negative",
+    });
+  }
 
   return {
     today,
@@ -192,6 +196,22 @@ export async function loadOverview(business: Business): Promise<FinanceOverview 
     income,
     standing,
     alerts,
-    accountNames: Object.fromEntries(books.accounts.map((account) => [account.ref, account.name])),
+    accountNames: accountNamesOf(books),
   };
+}
+
+/** The signed-in business's month-end archive, for the Reports tab. */
+export async function loadArchive(): Promise<ArchiveMonth[]> {
+  const { activeBusinessId } = await requireAdmin();
+  return listArchive(activeBusinessId);
+}
+
+/** One frozen revision, to view on screen with its own drill-down. */
+export async function loadReport(kind: FinanceReportKind, period: string, revision: number): Promise<FinanceReportView | null> {
+  const { activeBusinessId } = await requireAdmin();
+  const doc = await findReport(activeBusinessId, kind, period, revision);
+  if (!doc) return null;
+  const { businessId, generatedAt, ...rest } = doc;
+  void businessId;
+  return { ...rest, generatedAt: generatedAt.toISOString() };
 }

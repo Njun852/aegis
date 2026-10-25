@@ -8,7 +8,8 @@ import { EXPENSE_CATEGORIES } from "@/lib/finance";
 import { addMonths, monthLabel } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
 import { DrillModal, FigureButton, type DrillRequest } from "./drill-down";
-import type { IncomeFigures, MonthKey } from "@/types";
+import { OfficialNotice } from "./official-notice";
+import type { IncomeFigures, MonthKey, OfficialReport } from "@/types";
 
 const CARD = {
   background: "var(--surface-card)",
@@ -29,11 +30,14 @@ export function IncomePanel({
   currentMonth,
   firstMonth,
   accountNames,
+  official,
 }: {
   income: IncomeFigures;
   currentMonth: MonthKey;
   firstMonth: MonthKey;
   accountNames: Record<string, string>;
+  /** The frozen report for this month, once it has closed. */
+  official: OfficialReport | null;
 }) {
   const router = useRouter();
   const [drill, setDrill] = useState<DrillRequest | null>(null);
@@ -81,6 +85,7 @@ export function IncomePanel({
           )}
         </div>
 
+        {official && <OfficialNotice official={official} />}
         {income.month === currentMonth && (
           <Notice tone="info">The month is still running, so these figures will change until it closes.</Notice>
         )}
@@ -142,8 +147,9 @@ export function IncomePanel({
         </section>
 
         <span style={{ fontSize: "11.5px", color: "var(--text-muted)", textWrap: "pretty" }}>
-          Only invoices and bills dated in {label} are counted, paid or not. Cash, bank and passbook balances, receivables, payables and the
-          financial position are on the Financial Standing Report, never here. Click any figure to see the records behind it.
+          Only invoices and bills dated in {label} are counted, paid or not, with card, bank and e-wallet fees paid in {label} under Other
+          Expenses. Cash, bank and passbook balances, receivables, payables and the financial position are on the Financial Standing Report,
+          never here. Click any figure to see the records behind it.
         </span>
       </div>
 

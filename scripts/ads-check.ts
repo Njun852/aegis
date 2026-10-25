@@ -23,8 +23,9 @@ import { MongoClient } from "mongodb";
 import { accountTotals, costPerResultCents } from "@/lib/ads";
 import { explainMetaFailure } from "@/lib/meta/failures";
 import { fetchAccount, inspectAdAccount } from "@/lib/meta/fetch";
-import { mapSnapshot, type MetaSnapshot } from "@/lib/meta/mapping";
-import { windowForRange } from "@/lib/meta/ranges";
+import { mapSnapshot, readOfDay, spendOfDay, type MetaSnapshot } from "@/lib/meta/mapping";
+import { dayFigures, windowForRange } from "@/lib/meta/ranges";
+import { buildFunnel, periodLabel } from "@/lib/ad-funnel";
 import { decryptSecret } from "@/lib/auth/secrets";
 import type { BusinessDocument } from "@/types";
 
@@ -146,6 +147,24 @@ const fixture: MetaSnapshot = {
       ads: [],
     },
     maximum: empty,
+    today: {
+      campaigns: [
+        { campaign_id: "c1", spend: "45.50", actions: [{ action_type: "lead", value: "1" }], date_start: "2026-09-21" },
+        // A campaign since deleted still spent today, and counts toward the account's spend.
+        { campaign_id: "gone", spend: "24.50", date_start: "2026-09-21" },
+      ],
+      adsets: [],
+      ads: [],
+    },
+    yesterday: {
+      campaigns: [{ campaign_id: "c1", spend: "120", actions: [{ action_type: "lead", value: "2" }], date_start: "2026-09-20" }],
+      adsets: [
+        { adset_id: "a1", spend: "120", date_start: "2026-09-20" },
+        // With `results` asked for, Meta sends a row even for what did not run.
+        { adset_id: "a2", spend: "0", impressions: "0", date_start: "2026-09-20" },
+      ],
+      ads: [],
+    },
   },
 };
 
@@ -171,6 +190,22 @@ assert.equal(c1.enabled, true);
 assert.equal(c1.metrics.last_7d.spendCents, 30000, "7-day figures kept separately");
 assert.equal(c1.metrics.last_7d.results, 3);
 assert.equal(c1.metrics.maximum.spendCents, 0, "a range with no insight row is zero, not missing");
+assert.equal(c1.metrics.today.spendCents, 4550, "today's figures kept separately");
+assert.equal(c1.metrics.yesterday.spendCents, 12000, "yesterday's figures kept separately");
+assert.equal(c1.metrics.yesterday.results, 2);
+assert.equal(row("c2").metrics.today.spendCents, 0);
+
+// Today's spend for the pacing bar comes from today's campaign rows, with no
+// call of its own, deleted campaigns included.
+assert.equal(spendOfDay(fixture.insights.today), 7000, "45.50 + 24.50, the deleted campaign counted");
+assert.equal(spendOfDay(empty), 0, "no row is a real zero");
+assert.deepEqual(readOfDay(fixture.insights.yesterday), { rows: 2, reportedDate: "2026-09-20" }, "a row with no delivery is not counted");
+assert.deepEqual(readOfDay(empty), { rows: 0, reportedDate: null }, "nothing returned names no day");
+assert.equal(
+  readOfDay({ campaigns: [{ campaign_id: "c1", spend: "0", impressions: "0", date_start: "2026-09-21" }], adsets: [], ads: [] }).rows,
+  0,
+  "rows for everything and delivery on nothing is a day Meta has not reported",
+);
 
 const c2 = row("c2");
 assert.equal(c2.resultLabel, "mixed results", "ad sets chasing different results");
@@ -221,7 +256,58 @@ assert.equal(all.from, null, "maximum has no lower bound");
 assert.equal(all.to, null, "maximum includes today");
 assert.equal(windowForRange("last_7d", "Not/AZone", now).to?.toISOString(), "2026-09-21T00:00:00.000Z", "unknown zone falls back to UTC");
 
-console.log(`✓ booking windows match Meta's date presets`);
+// Today and yesterday: one Manila day each, today running to tomorrow's midnight.
+const todayWindow = windowForRange("today", "Asia/Manila", now);
+assert.equal(todayWindow.from?.toISOString(), "2026-09-20T16:00:00.000Z", "today starts at Manila midnight");
+assert.equal(todayWindow.to?.toISOString(), "2026-09-21T16:00:00.000Z", "and ends at the next one");
+const yesterdayWindow = windowForRange("yesterday", "Asia/Manila", now);
+assert.equal(yesterdayWindow.from?.toISOString(), "2026-09-19T16:00:00.000Z");
+assert.equal(yesterdayWindow.to?.toISOString(), "2026-09-20T16:00:00.000Z", "yesterday ends where today starts");
+// 00:30 in Manila is still the day before in UTC: the day is Manila's, not the server's.
+const justAfterMidnight = new Date("2026-09-20T16:30:00Z");
+assert.equal(windowForRange("today", "Asia/Manila", justAfterMidnight).from?.toISOString(), "2026-09-20T16:00:00.000Z");
+// The account's own zone decides, when it is not Manila.
+assert.equal(windowForRange("today", "America/New_York", now).from?.toISOString(), "2026-09-20T04:00:00.000Z");
+// A 23-hour day: New York's clocks go forward on 8 March 2026.
+const springForward = windowForRange("yesterday", "America/New_York", new Date("2026-03-09T15:00:00Z"));
+assert.equal(springForward.from?.toISOString(), "2026-03-08T05:00:00.000Z");
+assert.equal(springForward.to?.toISOString(), "2026-03-09T04:00:00.000Z", "a short day still ends at midnight");
+assert.equal(periodLabel(todayWindow.from, todayWindow.to, "Asia/Manila"), "Sep 21, 2026", "a single day is named once");
+assert.equal(periodLabel(week.from, week.to, "Asia/Manila"), "Sep 14 – Sep 20, 2026");
+
+// Whether the stored day is the day meant now, and plain words when it is not.
+const synced = { today: { date: "2026-09-21", rows: 3 }, yesterday: { date: "2026-09-20", rows: 4 } };
+assert.equal(dayFigures("today", synced, "Asia/Manila", now).missing, null, "synced today: today's figures are here");
+assert.equal(dayFigures("today", synced, "Asia/Manila", now).label, "Sep 21, 2026");
+assert.equal(dayFigures("yesterday", synced, "Asia/Manila", now).missing, null);
+const nextMorning = new Date("2026-09-22T01:00:00Z");
+const stale = dayFigures("today", synced, "Asia/Manila", nextMorning);
+assert.equal(stale.read, false, "yesterday's sync does not hold today");
+assert.match(stale.missing ?? "", /has not read today \(Sep 22, 2026\) from Meta yet/);
+assert.equal(dayFigures("yesterday", synced, "Asia/Manila", nextMorning).read, false, "its yesterday is the day before");
+const quiet = dayFigures("today", { ...synced, today: { date: "2026-09-21", rows: 0 } }, "Asia/Manila", now);
+assert.equal(quiet.read, true);
+assert.match(quiet.missing ?? "", /Meta has not reported anything for today \(Sep 21, 2026\) yet/);
+assert.equal(dayFigures("today", null, "Asia/Manila", now).read, false, "a sync from before these ranges existed");
+
+// A day without Meta's figures: bookings still counted, spend unknown, never free per booking.
+const unknownDay = buildFunnel({
+  campaigns: [{ id: "c1", name: "Fleet Leads", enabled: true, spendCents: 0, results: 0, resultLabel: "conversations" }],
+  confirmedByCampaign: { c1: 2 },
+  chatsByCampaign: {},
+  bookings: [],
+  uncreditedConfirmed: 1,
+  periodLabel: "Sep 22, 2026",
+  missingFigures: stale.missing,
+});
+assert.equal(unknownDay.totals.confirmedBookings, 2);
+assert.equal(unknownDay.totals.costPerBookingCents, null, "no cost per booking without spend");
+assert.equal(unknownDay.rows[0].conversations, null);
+assert.equal(unknownDay.rows[0].flag, null, "nothing to judge");
+assert.equal(unknownDay.missingFigures, stale.missing);
+
+console.log(`✓ booking windows match Meta's date presets, today and yesterday included`);
+console.log(`✓ today and yesterday: Manila days, stale and unreported days said plainly, never zero`);
 console.log(`✓ mapping: ${rows.length} rows, spend, results, cost per result, state and budgets all as expected`);
 
 // ---- Part two: a live, read-only run ----------------------------------------
@@ -287,13 +373,21 @@ if (!fetched.ok) {
 
 const live = mapSnapshot(fetched.data.snapshot);
 console.log(
-  `  fetched  : ${Date.now() - started}ms · ${live.length} rows${fetched.data.truncated ? " (TRUNCATED at the page cap)" : ""} · spent today ${fetched.data.spentTodayCents / 100} ${info.currency}\n`,
+  `  fetched  : ${Date.now() - started}ms · ${live.length} rows${fetched.data.truncated ? " (TRUNCATED at the page cap)" : ""} · spent today ${fetched.data.spentTodayCents / 100} ${info.currency}`,
 );
+for (const range of ["today", "yesterday"] as const) {
+  const read = fetched.data.days[range];
+  console.log(
+    `  ${range.padEnd(9)}: ${read.rows ? `delivery on ${read.rows} campaigns, ad sets and ads, ${read.reportedDate}` : "Meta reported nothing for this day yet"}`,
+  );
+}
+console.log("");
 for (const entry of live) {
   const money = (cents: number) => `${(cents / 100).toFixed(2)} ${info.currency}`;
   console.log(
     `  ${entry.level.padEnd(9)} ${entry.state.padEnd(9)} ${entry.name}` +
-      `  · 30d ${money(entry.spendCents)} · ${entry.results} ${entry.resultLabel}`,
+      `  · today ${money(entry.metrics.today.spendCents)} · yesterday ${money(entry.metrics.yesterday.spendCents)}` +
+      ` · 30d ${money(entry.spendCents)} · ${entry.results} ${entry.resultLabel}`,
   );
 }
 console.log("\nNothing was written — not to the database, not to Meta.");

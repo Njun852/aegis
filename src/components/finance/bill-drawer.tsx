@@ -7,11 +7,14 @@ import { dueLabel, expenseCategoryLabel } from "@/lib/finance";
 import { formatMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { GroupBadge, StateBadge } from "./bill-badges";
+import { PaymentFeeLine } from "./payment-fee-line";
+import { AuditLines, RecordTrailPanel } from "./record-trail";
 import { useVoid } from "./use-void";
-import type { BillSummary } from "@/types";
+import type { BillSummary, RecordTrail } from "@/types";
 
 export interface BillDrawerProps {
   bill: BillSummary;
+  trail: RecordTrail;
   isAdmin: boolean;
   today: string;
   canPay: boolean;
@@ -20,7 +23,7 @@ export interface BillDrawerProps {
   onClose: () => void;
 }
 
-export function BillDrawer({ bill, isAdmin, today, canPay, onPay, onEdit, onClose }: BillDrawerProps) {
+export function BillDrawer({ bill, trail, isAdmin, today, canPay, onPay, onEdit, onClose }: BillDrawerProps) {
   const paymentVoid = useVoid(voidBillPaymentAction, "Kept on record as void; the bill owes that amount again.");
   const billVoid = useVoid(voidBillAction, "Kept on record as void; it no longer counts as a cost or as payable.");
   const recorded = bill.payments.filter((payment) => payment.status === "recorded");
@@ -34,7 +37,6 @@ export function BillDrawer({ bill, isAdmin, today, canPay, onPay, onEdit, onClos
       value: `${formatQuoteDay(bill.dueDate)}${bill.outstandingCents > 0 ? ` · ${dueLabel(bill.dueDate, today)}` : ""}`,
     },
     { label: "Responsible", value: bill.responsiblePerson || "Nobody named" },
-    { label: "Entered by", value: bill.createdBy },
     ...(bill.state === "Void" ? [{ label: "Voided", value: bill.voidReason }] : []),
   ];
 
@@ -134,8 +136,9 @@ export function BillDrawer({ bill, isAdmin, today, canPay, onPay, onEdit, onClos
                         <span style={{ fontSize: "12.5px" }}>From {payment.accountName}</span>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>
                           {payment.ref} · {payment.createdBy}
-                          {payment.status === "void" && ` · void: ${payment.voidReason ?? ""}`}
+                          {payment.status === "void" && ` · voided by ${payment.updatedBy ?? "someone"}: ${payment.voidReason ?? ""}`}
                         </span>
+                        <PaymentFeeLine payment={payment} />
                       </span>
                       <span style={{ fontSize: "12.5px", fontWeight: 600, fontVariantNumeric: "tabular-nums", textDecoration: payment.status === "void" ? "line-through" : "none" }}>
                         {formatMoney(payment.amountCents)}
@@ -152,6 +155,9 @@ export function BillDrawer({ bill, isAdmin, today, canPay, onPay, onEdit, onClos
               </div>
             )}
           </section>
+
+          <AuditLines audit={bill.audit} reference={bill.reference} />
+          <RecordTrailPanel recordRef={bill.ref} trail={trail} canAttach />
 
           {billVoid.target === bill.ref && (
             <section className="flex flex-col gap-1">
@@ -171,7 +177,7 @@ export function BillDrawer({ bill, isAdmin, today, canPay, onPay, onEdit, onClos
           )}
           {bill.state !== "Void" && (
             <Button variant="secondary" icon="pen-line" onClick={onEdit}>
-              Edit
+              Correct
             </Button>
           )}
           {isAdmin && bill.state !== "Void" && recorded.length === 0 && billVoid.target !== bill.ref && (

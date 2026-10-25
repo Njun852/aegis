@@ -8,18 +8,25 @@ import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
 import { amountInput, parseAmount } from "@/lib/quotations";
-import type { BillSummary, MoneyAccountSummary } from "@/types";
+import { useFee } from "./fee-fields";
+import type { BillSummary, FeeRule, MoneyAccountSummary } from "@/types";
 
-/** Money paid on a bill, in full or in part, out of one of the business's accounts. */
+/**
+ * Money paid on a bill, in full or in part, out of one of the business's
+ * accounts. A bank charge or e-wallet fee is paid on top: the bill is settled
+ * by the amount, the account pays the amount and the fee.
+ */
 export function PayBillModal({
   bill,
   accounts,
+  feeRules,
   today,
   onClose,
 }: {
   bill: BillSummary;
   /** Active accounts. */
   accounts: MoneyAccountSummary[];
+  feeRules: FeeRule[];
   today: string;
   onClose: () => void;
 }) {
@@ -31,6 +38,7 @@ export function PayBillModal({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const fee = useFee(feeRules, parseAmount(amount) || 0, "out");
 
   const save = () => {
     const amountCents = parseAmount(amount);
@@ -42,9 +50,13 @@ export function PayBillModal({
       setError(`That is more than the ${formatMoney(bill.outstandingCents)} still owed.`);
       return;
     }
+    if (fee.problem) {
+      setError(fee.problem);
+      return;
+    }
     setError(null);
     startTransition(async () => {
-      const result = await payBillAction(bill.ref, { accountRef, amountCents, paidOn, note });
+      const result = await payBillAction(bill.ref, { accountRef, amountCents, fee: fee.fee, paidOn, note });
       if (!result.ok) {
         setError(result.error);
         toast({ tone: "error", title: "Payment not recorded", description: result.error, key: "finance-pay" });
@@ -104,6 +116,7 @@ export function PayBillModal({
           <input style={INPUT} value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} />
         </Field>
       </div>
+      {fee.fields}
     </Modal>
   );
 }

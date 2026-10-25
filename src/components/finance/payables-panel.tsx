@@ -12,7 +12,7 @@ import { BillModal } from "./bill-modal";
 import { groupTone, StateBadge } from "./bill-badges";
 import { PayBillModal } from "./pay-bill-modal";
 import { StatTiles, type StatTile } from "./stat-tiles";
-import type { BillSummary, MoneyAccountSummary, PayeeOption, UnbilledReceipt } from "@/types";
+import type { BillSummary, FeeRule, MoneyAccountSummary, PayeeOption, RecordTrail, UnbilledReceipt } from "@/types";
 
 type View = "outstanding" | "paid" | "void";
 
@@ -22,6 +22,9 @@ export interface PayablesPanelProps {
   payees: PayeeOption[];
   receipts: UnbilledReceipt[];
   openRef: string | null;
+  /** The open bill's history and attachments, its payments' included. */
+  trail: RecordTrail;
+  feeRules: FeeRule[];
   isAdmin: boolean;
   today: string;
   userName: string;
@@ -46,7 +49,7 @@ const MONEY = { ...TD, textAlign: "right" as const, fontVariantNumeric: "tabular
  * whether it is due next quarter or long overdue, grouped by how soon it is
  * due; paid and void bills are a click away.
  */
-export function PayablesPanel({ bills, accounts, payees, receipts, openRef, isAdmin, today, userName }: PayablesPanelProps) {
+export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trail, feeRules, isAdmin, today, userName }: PayablesPanelProps) {
   const router = useRouter();
   const [view, setView] = useState<View>("outstanding");
   const [adding, setAdding] = useState(false);
@@ -283,6 +286,7 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, isAd
         <BillDrawer
           key={open.ref}
           bill={open}
+          trail={trail}
           isAdmin={isAdmin}
           today={today}
           canPay={active.length > 0}
@@ -297,6 +301,7 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, isAd
           receipt={fromReceipt}
           payees={payees}
           accounts={active}
+          feeRules={feeRules}
           today={today}
           defaultPerson={userName}
           onClose={() => {
@@ -312,7 +317,7 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, isAd
           }}
         />
       )}
-      {paying && <PayBillModal bill={paying} accounts={active} today={today} onClose={() => setPaying(null)} />}
+      {paying && <PayBillModal bill={paying} accounts={active} feeRules={feeRules} today={today} onClose={() => setPaying(null)} />}
       {choosingReceipt && (
         <Modal title="Supplier receipts with no bill" icon="truck" width={620} onClose={() => setChoosingReceipt(false)}>
           <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>

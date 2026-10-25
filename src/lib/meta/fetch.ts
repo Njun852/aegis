@@ -3,7 +3,8 @@ import "server-only";
 import { graphGet, graphGetAll, type MetaOutcome } from "./client";
 import {
   AD_RANGE_KEYS,
-  decimalToMinor,
+  readOfDay,
+  spendOfDay,
   type MetaAd,
   type MetaAdSet,
   type MetaCampaign,
@@ -11,7 +12,7 @@ import {
   type MetaInsightSet,
   type MetaSnapshot,
 } from "./mapping";
-import type { AdRange } from "@/types";
+import type { AdDayRange, AdRange } from "@/types";
 
 /**
  * Reading a whole ad account, and nothing else.
@@ -32,6 +33,11 @@ export interface FetchedAccount {
   /** A list hit the page cap, so some rows may be missing. */
   truncated: boolean;
   spentTodayCents: number;
+  /**
+   * For Today and Yesterday: how many insight rows Meta returned, and the day
+   * it said they cover (null when it returned none, so said nothing).
+   */
+  days: Record<AdDayRange, { rows: number; reportedDate: string | null }>;
 }
 
 /**
@@ -90,9 +96,10 @@ async function insights(
 }
 
 /**
- * About fourteen GET requests: three for the structure, nine for insights
- * (three levels × three date ranges), one for today's spend. Stops at the first
- * failure and says which kind it was.
+ * About eighteen GET requests: three for the structure and fifteen for
+ * insights (three levels × five date ranges). Today's account spend, for the
+ * pacing bar, is the sum of today's campaign rows rather than a call of its
+ * own. Stops at the first failure and says which kind it was.
  */
 export async function fetchAccount(
   credentials: MetaCredentialsInput,
@@ -125,13 +132,6 @@ export async function fetchAccount(
     byRange[range] = set;
   }
 
-  const today = await graphGet<{ data?: { spend?: string }[] }>(
-    token,
-    `/${account}/insights`,
-    { date_preset: "today", fields: "spend" },
-  );
-  if (!today.ok) return today;
-
   return {
     ok: true,
     data: {
@@ -142,8 +142,8 @@ export async function fetchAccount(
         insights: byRange,
       },
       truncated,
-      // No row at all means nothing was spent today, which is a real zero.
-      spentTodayCents: decimalToMinor(today.data.data?.[0]?.spend ?? "0"),
+      spentTodayCents: spendOfDay(byRange.today),
+      days: { today: readOfDay(byRange.today), yesterday: readOfDay(byRange.yesterday) },
     },
   };
 }

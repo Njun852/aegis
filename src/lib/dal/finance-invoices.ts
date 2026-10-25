@@ -2,21 +2,28 @@ import "server-only";
 
 import { manilaDateKey } from "@/lib/booking-slots";
 import {
+  MIN_CORRECTION_REASON,
   arAgingBucket,
   billPayState,
+  changeSummary,
   collectionProblem,
   daysOutstanding,
   daysUntilDue,
+  feeKindLabel,
+  fieldChanges,
+  findDuplicates,
   followUpProblems,
   invoiceInputProblem,
   isOver90,
   ar90Problems,
+  type DuplicateCandidate,
 } from "@/lib/finance";
 import { formatMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { tenantScope } from "./tenant";
 import { assertCanPayIn, voidPayment } from "./finance-accounts";
-import { invoices, logFinanceEvent, moneyAccounts, payments } from "./finance";
+import { DuplicateError, invoices, logFinanceEvent, moneyAccounts, payments, recordAudit, toPaymentView, unconfirmed } from "./finance";
+import { checkFee } from "./finance-fees";
 import { InputError, insertWithRef, isDuplicateKey } from "./refs";
 import type {
   ArFollowUp,
@@ -52,6 +59,26 @@ function billedName(job: Pick<JobOrderDocument, "billTo">): string {
   return job.billTo.company.trim() || job.billTo.name.trim() || "Walk-in customer";
 }
 
+/** Where an invoice came from, for its audit line. */
+function invoiceSource(doc: Pick<InvoiceDocument, "jobOrderRef" | "voidedJobOrderRef" | "opening" | "intakeRef">): string {
+  if (doc.intakeRef) return `Photo or PDF ${doc.intakeRef}, read by AI and confirmed in the Review Queue`;
+  const job = doc.jobOrderRef ?? doc.voidedJobOrderRef;
+  if (job) return `Job order ${job}`;
+  return doc.opening ? "Opening balance at go-live" : "Entered in Finance";
+}
+
+/** A live invoice as the duplicate check compares it. */
+export function invoiceCandidate(doc: InvoiceDocument): DuplicateCandidate {
+  return {
+    ref: doc.ref,
+    party: doc.customerName,
+    reference: doc.number,
+    dateKey: doc.invoiceDate,
+    amountCents: doc.amountCents,
+    label: [`No. ${doc.number}`, doc.customerName, formatMoney(doc.amountCents), formatQuoteDay(doc.invoiceDate)].join(" · "),
+  };
+}
+
 function toSummary(
   doc: InvoiceDocument,
   collections: PaymentDocument[],
@@ -82,22 +109,10 @@ function toSummary(
     problems: outstandingCents > 0 && isOver90(doc.invoiceDate, today) ? ar90Problems(doc.followUp, today) : [],
     voidReason: doc.voidReason ?? "",
     createdBy: doc.createdBy,
+    audit: recordAudit(doc, invoiceSource(doc)),
     payments: collections
       .sort((a, b) => (a.paidOn < b.paidOn ? 1 : a.paidOn > b.paidOn ? -1 : 0))
-      .map((payment) => ({
-        ref: payment.ref,
-        accountRef: payment.accountRef,
-        accountName: accountNames.get(payment.accountRef) ?? payment.accountRef,
-        direction: payment.direction,
-        kind: payment.kind,
-        amountCents: payment.amountCents,
-        paidOn: payment.paidOn,
-        invoiceRef: payment.invoiceRef,
-        note: payment.note,
-        status: payment.status,
-        voidReason: payment.voidReason,
-        createdBy: payment.createdBy,
-      })),
+      .map((payment) => toPaymentView(payment, accountNames)),
   };
 }
 
@@ -178,6 +193,7 @@ export async function createInvoice(input: InvoiceInput, actor: FinanceActor): P
       today,
     );
     if (paid) throw new InputError(paid);
+    await checkFee(input.collectedInto.fee, input.amountCents, "in");
     await assertCanPayIn(input.collectedInto.accountRef, input.collectedInto.paidOn);
   }
 
@@ -192,6 +208,17 @@ export async function createInvoice(input: InvoiceInput, actor: FinanceActor): P
   const number = input.number.trim();
   const collection = await invoices();
   const now = new Date();
+
+  // The number as typed is issued once, void or not; the index refuses it
+  // outright. A near match ("SI 0099" for "SI-0099"), or the same customer,
+  // day and amount under another number, is a warning the person saves past.
+  const sameNumber = await collection.findOne({ number });
+  if (sameNumber) throw new InputError(`Invoice number ${number} is already used by ${sameNumber.ref}.`);
+  const matches = findDuplicates(
+    { party: input.customerName, reference: number, dateKey: input.invoiceDate, amountCents: input.amountCents },
+    (await collection.find({ status: "open" }).toArray()).map(invoiceCandidate),
+  );
+  if (unconfirmed(matches, input.confirmedDuplicates).length > 0) throw new DuplicateError(matches, "invoice");
 
   let ref: string;
   try {
@@ -230,13 +257,15 @@ export async function createInvoice(input: InvoiceInput, actor: FinanceActor): P
     actor,
     "invoice.created",
     ref,
-    `No. ${number}, ${input.customerName.trim()} ${formatMoney(input.amountCents)}, dated ${formatQuoteDay(input.invoiceDate)}, due ${formatQuoteDay(input.dueDate)}${input.jobOrderRef ? `, for ${input.jobOrderRef}` : ""}`,
+    `No. ${number}, ${input.customerName.trim()} ${formatMoney(input.amountCents)}, dated ${formatQuoteDay(input.invoiceDate)}, due ${formatQuoteDay(input.dueDate)}${input.jobOrderRef ? `, for ${input.jobOrderRef}` : ""}${
+      matches.length ? `. Saved past the duplicate warning for ${matches.map((match) => match.ref).join(", ")}` : ""
+    }`,
   );
 
   if (input.collectedInto) {
     await recordCollection(
       ref,
-      { accountRef: input.collectedInto.accountRef, amountCents: input.amountCents, paidOn: input.collectedInto.paidOn, note: "" },
+      { accountRef: input.collectedInto.accountRef, amountCents: input.amountCents, fee: input.collectedInto.fee, paidOn: input.collectedInto.paidOn, note: "" },
       actor,
     );
   }
@@ -252,6 +281,7 @@ export async function recordCollection(ref: string, input: CollectionInput, acto
     todayKey(),
   );
   if (problem) throw new InputError(problem);
+  const fee = await checkFee(input.fee, input.amountCents, "in");
   const account = await assertCanPayIn(input.accountRef, input.paidOn);
 
   const base = `Invoice ${invoice.number} · ${invoice.customerName}`;
@@ -263,6 +293,7 @@ export async function recordCollection(ref: string, input: CollectionInput, acto
       direction: "in",
       kind: "collection",
       amountCents: input.amountCents,
+      ...(fee ? { fee } : {}),
       paidOn: input.paidOn,
       invoiceRef: ref,
       note: input.note.trim() ? `${base} · ${input.note.trim()}` : base,
@@ -276,7 +307,9 @@ export async function recordCollection(ref: string, input: CollectionInput, acto
     actor,
     "invoice.collected",
     ref,
-    `${formatMoney(input.amountCents)} collected into ${account.name}, ${formatQuoteDay(input.paidOn)} (${paymentRef})`,
+    `${formatMoney(input.amountCents)} collected into ${account.name}, ${formatQuoteDay(input.paidOn)} (${paymentRef})${
+      fee ? `, less ${feeKindLabel(fee.kind).toLowerCase()} ${formatMoney(fee.cents)}: ${formatMoney(input.amountCents - fee.cents)} deposited` : ""
+    }`,
   );
   return paymentRef;
 }
@@ -284,11 +317,13 @@ export async function recordCollection(ref: string, input: CollectionInput, acto
 /**
  * The customer, number and dates can be corrected; the amount and the invoice
  * date decide which month's sales it is in and how much is owed, so they are
- * fixed once anything has been collected.
+ * fixed once anything has been collected. A correction says why, and its
+ * history keeps every changed field, old and new.
  */
 export async function updateInvoice(
   ref: string,
   changes: Pick<InvoiceInput, "customerName" | "number" | "invoiceDate" | "dueDate" | "amountCents">,
+  reason: string,
   actor: FinanceActor,
 ): Promise<void> {
   const invoice = await findInvoice(ref);
@@ -300,6 +335,16 @@ export async function updateInvoice(
   if (moneyChanged && invoice.collectedCents > 0) {
     throw new InputError("The amount and invoice date are fixed once something has been collected. Void the collection first.");
   }
+  const why = reason.trim();
+  if (why.length < MIN_CORRECTION_REASON) throw new InputError("Say why this invoice is being corrected.");
+  const changed = fieldChanges([
+    { field: "Customer", from: invoice.customerName, to: changes.customerName.trim() },
+    { field: "Invoice no.", from: invoice.number, to: changes.number.trim() },
+    { field: "Invoice date", from: formatQuoteDay(invoice.invoiceDate), to: formatQuoteDay(changes.invoiceDate) },
+    { field: "Due date", from: formatQuoteDay(invoice.dueDate), to: formatQuoteDay(changes.dueDate) },
+    { field: "Amount", from: formatMoney(invoice.amountCents), to: formatMoney(changes.amountCents) },
+  ]);
+  if (changed.length === 0) throw new InputError("Nothing was changed, so nothing was saved.");
 
   const collection = await invoices();
   try {
@@ -312,6 +357,7 @@ export async function updateInvoice(
           invoiceDate: changes.invoiceDate,
           dueDate: changes.dueDate,
           amountCents: changes.amountCents,
+          updatedBy: actor.name,
           updatedAt: new Date(),
         },
       },
@@ -320,13 +366,7 @@ export async function updateInvoice(
     if (isDuplicateKey(error, "number")) throw new InputError(`Invoice number ${changes.number.trim()} is already used.`);
     throw error;
   }
-  const parts = [
-    changes.number.trim() !== invoice.number && `number ${invoice.number} to ${changes.number.trim()}`,
-    changes.amountCents !== invoice.amountCents && `amount ${formatMoney(invoice.amountCents)} to ${formatMoney(changes.amountCents)}`,
-    changes.invoiceDate !== invoice.invoiceDate && `dated ${formatQuoteDay(changes.invoiceDate)}`,
-    changes.dueDate !== invoice.dueDate && `due ${formatQuoteDay(changes.dueDate)}`,
-  ].filter(Boolean);
-  await logFinanceEvent(actor, "invoice.updated", ref, parts.length ? parts.join(", ") : "Details edited");
+  await logFinanceEvent(actor, "invoice.corrected", ref, changeSummary(changed), { changes: changed, reason: why });
 }
 
 /**
@@ -351,7 +391,7 @@ export async function saveFollowUp(ref: string, followUp: ArFollowUp, actor: Fin
     nextFollowUpDate: followUp.nextFollowUpDate || null,
   };
   const collection = await invoices();
-  await collection.updateOne({ ref, status: "open" }, { $set: { followUp: clean, updatedAt: new Date() } });
+  await collection.updateOne({ ref, status: "open" }, { $set: { followUp: clean, updatedBy: actor.name, updatedAt: new Date() } });
   const detail = [
     clean.lastAction && `Last: ${clean.lastAction}`,
     clean.nextAction && `Next: ${clean.nextAction}`,
@@ -382,7 +422,13 @@ export async function voidInvoice(ref: string, reason: string, actor: FinanceAct
   await collection.updateOne(
     { ref, status: "open" },
     {
-      $set: { status: "void", voidReason: why, updatedAt: now, ...(doc?.jobOrderRef ? { voidedJobOrderRef: doc.jobOrderRef } : {}) },
+      $set: {
+        status: "void",
+        voidReason: why,
+        updatedBy: actor.name,
+        updatedAt: now,
+        ...(doc?.jobOrderRef ? { voidedJobOrderRef: doc.jobOrderRef } : {}),
+      },
       $unset: { jobOrderRef: "" },
     },
   );

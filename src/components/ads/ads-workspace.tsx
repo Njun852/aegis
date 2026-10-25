@@ -30,6 +30,7 @@ import { AD_ACCOUNT, AD_LEVELS, AD_STATES } from "@/lib/data/ads";
 import { formatMoneyIn } from "@/lib/format";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
 import { activateOnKey } from "@/lib/interaction";
+import type { DayFigures } from "@/lib/meta/ranges";
 import { AdDrawer } from "./ad-drawer";
 import { CampaignFunnelPanel } from "./campaign-funnel";
 import type {
@@ -46,6 +47,8 @@ import type {
 const ADS_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 const RANGE_OPTIONS: { key: AdRange; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
   { key: "last_7d", label: "Last 7 days" },
   { key: "last_30d", label: "Last 30 days" },
   { key: "maximum", label: "Maximum" },
@@ -73,6 +76,10 @@ export interface AdsWorkspaceProps {
   range: AdRange;
   /** Spend to confirmed bookings per campaign. Null for sample data or without Bookings. */
   funnel: CampaignFunnel | null;
+  /** For Today and Yesterday on a connected account: which day, and whether Meta's figures for it are here. */
+  day: DayFigures | null;
+  /** The same for today, whatever the range, for the "Spent today" pacing bar. */
+  today: DayFigures | null;
 }
 
 export function AdsWorkspace({
@@ -85,6 +92,8 @@ export function AdsWorkspace({
   meta,
   range,
   funnel,
+  day,
+  today,
 }: AdsWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
@@ -93,6 +102,13 @@ export function AdsWorkspace({
   const money = (cents: number, withCents = true) =>
     formatMoneyIn(cents, currency, withCents);
   const [syncing, startSync] = useTransition();
+  const [changingRange, startRangeChange] = useTransition();
+  // Meta's figures for the chosen single day are not in AEGIS. The rows still
+  // list what exists, but every figure reads "—", never a zero Meta did not report.
+  const missing = live ? (day?.missing ?? null) : null;
+  const figure = (value: string) => (missing ? "—" : value);
+  // The last sync was before today began, so its "spent today" is another day's.
+  const todayUnread = live && today !== null && !today.read;
   const [level, setLevel] = useState<AdLevel>("campaigns");
   const [state, setState] = useState<AdStateFilter>("All");
   const [search, setSearch] = useState("");
@@ -206,8 +222,23 @@ export function AdsWorkspace({
 
   const changeRange = (label: string) => {
     const next = RANGE_OPTIONS.find((option) => option.label === label)?.key;
-    if (next && next !== range) router.push(`/ads?range=${next}`);
+    if (next && next !== range) startRangeChange(() => router.push(`/ads?range=${next}`));
   };
+
+  // Says which days are now showing once the new range has arrived, and
+  // plainly when Meta's figures for a chosen day are not here.
+  const shownRange = useRef(range);
+  useEffect(() => {
+    if (shownRange.current === range) return;
+    shownRange.current = range;
+    const label = RANGE_OPTIONS.find((option) => option.key === range)?.label ?? range;
+    toast({
+      tone: missing ? "info" : "success",
+      title: day ? `Showing ${label.toLowerCase()}, ${day.label}` : `Showing ${label.toLowerCase()}`,
+      description: missing ?? day?.note ?? funnel?.periodLabel,
+      key: "ads-range",
+    });
+  }, [range, day, missing, funnel, toast]);
 
   // Live freshness: never synced, synced but old, failing, or current.
   const tone = live ? freshnessTone(meta?.lastSyncAt ?? null, undefined, ADS_STALE_AFTER_MS) : null;
@@ -264,7 +295,7 @@ export function AdsWorkspace({
   const stats = [
     {
       label: "Amount spent",
-      value: money(totals.spendCents, false),
+      value: figure(money(totals.spendCents, false)),
       icon: "wallet",
       bg: "var(--accent-soft)",
       fg: "var(--accent-primary)",
@@ -277,24 +308,25 @@ export function AdsWorkspace({
           : totals.spendCents
             ? "Results · mixed, see campaigns"
             : "Results",
-      value:
+      value: figure(
         live && !totals.resultLabel && totals.spendCents
           ? "Mixed"
           : formatCount(totals.results),
+      ),
       icon: "trending-up",
       bg: "var(--status-positive-soft)",
       fg: "var(--status-positive)",
     },
     {
       label: "Cost per result",
-      value: totals.costPerResultCents ? money(totals.costPerResultCents) : "—",
+      value: figure(totals.costPerResultCents ? money(totals.costPerResultCents) : "—"),
       icon: "arrow-left-right",
       bg: "var(--status-warning-soft)",
       fg: "var(--status-warning)",
     },
     {
       label: "Purchase ROAS",
-      value: totals.roas ? `${totals.roas.toFixed(2)}x` : "—",
+      value: figure(totals.roas ? `${totals.roas.toFixed(2)}x` : "—"),
       icon: "bar-chart-2",
       bg: "var(--surface-inset)",
       fg: "var(--text-secondary)",
@@ -351,7 +383,7 @@ export function AdsWorkspace({
                   : "Sample period"
               }
               onChange={changeRange}
-              disabled={!live}
+              disabled={!live || changingRange}
               title={
                 live ? undefined : "Sample data has one fixed period. Connect a Meta ad account to choose a range."
               }
@@ -469,7 +501,7 @@ export function AdsWorkspace({
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {money(totals.spentTodayCents)}
+                  {todayUnread ? "—" : money(totals.spentTodayCents)}
                 </span>
               </span>
               <span
@@ -485,7 +517,7 @@ export function AdsWorkspace({
                     display: "block",
                     height: "100%",
                     borderRadius: "var(--radius-pill)",
-                    width: `${pacing}%`,
+                    width: `${todayUnread ? 0 : pacing}%`,
                     background:
                       pacing > 95
                         ? "var(--amber-400)"
@@ -501,7 +533,9 @@ export function AdsWorkspace({
                   fontVariantNumeric: "tabular-nums",
                 }}
               >
-                {money(totals.dailyBudgetCents, false)} daily budget
+                {todayUnread
+                  ? "Not read since today began"
+                  : `${money(totals.dailyBudgetCents, false)} daily budget`}
               </span>
             </span>
             <Button
@@ -591,6 +625,38 @@ export function AdsWorkspace({
             </div>
           ))}
         </div>
+
+        {live && day && (
+          <div
+            role="status"
+            className="flex items-start gap-2.5"
+            style={{
+              padding: "10px 14px",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border-default)",
+              background: missing ? "var(--status-warning-soft)" : "var(--surface-card)",
+              fontSize: "12.5px",
+              lineHeight: 1.45,
+              color: "var(--text-primary)",
+              textWrap: "pretty",
+            }}
+          >
+            <span style={{ flex: "0 0 auto", marginTop: 2, display: "inline-flex" }}>
+              <Icon
+                name={missing ? "alert-triangle" : "calendar"}
+                size={14}
+                color={missing ? "var(--status-warning)" : "var(--text-secondary)"}
+              />
+            </span>
+            <span>
+              <strong>
+                {range === "today" ? "Today" : "Yesterday"}, {day.label}
+              </strong>
+              {` · ${missing ?? day.note ?? ""}`}
+              {meta?.lastSyncAt ? ` Last synced ${relativeAge(meta.lastSyncAt)}.` : ""}
+            </span>
+          </div>
+        )}
 
         <InsightPanel
           body={
@@ -939,7 +1005,7 @@ export function AdsWorkspace({
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    {money(row.spendCents)}
+                    {figure(money(row.spendCents))}
                   </span>
 
                   <span className="flex flex-col text-right leading-tight">
@@ -950,7 +1016,7 @@ export function AdsWorkspace({
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      {row.results ? formatCount(row.results) : "—"}
+                      {figure(row.results ? formatCount(row.results) : "—")}
                     </span>
                     <span
                       style={{
@@ -974,7 +1040,7 @@ export function AdsWorkspace({
                       color: "var(--text-secondary)",
                     }}
                   >
-                    {cpr ? money(cpr) : "—"}
+                    {figure(cpr ? money(cpr) : "—")}
                   </span>
 
                   <span
@@ -992,7 +1058,7 @@ export function AdsWorkspace({
                             : "var(--text-muted)",
                     }}
                   >
-                    {formatRoas(row.roas)}
+                    {figure(formatRoas(row.roas))}
                   </span>
 
                   <span
@@ -1035,6 +1101,7 @@ export function AdsWorkspace({
           accountCostPerResultCents={totals.costPerResultCents}
           currency={currency}
           live={live}
+          missing={missing}
           onClose={() => setOpenId(null)}
         />
       )}

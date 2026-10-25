@@ -9,6 +9,7 @@ import { listAdRows } from "@/lib/dal/ads";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { AD_FALLBACK_INSIGHT } from "@/lib/data/ads";
 import { AD_RANGE_KEYS, DEFAULT_AD_RANGE } from "@/lib/meta/mapping";
+import { dayFigures, isDayRange } from "@/lib/meta/ranges";
 import type { AdRange } from "@/types";
 
 export const metadata: Metadata = {
@@ -41,6 +42,13 @@ export default async function AdsPage(props: PageProps<"/ads">) {
   // or a business without Bookings. See `loadCampaignFunnel`.
   const funnel = await loadCampaignFunnel(business, range, rows);
 
+  // Whether the stored single-day figures are for the day meant now: a sync
+  // made yesterday holds yesterday's "today". Today is checked whatever the
+  // range, because the pacing bar shows today's spend on every range.
+  const timeZone = meta.timezone || "Asia/Manila";
+  const today = meta.connected ? dayFigures("today", meta.days, timeZone) : null;
+  const day = meta.connected && isDayRange(range) ? dayFigures(range, meta.days, timeZone) : null;
+
   return (
     <AdsWorkspace
       funnel={funnel}
@@ -52,6 +60,8 @@ export default async function AdsPage(props: PageProps<"/ads">) {
       source={meta.connected ? "meta" : "sample"}
       meta={meta.connected ? meta : null}
       range={range}
+      day={day}
+      today={today}
     />
   );
 }

@@ -16,6 +16,14 @@
  * Part three covers AR aging and the 90+ day control, part four the AP status
  * groups, part five the Manila periods and report titles.
  *
+ * Part five-b covers the closing items: fees (10,000 gross less 300 MDR is a
+ * 9,700 deposit, the 300 a cost of its month; a transfer still changes no
+ * income), the duplicate check on reference, name, date and amount, and the
+ * old-and-new record a correction keeps; and Money In and Money Out entered
+ * on their own, where only a sale or an expense touches Income; and the
+ * invoice and receipt intake: what the AI's answer may contain, what sends a
+ * reading to Needs Review, and what a confirmed posting must have.
+ *
  * Part six makes sure the indexes exist on the configured database (a no-op
  * when they do), then proves the controls they carry: one record per real
  * account (a passbook cannot repeat its bank account), one invoice per
@@ -26,8 +34,24 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import { FINANCE_INDEXES } from "@/lib/data/finance";
+import { inventedNumbers, parseFinanceSummary, summaryFacts } from "@/lib/finance-summary";
+import { INTAKE_SCHEMA, intakeDay, intakePostProblem, intakeReviewReasons, parseIntakeExtraction } from "@/lib/finance-intake";
 import {
   EXPENSE_CATEGORIES,
+  FEE_CATEGORY,
+  MONEY_NATURES,
+  moneyEntryProblem,
+  changeSummary,
+  describeFeeRule,
+  feeFromRule,
+  feeProblem,
+  feeRuleProblem,
+  fieldChanges,
+  findDuplicates,
+  formatFeeLine,
+  netMovementCents,
+  sameText,
+  settledCents,
   accountIdentity,
   accountInputProblem,
   lowestBalance,
@@ -47,11 +71,16 @@ import {
   daysOutstanding,
   dueLabel,
   figureAddsUp,
+  annualIncomeFigures,
+  incomeChanges,
   incomeFigures,
   netMarginPercent,
   reconcile,
   reportTitle,
+  monthsToClose,
+  yearsToClose,
   standingAttention,
+  standingChanges,
   standingFigures,
   type StandingBill,
   type StandingInvoice,
@@ -425,10 +454,324 @@ assert.equal(monthLabel("2026-09"), "September 2026");
 assert.equal(daysBetween("2026-02-28", "2026-03-01"), 1);
 console.log("✓ months turn over at Manila midnight, not UTC");
 
+// The month-end close: which months are due, and catching up after downtime.
+const onFirst = new Date("2026-09-30T16:05:00Z"); // 00:05 on 1 October in Manila
+assert.deepEqual(monthsToClose("2026-08", onFirst, new Set()), ["2026-08", "2026-09"]);
+assert.deepEqual(monthsToClose("2026-08", onFirst, new Set(["2026-08"])), ["2026-09"]);
+assert.deepEqual(monthsToClose("2026-08", new Date("2026-09-30T15:55:00Z"), new Set()), ["2026-08"], "September is not over at 23:55 Manila");
+assert.deepEqual(monthsToClose("2026-10", onFirst, new Set()), [], "a month still running is never closed");
+assert.deepEqual(monthsToClose(null, onFirst, new Set()), [], "no records, no reports");
+console.log("✓ close: every ended month without a report, oldest first, from Manila midnight on the 1st");
+
+// The year-end pair: after December closes, never before, and caught up.
+assert.deepEqual(yearsToClose("2025-11", onFirst, new Set()), ["2025"], "2026 is not over in October");
+assert.deepEqual(yearsToClose("2025-11", new Date("2026-12-31T16:05:00Z"), new Set()), ["2025", "2026"], "00:05 on 1 January in Manila");
+assert.deepEqual(yearsToClose("2025-11", new Date("2026-12-31T15:55:00Z"), new Set(["2025"])), [], "December 2026 still running");
+assert.deepEqual(yearsToClose(null, onFirst, new Set()), []);
+console.log("✓ year-end close: once December has ended in Manila, for every year not yet closed");
+
+// The Annual Income Report: the year is exactly its twelve months.
+const year = annualIncomeFigures("2026", invoices, bills);
+assert.equal(year.sales.cents, peso(1_200_000 + 900_000 + 700_000 + 500_000 + 400_000));
+assert.equal(year.costs.cents, peso(800_000 + 600_000 + 200_000 + 150_000 + 120_000 + 80_000 + 333_000));
+assert.equal(year.months.length, 12);
+assert.equal(year.months.reduce((sum, line) => sum + line.salesCents, 0), year.sales.cents);
+assert.equal(year.months.reduce((sum, line) => sum + line.costsCents, 0), year.costs.cents);
+assert.equal(year.months.reduce((sum, line) => sum + line.netIncomeCents, 0), year.netIncomeCents);
+for (const line of year.months) {
+  const month = incomeFigures(line.month, invoices, bills);
+  assert.equal(line.netIncomeCents, month.netIncomeCents, `${line.month} matches its monthly report`);
+}
+assert.equal(year.months.find((line) => line.month === "2026-09")!.netIncomeCents, peso(850_000));
+assert.equal(
+  EXPENSE_CATEGORIES.reduce((sum, { key }) => sum + year.byCategory[key].cents, 0),
+  year.costs.cents,
+  "category totals add up to annual costs",
+);
+assert.equal(year.netMarginPercent, netMarginPercent(year.netIncomeCents, year.sales.cents));
+assert.equal(annualIncomeFigures("2025", invoices, bills).sales.cents, 0, "nothing dated in 2025");
+console.log("✓ annual income: the twelve months add up to the year and each matches its monthly report");
+
+// Corrections: what changed since a report froze its figures.
+assert.deepEqual(incomeChanges(september, incomeFigures("2026-09", invoices, bills)), [], "nothing changed, nothing flagged");
+const lateBill = bill("BL-9", "2026-09-28", 50_000, "utilities", "2026-10-28");
+const corrected = incomeFigures("2026-09", invoices, [...bills, lateBill]);
+const changes = incomeChanges(september, corrected);
+assert.equal(changes.length, 1, "only costs changed");
+assert.equal(changes[0].label, "Costs & Expenses");
+assert.equal(changes[0].toCents - changes[0].fromCents, peso(50_000));
+assert.deepEqual(changes[0].rows.map((row) => [row.ref, row.fromCents, row.toCents]), [["BL-9", null, peso(50_000)]]);
+const october = incomeFigures("2026-10", invoices, [...bills, lateBill]);
+assert.deepEqual(incomeChanges(incomeFigures("2026-10", invoices, bills), october), [], "a September bill does not touch October");
+
+const frozenStanding = standingFigures("2026-09-30", accounts, payments, invoices, bills);
+assert.deepEqual(standingChanges(frozenStanding, standingFigures("2026-09-30", accounts, payments, invoices, bills)), []);
+const latePayment = payment("PY-9", "MA-CASH", "out", 20_000, "2026-09-29", { kind: "bill", billRef: "BL-4" });
+const moved = standingChanges(frozenStanding, standingFigures("2026-09-30", accounts, [...payments, latePayment], invoices, bills));
+assert.deepEqual(moved.map((change) => change.label), ["Cash on hand", "Accounts payable"]);
+assert.deepEqual(
+  moved.find((change) => change.label === "Accounts payable")!.rows.map((row) => [row.ref, row.fromCents, row.toCents]),
+  [["BL-4", peso(150_000), peso(130_000)]],
+  "a part payment changes what is still owed on the bill",
+);
+const after = standingFigures("2026-09-30", accounts, [...payments, payment("PY-10", "MA-CASH", "out", 1_000, "2026-10-03")], invoices, bills);
+assert.deepEqual(standingChanges(frozenStanding, after), [], "a payment dated after the month-end does not touch its report");
+console.log("✓ corrections: changes since a report are found record by record, and only for that month");
+
+// The AI summary may only repeat figures the frozen report contains.
+const frozenIncome = {
+  kind: "income" as const, period: "2026-09", revision: 1, income: september, accountNames: {}, businessName: "TEST", reason: "",
+  generatedAt: "2026-10-01T00:05:00.000Z", generatedBy: "AEGIS (automatic close)",
+};
+const facts = summaryFacts(frozenIncome);
+assert.equal(JSON.stringify(facts).includes("INV-"), false, "no single records are sent");
+assert.equal(JSON.stringify(facts).includes("Customer"), false, "no customer names are sent");
+const honest = {
+  summary: "In September 2026 the business made a net income of ₱ 850,000.00 on sales of ₱2,800,000 against costs of ₱ 1,950,000.00, a 30.4% net margin.",
+  points: ["Parts / Materials were the largest cost at ₱ 800,000.00 across 6 bills.", "Sales came from 3 invoices."],
+};
+assert.deepEqual(inventedNumbers(honest, facts), [], "exact figures, however the commas and decimals are written, are allowed");
+assert.deepEqual(inventedNumbers({ summary: "Net income was about ₱0.85M.", points: [] }, facts), ["0.85"]);
+assert.deepEqual(inventedNumbers({ summary: "Costs were 69.6% of sales.", points: [] }, facts), ["69.6"], "a ratio the report does not show");
+assert.deepEqual(inventedNumbers({ summary: "Payroll and rent came to ₱ 800,000.00 together.", points: ["Rent and utilities: ₱350,000"] }, facts), ["350000"], "a sum the report does not show");
+assert.equal(parseFinanceSummary({ summary: "", points: [] }), null);
+assert.equal(parseFinanceSummary({ summary: "Fine.", points: [1] }), null);
+assert.equal(parseFinanceSummary({ summary: "Fine.", points: ["a", "b", "c", "d", "e"] })!.points.length, 4);
+const standingFacts = summaryFacts({
+  ...frozenIncome, kind: "standing" as const, income: undefined, standing, attention: standingAttention("2026-09-30", standing, invoices, bills, []),
+});
+assert.ok(JSON.stringify(standingFacts).includes("₱ 2,327,000.00"), "the standing summary sees the position");
+assert.equal("sales" in standingFacts, false, "a standing summary is not given income figures");
+console.log("✓ AI summary: totals only, no names or records; any figure not in the report rejects the answer");
+
 assert.equal(reportTitle("income", "2026-09", 1), "September 2026 Income Report - Revision 1");
 assert.equal(reportTitle("standing", "2026-09", 2), "September 2026 Financial Standing Report - Revision 2");
 assert.equal(reportTitle("annual-income", "2026", 1), "2026 Annual Income Report - Revision 1");
 console.log("✓ report titles carry their revision");
+
+// ---- Part five-b: fees, duplicates and corrections ----------------------------
+
+// The checklist's own example: 10,000 gross - 300 MDR = 9,700 net deposit.
+const mdr = { percentBps: 300, fixedCents: 0 };
+assert.equal(feeFromRule(mdr, peso(10_000)), peso(300));
+assert.equal(feeFromRule({ percentBps: 250, fixedCents: peso(15) }, peso(1_000)), peso(40));
+assert.equal(describeFeeRule({ percentBps: 250, fixedCents: peso(15) }), "2.5% + ₱ 15.00");
+assert.equal(feeRuleProblem({ name: "Terminal", kind: "card", percentBps: 10_000, fixedCents: 0 }) !== null, true, "100% is refused");
+assert.equal(feeRuleProblem({ name: "Terminal", kind: "card", percentBps: 0, fixedCents: 0 }) !== null, true, "a rule must take something");
+assert.equal(feeRuleProblem({ name: "Terminal", kind: "card", percentBps: 300, fixedCents: 0 }), null);
+assert.notEqual(feeProblem({ cents: peso(10_000), kind: "card", ruleRef: null }, peso(10_000), "in"), null, "a fee cannot take all money received");
+assert.equal(feeProblem({ cents: peso(10_000), kind: "bank", ruleRef: null }, peso(10_000), "out"), null, "on money out it is paid on top");
+assert.equal(feeProblem(null, peso(10_000), "in"), null);
+
+const feeAccounts: MoneyAccount[] = [account("MA-BDO", "bank", 0, "2026-10-01", "account"), account("MA-GC", "ewallet", 5_000, "2026-10-01")];
+const feeInvoices = [invoice("INV-F1", "2026-10-05", 10_000)];
+const feeBills = [bill("BL-F1", "2026-10-06", 1_000, "parts", "2026-10-20")];
+const cardCollection = payment("PY-F1", "MA-BDO", "in", 10_000, "2026-10-07", {
+  kind: "collection",
+  invoiceRef: "INV-F1",
+  fee: { cents: peso(300), kind: "card" },
+});
+const billWithCharge = payment("PY-F2", "MA-BDO", "out", 1_000, "2026-10-08", { kind: "bill", billRef: "BL-F1", fee: { cents: peso(25), kind: "bank" } });
+const feePayments = [cardCollection, billWithCharge];
+
+assert.equal(netMovementCents(cardCollection), peso(9_700));
+assert.equal(netMovementCents(billWithCharge), -peso(1_025));
+assert.equal(settledCents(feePayments, { invoiceRef: "INV-F1" }, "2026-10-31"), peso(10_000), "the gross settles the invoice");
+assert.equal(settledCents(feePayments, { billRef: "BL-F1" }, "2026-10-31"), peso(1_000), "the bill is settled by the amount, not the fee");
+const feeStanding = standingFigures("2026-10-31", feeAccounts, feePayments, feeInvoices, feeBills);
+assert.equal(feeStanding.bank.cents, peso(9_700 - 1_025), "the account holds what actually arrived and left");
+assert.equal(feeStanding.receivable.cents, 0);
+assert.equal(feeStanding.payable.cents, 0);
+assert.ok(feeStanding.bank.rows.some((row) => row.ref === "PY-F1" && row.label.includes("net ₱ 9,700.00")));
+assert.equal(formatFeeLine(peso(10_000), peso(300), "in"), "gross ₱ 10,000.00 less fee ₱ 300.00 = net ₱ 9,700.00");
+console.log("✓ fees: 10,000 gross - 300 MDR = 9,700 deposited; a bank charge is paid on top; the gross settles the invoice or bill");
+
+const feeIncome = incomeFigures("2026-10", feeInvoices, feeBills, feePayments);
+assert.equal(feeIncome.sales.cents, peso(10_000));
+assert.equal(feeIncome.costs.cents, peso(1_000 + 300 + 25), "the bill and both fees");
+assert.equal(feeIncome.byCategory[FEE_CATEGORY].cents, peso(325));
+assert.ok(figureAddsUp(feeIncome.costs) && figureAddsUp(feeIncome.byCategory[FEE_CATEGORY]));
+assert.equal(EXPENSE_CATEGORIES.reduce((sum, { key }) => sum + feeIncome.byCategory[key].cents, 0), feeIncome.costs.cents);
+assert.equal(incomeFigures("2026-09", feeInvoices, feeBills, feePayments).costs.cents, 0, "a fee is a cost of the month it was paid");
+assert.equal(
+  incomeFigures("2026-10", feeInvoices, feeBills, feePayments.map((entry) => ({ ...entry, status: "void" as const }))).costs.cents,
+  peso(1_000),
+  "a void payment's fee is no cost",
+);
+// Income and Standing still agree: the position fell by exactly the fees, the only cost not on a bill.
+const noFees = standingFigures("2026-10-31", feeAccounts, feePayments.map((entry) => ({ ...entry, fee: undefined })), feeInvoices, feeBills);
+assert.equal(noFees.positionCents - feeStanding.positionCents, peso(325));
+console.log("✓ fees are costs under Other Expenses in the month paid, and the position falls by exactly the fees");
+
+const plainTransfer = payment("PY-F3", "MA-GC", "out", 2_000, "2026-10-09", { kind: "transfer", toAccountRef: "MA-BDO" });
+const feeTransfer = { ...plainTransfer, ref: "PY-F4", fee: { cents: peso(15), kind: "ewallet" as const } };
+const beforeTransfer = standingFigures("2026-10-31", feeAccounts, feePayments, feeInvoices, feeBills);
+const withTransfer = standingFigures("2026-10-31", feeAccounts, [...feePayments, plainTransfer], feeInvoices, feeBills);
+assert.equal(withTransfer.positionCents, beforeTransfer.positionCents, "a transfer changes no position");
+assert.equal(withTransfer.ewallet.cents, beforeTransfer.ewallet.cents - peso(2_000), "the source decreases");
+assert.equal(withTransfer.bank.cents, beforeTransfer.bank.cents + peso(2_000), "the destination increases");
+assert.equal(
+  incomeFigures("2026-10", feeInvoices, feeBills, [...feePayments, plainTransfer]).netIncomeCents,
+  feeIncome.netIncomeCents,
+  "a transfer is neither income nor expense",
+);
+const withFeeTransfer = standingFigures("2026-10-31", feeAccounts, [...feePayments, feeTransfer], feeInvoices, feeBills);
+assert.equal(withFeeTransfer.ewallet.cents, beforeTransfer.ewallet.cents - peso(2_015), "the source pays the fee");
+assert.equal(withFeeTransfer.bank.cents, beforeTransfer.bank.cents + peso(2_000), "the destination receives the full amount");
+assert.equal(
+  incomeFigures("2026-10", feeInvoices, feeBills, [...feePayments, feeTransfer]).netIncomeCents,
+  feeIncome.netIncomeCents - peso(15),
+  "only the transfer's fee is an expense",
+);
+console.log("✓ transfers: source down, destination up, no income or expense; a transfer fee is the only cost in it");
+
+// Duplicates: the same document on reference, name, date and amount.
+const onFile = [
+  { ref: "BL-D1", party: "Davao Auto Parts, Inc.", reference: "D.R. 4471", dateKey: "2026-10-03", amountCents: peso(12_500), label: "BL-D1" },
+  { ref: "BL-D2", party: "Davao Light", reference: "", dateKey: "2026-10-05", amountCents: peso(8_200), label: "BL-D2" },
+];
+const lookup = (party: string, reference: string, dateKey: string, pesos: number) =>
+  findDuplicates({ party, reference, dateKey, amountCents: peso(pesos) }, onFile).map((match) => match.ref);
+assert.deepEqual(lookup("davao auto parts inc", "DR4471", "2026-10-04", 12_000), ["BL-D1"], "same reference and name, however typed");
+assert.deepEqual(lookup("DAP Davao", "dr-4471", "2026-10-03", 12_500), ["BL-D1"], "same reference and amount under another spelling of the name");
+assert.deepEqual(lookup("Davao Light", "", "2026-10-05", 8_200), ["BL-D2"], "same name, date and amount with no reference");
+assert.deepEqual(lookup("Davao Light", "", "2026-11-05", 8_200), [], "the next month's bill for the same amount is not a duplicate");
+assert.deepEqual(lookup("Davao Auto Parts", "DR 4472", "2026-10-03", 9_000), [], "another reference and amount");
+assert.equal(sameText("", ""), false, "two empty references are not a match");
+console.log("✓ duplicates: reference, name, date and amount compared, punctuation and case ignored");
+
+// Corrections keep every changed field, old and new.
+const changed = fieldChanges([
+  { field: "Amount", from: "₱ 4,500.00", to: "₱ 5,400.00" },
+  { field: "Payee", from: "Davao Light", to: "Davao Light" },
+  { field: "Remarks", from: "", to: "Typo on entry" },
+]);
+assert.deepEqual(changed.map((change) => change.field), ["Amount", "Remarks"]);
+assert.equal(changeSummary(changed), "Amount: ₱ 4,500.00 to ₱ 5,400.00; Remarks: (empty) to Typo on entry");
+console.log("✓ corrections: only changed fields are recorded, each with its old and new value");
+
+// Money In and Money Out on their own.
+const entry = {
+  direction: "in" as const,
+  nature: "owner-capital" as const,
+  accountRef: "MA-BDO",
+  amountCents: peso(20_000),
+  paidOn: "2026-10-10",
+  party: "",
+  reference: "",
+  description: "",
+  category: null,
+};
+assert.equal(moneyEntryProblem(entry, "2026-10-24"), null, "owner's money needs no name or description");
+assert.notEqual(moneyEntryProblem({ ...entry, direction: "out" }, "2026-10-24"), null, "owner's money in is not money out");
+assert.notEqual(moneyEntryProblem({ ...entry, paidOn: "2026-10-25" }, "2026-10-24"), null, "not in the future");
+assert.notEqual(moneyEntryProblem({ ...entry, nature: "sale", party: "Walk-in" }, "2026-10-24"), null, "a sale needs its receipt number");
+assert.equal(moneyEntryProblem({ ...entry, nature: "sale", party: "Walk-in", reference: "OR 1001" }, "2026-10-24"), null);
+assert.notEqual(
+  moneyEntryProblem({ ...entry, direction: "out", nature: "expense", party: "Petron" }, "2026-10-24"),
+  null,
+  "an expense needs its category",
+);
+assert.notEqual(moneyEntryProblem({ ...entry, nature: "other-in" }, "2026-10-24"), null, "other money says what it is");
+assert.notEqual(moneyEntryProblem({ ...entry, nature: "loan-received" }, "2026-10-24"), null, "a loan names its lender");
+assert.deepEqual(
+  MONEY_NATURES.filter((item) => item.effect !== "none").map((item) => item.key),
+  ["sale", "expense"],
+  "only a sale and an expense touch Income",
+);
+
+const capital = payment("PY-M1", "MA-BDO", "in", 20_000, "2026-10-10", { nature: "owner-capital", party: "Owner" });
+const drawing = payment("PY-M2", "MA-GC", "out", 1_000, "2026-10-11", { nature: "owner-drawing" });
+const moneyBefore = standingFigures("2026-10-31", feeAccounts, feePayments, feeInvoices, feeBills);
+const moneyAfter = standingFigures("2026-10-31", feeAccounts, [...feePayments, capital, drawing], feeInvoices, feeBills);
+assert.equal(moneyAfter.bank.cents - moneyBefore.bank.cents, peso(20_000), "money in raises the account");
+assert.equal(moneyAfter.ewallet.cents - moneyBefore.ewallet.cents, -peso(1_000), "money out lowers the account");
+assert.equal(moneyAfter.positionCents - moneyBefore.positionCents, peso(19_000), "and the position by the same");
+assert.equal(
+  incomeFigures("2026-10", feeInvoices, feeBills, [...feePayments, capital, drawing]).netIncomeCents,
+  feeIncome.netIncomeCents,
+  "owner's money is neither income nor expense",
+);
+assert.ok(moneyAfter.bank.rows.some((row) => row.ref === "PY-M1" && row.label.startsWith("Owner's money in · Owner")));
+console.log("✓ money in and out: owner's money and loans move a balance only; a sale or expense is an invoice or bill");
+
+// Invoice and receipt intake.
+const schema = INTAKE_SCHEMA as { required: string[]; properties: Record<string, unknown> };
+assert.deepEqual([...schema.required].sort(), Object.keys(schema.properties).sort(), "strict JSON schema: every field required");
+const clear = { party: "high", reference: "high", date: "high", amount: "high", dueDate: "high", category: "high" };
+const answer = {
+  docType: "supplier-invoice",
+  issuedByThisBusiness: false,
+  seller: "Davao Auto Parts",
+  buyer: "AUTOBLITZ",
+  reference: "SI 4471",
+  date: "2026-10-03",
+  dueDate: "2026-11-02",
+  total: 12500,
+  fee: null,
+  paymentMethod: "unpaid",
+  paid: false,
+  category: "parts",
+  description: "Brake pads and rotors",
+  businessName: "AUTOBLITZ Auto Care",
+  branch: "",
+  confidence: clear,
+  summary: "A supplier invoice for brake parts.",
+  warnings: [],
+};
+const parsed = parseIntakeExtraction(answer, "AUTOBLITZ")!;
+assert.equal(parsed.direction, "out");
+assert.equal(parsed.party, "Davao Auto Parts", "the other side is the seller when the business buys");
+assert.equal(parsed.amountCents, peso(12_500));
+assert.equal(parsed.category, "parts");
+assert.deepEqual(intakeReviewReasons(parsed, "AUTOBLITZ", "2026-10-24"), [], "a clean reading of this business's document needs no review");
+// A supplier's own invoice headed "SALES INVOICE", sold to this business, is still a bill.
+const headed = parseIntakeExtraction({ ...answer, docType: "sales-invoice", issuedByThisBusiness: true }, "AUTOBLITZ")!;
+assert.equal(headed.direction, "out", "the business as buyer decides the side, not the heading");
+assert.equal(headed.docType, "supplier-invoice");
+assert.equal(headed.party, "Davao Auto Parts");
+const ourReceipt = parseIntakeExtraction({ ...answer, docType: "official-receipt", seller: "AUTOBLITZ AUTO CARE", buyer: "Juan Dela Cruz" }, "AUTOBLITZ")!;
+assert.equal(ourReceipt.direction, "in", "the business as seller is money in");
+assert.equal(ourReceipt.party, "Juan Dela Cruz");
+assert.equal(ourReceipt.category, null, "money in has no expense category");
+assert.equal(ourReceipt.paid, true, "a receipt is paid");
+assert.equal(parseIntakeExtraction({ ...answer, seller: "X", buyer: "Y", issuedByThisBusiness: true, docType: "sales-invoice" }, "AUTOBLITZ")!.direction, "in", "with no name to go on, the model's reading is used");
+assert.ok(
+  intakeReviewReasons({ ...parsed, party: "AUTOBLITZ" }, "AUTOBLITZ", "2026-10-24").some((reason) => reason.includes("your own business")),
+  "the business's own name as the other side is flagged",
+);
+assert.equal(parseIntakeExtraction({ ...answer, date: "2026-02-30" })!.date, null, "an impossible date is dropped");
+assert.equal(parseIntakeExtraction({ ...answer, dueDate: "2026-09-01" })!.dueDate, null, "a due date before the date is dropped");
+assert.equal(parseIntakeExtraction({ ...answer, total: -5 })!.amountCents, null);
+assert.equal(parseIntakeExtraction({ ...answer, docType: "letter" }), null, "an unknown type rejects the answer");
+assert.equal(intakeDay("2026-10-03"), "2026-10-03");
+
+const doubtful = parseIntakeExtraction({ ...answer, confidence: { ...clear, amount: "low" }, businessName: "Other Motors Inc.", warnings: ["Total is handwritten"] }, "AUTOBLITZ")!;
+const reasons = intakeReviewReasons(doubtful, "AUTOBLITZ", "2026-10-24");
+assert.ok(reasons.some((reason) => reason.startsWith("Amount is not clearly readable")), "low confidence sends it to review");
+assert.ok(reasons.some((reason) => reason.includes("Other Motors")), "another business's document is flagged");
+assert.ok(reasons.includes("Total is handwritten"), "the AI's warnings are shown");
+assert.ok(intakeReviewReasons(parseIntakeExtraction({ ...answer, total: null }, "AUTOBLITZ")!, "AUTOBLITZ", "2026-10-24").includes("Amount was not found."));
+assert.deepEqual(intakeReviewReasons(null, "AUTOBLITZ", "2026-10-24").length, 1, "an unread upload says so");
+
+const confirm = {
+  direction: "out" as const,
+  party: "Davao Auto Parts",
+  reference: "SI 4471",
+  date: "2026-10-03",
+  dueDate: "2026-11-02",
+  amountCents: peso(12_500),
+  category: "parts" as const,
+  paid: false,
+  accountRef: null,
+  description: "",
+};
+assert.equal(intakePostProblem(confirm, "2026-10-24"), null);
+assert.notEqual(intakePostProblem({ ...confirm, category: null }, "2026-10-24"), null, "a bill needs its category");
+assert.notEqual(intakePostProblem({ ...confirm, paid: true }, "2026-10-24"), null, "paid needs the account");
+assert.notEqual(intakePostProblem({ ...confirm, direction: "in", reference: "" }, "2026-10-24"), null, "an invoice needs its number");
+assert.notEqual(intakePostProblem({ ...confirm, date: "2026-10-25" }, "2026-10-24"), null, "not in the future");
+console.log("✓ intake: the AI's answer is narrowed, doubtful or foreign readings go to Needs Review, posting needs every field");
 
 // ---- Part six: the database ---------------------------------------------------
 

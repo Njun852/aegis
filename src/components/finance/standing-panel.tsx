@@ -8,7 +8,8 @@ import { Button, Icon } from "@/components/ui";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { DrillModal, FigureButton, type DrillRequest } from "./drill-down";
-import type { DateKey, FinanceAlert, Figure, StandingAttention, StandingFigures } from "@/types";
+import { OfficialNotice } from "./official-notice";
+import type { DateKey, FinanceAlert, Figure, OfficialReport, StandingAttention, StandingFigures } from "@/types";
 
 const CARD = {
   background: "var(--surface-card)",
@@ -30,6 +31,7 @@ export function StandingPanel({
   ownerItems,
   today,
   accountNames,
+  official,
 }: {
   standing: StandingFigures;
   attention: StandingAttention;
@@ -37,6 +39,8 @@ export function StandingPanel({
   ownerItems: FinanceAlert[];
   today: DateKey;
   accountNames: Record<string, string>;
+  /** The frozen month-end report, when this day is a closed month's last day. */
+  official: OfficialReport | null;
 }) {
   const router = useRouter();
   const [drill, setDrill] = useState<DrillRequest | null>(null);
@@ -103,6 +107,8 @@ export function StandingPanel({
             </Button>
           )}
         </div>
+
+        {official && <OfficialNotice official={official} />}
 
         <section style={CARD}>
           <div style={{ fontSize: "11px", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--text-muted)" }}>Financial Standing Report</div>

@@ -10,8 +10,8 @@
     "report:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/report-check.ts",
     "sms:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/text-blast-check.ts",
     "ask:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/ask-check.ts",
-    "alerts:check":"node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/owner-alerts-check.ts",
-    "sms:run":"node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/text-blast-run.ts",
+    "alerts:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/owner-alerts-check.ts",
+    "sms:run": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/text-blast-run.ts",
     "seed": "node --env-file=.env.local scripts/seed.ts",
     "reconcile": "node --env-file=.env.local scripts/reconcile.ts",
     "triage:check": "node --env-file=.env.local --experimental-strip-types --import ./scripts/register-alias.mjs scripts/triage-check.ts",
@@ -25,6 +25,7 @@
     "supplier:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/supplier-check.ts",
     "quote:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/quote-check.ts",
     "finance:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/finance-check.ts",
+    "finance:close": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/finance-close.ts",
     "messenger:simulate": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/messenger-simulate.ts"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "next-auth": "^5.0.0-beta.32",
     "nodemailer": "^10.0.0",
     "openai": "^7.8.0",
+    "pdf-lib": "^1.17.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1"

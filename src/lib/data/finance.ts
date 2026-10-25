@@ -11,7 +11,11 @@ export interface FinanceIndex {
     | "payments"
     | "reconciliations"
     | "financeReports"
-    | "financeEvents";
+    | "financeReportFiles"
+    | "financeEvents"
+    | "feeRules"
+    | "financeAttachments"
+    | "financeIntake";
   keys: Record<string, 1 | -1>;
   options?: { unique?: boolean; partialFilterExpression?: Record<string, unknown> };
 }
@@ -57,5 +61,24 @@ export const FINANCE_INDEXES: FinanceIndex[] = [
     keys: { businessId: 1, kind: 1, period: 1, revision: 1 },
     options: { unique: true },
   },
+  // One PDF per revision, made with it and never replaced.
+  {
+    collection: "financeReportFiles",
+    keys: { businessId: 1, kind: 1, period: 1, revision: 1 },
+    options: { unique: true },
+  },
   { collection: "financeEvents", keys: { businessId: 1, at: -1 } },
+  { collection: "financeEvents", keys: { businessId: 1, ref: 1 } },
+  { collection: "feeRules", keys: { businessId: 1, ref: 1 }, options: { unique: true } },
+  { collection: "financeAttachments", keys: { businessId: 1, ref: 1 }, options: { unique: true } },
+  { collection: "financeAttachments", keys: { businessId: 1, recordRef: 1 } },
+  // The same file on two records is the duplicate warning for uploads.
+  { collection: "financeAttachments", keys: { businessId: 1, sha256: 1 } },
+  { collection: "financeIntake", keys: { businessId: 1, ref: 1 }, options: { unique: true } },
+  { collection: "financeIntake", keys: { businessId: 1, uploadedAt: -1 } },
+  // The same file uploaded twice is caught on its hash before the AI is paid.
+  { collection: "financeIntake", keys: { businessId: 1, sha256: 1 } },
+  // The daily read limit and the 90-day removal of discarded uploads.
+  { collection: "financeIntake", keys: { businessId: 1, status: 1, discardedAt: 1 } },
+  { collection: "financeIntake", keys: { businessId: 1, billed: 1, readAt: 1 } },
 ];

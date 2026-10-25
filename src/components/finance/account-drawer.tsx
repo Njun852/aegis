@@ -11,6 +11,7 @@ import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { AccountModal } from "./account-modal";
 import { CountBadge } from "./count-badge";
+import { AuditLines } from "./record-trail";
 import type { CountRow, MoneyAccountSummary } from "@/types";
 
 export interface AccountDrawerProps {
@@ -22,6 +23,9 @@ export interface AccountDrawerProps {
   canTransfer: boolean;
   onCount: () => void;
   onTransfer: () => void;
+  onMoney: () => void;
+  /** Opens one payment's drawer: its fee, who recorded it, its documents. */
+  onOpenPayment: (ref: string) => void;
   onClose: () => void;
 }
 
@@ -29,7 +33,18 @@ const SECTION = { display: "flex", flexDirection: "column" as const, gap: 8 };
 const HEADING = { margin: 0, fontFamily: "var(--font-display)", fontSize: "13.5px", fontWeight: 700 };
 const signed = formatSignedMoney;
 
-export function AccountDrawer({ account, counts, isAdmin, today, canTransfer, onCount, onTransfer, onClose }: AccountDrawerProps) {
+export function AccountDrawer({
+  account,
+  counts,
+  isAdmin,
+  today,
+  canTransfer,
+  onCount,
+  onTransfer,
+  onMoney,
+  onOpenPayment,
+  onClose,
+}: AccountDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -104,7 +119,7 @@ export function AccountDrawer({ account, counts, isAdmin, today, canTransfer, on
             </span>
           </div>
 
-          <Activity account={account} isAdmin={isAdmin} rowsTotal={rowsTotal} />
+          <Activity account={account} isAdmin={isAdmin} rowsTotal={rowsTotal} onOpenPayment={onOpenPayment} />
 
           <section style={SECTION}>
             <h3 style={HEADING}>Counts</h3>
@@ -117,9 +132,16 @@ export function AccountDrawer({ account, counts, isAdmin, today, canTransfer, on
               counts.map((count) => <CountCard key={count.ref} count={count} isAdmin={isAdmin} />)
             )}
           </section>
+
+          <AuditLines audit={account.audit} />
         </div>
 
         <div className="flex flex-wrap items-center gap-2" style={{ padding: "13px 16px", borderTop: "1px solid var(--border-subtle)", background: "var(--gray-25)" }}>
+          {account.active && (
+            <Button variant="secondary" icon="wallet" onClick={onMoney}>
+              Money in / out
+            </Button>
+          )}
           {account.active && (
             <Button variant="secondary" icon="check" onClick={onCount}>
               Record count
@@ -151,7 +173,17 @@ export function AccountDrawer({ account, counts, isAdmin, today, canTransfer, on
 }
 
 /** The rows the balance is made of. They add up to the balance shown, and the footer says so. */
-function Activity({ account, isAdmin, rowsTotal }: { account: MoneyAccountSummary; isAdmin: boolean; rowsTotal: number }) {
+function Activity({
+  account,
+  isAdmin,
+  rowsTotal,
+  onOpenPayment,
+}: {
+  account: MoneyAccountSummary;
+  isAdmin: boolean;
+  rowsTotal: number;
+  onOpenPayment: (ref: string) => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [voiding, setVoiding] = useState<string | null>(null);
@@ -182,7 +214,16 @@ function Activity({ account, isAdmin, rowsTotal }: { account: MoneyAccountSummar
               <span style={{ width: 84, flex: "0 0 auto", fontSize: "11.5px", color: "var(--text-muted)" }}>{formatQuoteDay(row.dateKey)}</span>
               <span className="flex min-w-0 flex-1 flex-col leading-tight">
                 <span style={{ fontSize: "12.5px", overflowWrap: "anywhere" }}>{row.kind === "opening" ? "Opening balance" : row.label}</span>
-                {row.kind === "payment" && <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{row.ref}</span>}
+                {row.kind === "payment" && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPayment(row.ref)}
+                    title="Open this payment: fee, who recorded it, documents"
+                    style={{ border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-accent)" }}
+                  >
+                    {row.ref} · details
+                  </button>
+                )}
               </span>
               <span
                 style={{

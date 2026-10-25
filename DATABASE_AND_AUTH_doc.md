@@ -447,7 +447,7 @@ format        string
 primary       string   creative body text
 headline      string
 cta           string
-metrics       { last_7d, last_30d, maximum }   Meta rows only; each holds
+metrics       { today, yesterday, last_7d, last_30d, maximum }   Meta rows only; each holds
               spendCents, results, resultLabel, roas, reach, impressions
 createdAt     Date
 updatedAt     Date
@@ -484,7 +484,10 @@ lastError        string|null  already worded for a person
 lastErrorAt      Date|null
 truncated        boolean      the last good sync hit the 500-per-list cap
 rowCount         number
-spentTodayCents  number|null  Meta's figure for today, for the pacing bar
+spentTodayCents  number|null  today's spend, the sum of today's campaign rows, for the pacing bar
+days             { today, yesterday }|null  each { date: "2026-10-19", rows }: the
+                 account-time-zone day that sync's Today/Yesterday figures cover, and
+                 how many objects Meta reported delivery on (0 = not reported yet)
 ```
 
 Index: `{ businessId: 1 }` unique. A failure records the error and keeps the

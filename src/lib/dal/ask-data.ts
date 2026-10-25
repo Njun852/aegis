@@ -135,8 +135,13 @@ async function jobOrders(call: AskCall) {
   };
 }
 
+/**
+ * Meta reports fixed windows, so a period is answered with the nearest one.
+ * Today and yesterday are Meta's own single days, the same the Ads screen shows.
+ */
 function adRangeFor(period: AskPeriod): AdRange {
-  if (period === "last_7_days" || period === "this_week" || period === "today") return "last_7d";
+  if (period === "today" || period === "yesterday") return period;
+  if (period === "last_7_days" || period === "this_week") return "last_7d";
   if (period === "all") return "maximum";
   return "last_30d";
 }
@@ -150,11 +155,15 @@ async function ads(business: Business, call: AskCall) {
         : "This business does not keep its bookings in AEGIS, so ads cannot be set against bookings.",
     };
   }
+  // A day Meta's figures are not in AEGIS for: the bookings are still real,
+  // but spend is unknown, and saying "₱0" would be an invented figure.
+  const spend = (cents: number) => (funnel.missingFigures ? null : formatPeso(cents));
   return {
     period: funnel.periodLabel,
     note: "Meta's own window. Confirmed bookings exclude Pending and Cancelled. Cost per booking = spend / confirmed bookings.",
+    ...(funnel.missingFigures ? { metaFiguresMissing: `${funnel.missingFigures} Spend, conversations and cost per booking are unknown for this day, not zero.` } : {}),
     totals: {
-      spend: formatPeso(funnel.totals.spendCents),
+      spend: spend(funnel.totals.spendCents),
       conversations: funnel.totals.conversations,
       confirmedBookings: funnel.totals.confirmedBookings,
       costPerBooking: funnel.totals.costPerBookingCents === null ? null : formatPeso(funnel.totals.costPerBookingCents),
@@ -164,7 +173,7 @@ async function ads(business: Business, call: AskCall) {
     campaigns: funnel.rows.slice(0, LIST_LIMIT).map((row) => ({
       campaign: row.name,
       running: row.enabled,
-      spend: formatPeso(row.spendCents),
+      spend: spend(row.spendCents),
       conversations: row.conversations,
       confirmedBookings: row.confirmedBookings,
       costPerBooking: row.costPerBookingCents === null ? null : formatPeso(row.costPerBookingCents),

@@ -59,9 +59,9 @@ Working, on real data:
 
 - **Ads.** The company Meta account (`act_1057367675322276`, PHP, Asia/Manila)
   is connected read-only, per business. 138 rows synced: campaigns, ad sets and
-  ads with spend, results, cost per result and budgets, over 7 days, 30 days or
-  all time. Sync is a button with a two-minute cooldown. The AI commentary
-  reads the real figures.
+  ads with spend, results, cost per result and budgets, over today, yesterday,
+  7 days, 30 days or all time. Sync is a button with a two-minute cooldown. The
+  AI commentary reads the real figures. See "Ads: Today and Yesterday" below.
 - **Mail.** A company Gmail is connected per business over IMAP and SMTP. 62
   messages, AI triage (priority, category, summary, action required, deadline,
   suggested reply), approval guardrails, and sending only on a person's click.
@@ -1001,11 +1001,183 @@ view of the tabs, as no member account was signed in. The seed was inserted
 by a scratch script straight into the database, so those records had no
 audit lines; it and the TEST records were removed afterwards.
 
-Still to come:
+Phase 6 (built, checked on AUTOBLITZ on 18 Oct 2026): the **month-end close**,
+frozen reports with revisions, their PDFs, and the **Reports** tab
+(administrators). Close in `src/lib/dal/finance-close.ts`; records read by
+business id in `src/lib/dal/finance-books.ts` (no session, so the timer and
+the command line can use it; screens pass their verified session's id);
+PDFs in `src/lib/finance-pdf.ts`; timer `src/lib/finance-timer.ts`, started
+from `src/instrumentation.ts`; route `/api/finance/reports/pdf`; screens
+`reports-panel.tsx`, `frozen-report.tsx`, `official-notice.tsx`.
 
-Still to come: live reports, drill-down and the owner screen; the month-end close with
-PDFs, archive and revisions; year-end reports; an optional AI summary that
-may only repeat figures in the frozen report; the acceptance run.
+- **The close:** every 30 minutes the server's timer (and `npm run
+  finance:close`, for a host that does not keep the server running) writes
+  Revision 1 of the Monthly Income Report and the Financial Standing Report,
+  two separate documents, for every month that has ended (Manila midnight)
+  and has none, from the first month any record is dated in. A server that
+  was down catches up. Idempotent: a unique index on each revision, and a
+  second run writes nothing. "Make any reports due" on the Reports tab runs
+  it at once for the business.
+- **Frozen:** a revision stores its figures with their rows, the attention
+  items, the account names and the business name, and is never updated. Its
+  drill-down opens the rows it was made from, not today's records.
+- **PDFs:** made from the same frozen document and stored with the revision
+  (`financeReportFiles`). Black and white, "PHP 1,234.00" (no peso glyph in
+  the built-in fonts), formulas, the breakdown, balances by account, and the
+  records behind every total. Written with `createElement`, not JSX, so Node
+  can load it for the command line; react-pdf still cannot render under the
+  command line's `react-server` condition, so a revision frozen there gets
+  its PDF from the frozen document the first time it is opened, and keeps it.
+  Inside Next (the timer, the button, a revision) PDFs are made at once.
+- **Corrections (a change from the Phase 1 plan, which said entries in a closed
+  month would be held):** entries, edits and voids dated in a closed month
+  save normally and change the live tabs, but never a frozen report.
+  `incomeChanges` / `standingChanges` compare each month's current revision
+  with the records, record by record (the standing exceptions are left out,
+  so explaining an old count does not flag a month). A month that differs is
+  flagged on the Overview ("changes waiting for review", the spec's
+  unreviewed items needing owner action), on its live Income or Standing tab,
+  and on the Reports tab, where an administrator reviews exactly what was
+  added, removed or changed and issues the next revision with a reason (15
+  characters at least). Revision N stays as it was, viewable with its PDF.
+  If the owner would rather block back-dating outright, that is a further
+  change.
+
+Browser-checked on seeded TEST data: `npm run finance:close` closed July,
+August and September (July because a test invoice was dated Jul 1) and wrote
+nothing on a second run; the archive matched the live figures (September net
+income 850,000, position 2,180,000); both September PDFs were correct and
+separate; a late September bill entered after the close flagged the month on
+the Overview, the Income tab and the Reports tab; the review listed exactly
+the added bill; a too-short reason was refused; Revision 2 (net income
+800,000) was issued with its PDF showing the correction; Revision 1 still
+showed 850,000 and its drill-down still listed the original six bills. The
+in-server timer itself was not seen firing: the dev server was started before
+it was added, so it starts on the next restart (look for "[finance] month-end
+close timer started" in the log). The TEST records, the seven report
+revisions, their three PDFs and the eight audit lines were deleted afterwards
+at the developer's request; AUTOBLITZ has no finance records or reports.
+Once real records are entered, the timer's first pass closes every ended
+month from the first one they are dated in.
+
+Phase 7 (built, checked on AUTOBLITZ on 18 Oct 2026): the **year-end
+reports**. Once a year's December has closed, the same close (timer, `npm run
+finance:close`, "Make any reports due") writes Revision 1 of the **Annual
+Income Report** and the **Year-End Financial Standing** for it, after the
+months and as two separate documents with their PDFs; a year is caught up
+like a month (`yearsToClose`). Corrections, revisions, the frozen viewer and
+the archive work exactly as for months.
+
+- **Annual Income Report** (`annualIncomeFigures`): total annual sales and
+  costs, annual net income and margin, net income for each month January to
+  December, and the annual total for each of the nine categories. The year
+  and the months come from one calculation (`incomeOver`, shared with the
+  monthly report), so the twelve months add up to the year and each equals
+  its monthly report; `finance:check` asserts both.
+- **Year-End Financial Standing:** the standing figures and exceptions at the
+  end of 31 December (cash, bank accounts, passbooks, e-wallets, AR, AP, the
+  position, AR 90+, overdue AP, AP due within 7 days, differences).
+- Periods are "2026" for a year and "2026-09" for a month throughout
+  (`isYearKey`, `periodLabel`, `periodEnd` in `finance-periods.ts`); the
+  archive lists a year's pair above its December, labelled "2026 year-end".
+- A late entry dated in a closed year flags that year's annual income report
+  and its December; an unpaid one also flags every standing report from that
+  month-end onwards, each to be revised on its own. A "revise every affected
+  report at once" action would save the owner clicks, if wanted.
+
+Browser-checked on seeded TEST data dated in late 2025: the button closed
+September 2025 to September 2026 and the 2025 year-end pair (28 reports, all
+with PDFs, none for 2026's year-end); the Annual Income Report showed sales
+840,000, costs 400,000, net 440,000, margin 52.4%, months Sep 40,000, Nov
+200,000, Dec 200,000, as worked by hand; the Year-End Financial Standing
+showed position 960,000 (cash 220,000, bank 250,000, AR 540,000, AP 50,000,
+AR 90+ 40,000, overdue AP 50,000); both PDFs were correct; a late December
+2025 bill flagged December, the annual income report and the later standing
+reports but no 2026 income report; Revision 2 of the annual report (net
+430,000) was issued with Revision 1 kept. All TEST records, the 29 report
+revisions, their PDFs and the audit lines were deleted afterwards at the
+developer's request; AUTOBLITZ has no finance data.
+
+Phase 8 (built, checked on AUTOBLITZ on 18 Oct 2026, with two real model
+calls): an **AI summary of a frozen report**, in the report viewer on the
+Reports tab. Rules and the number guard in `src/lib/finance-summary.ts`
+(pure, tested by `finance:check`); the model call in
+`src/lib/ai/finance-summary.ts` (kind `finance-summary`, "Finance report
+summaries" on System Status); action `summarizeReportAction`; screen
+`report-summary.tsx`.
+
+- **Spend:** written only when an administrator presses "Write AI summary",
+  never by opening, closing or revising a report. Through `generate()`, so
+  the cache, the monthly budget and the usage log apply. Cached against a hash
+  of the revision's figures, which never change: at most one paid call per
+  revision (per prompt version); opening a report reads the cache only. Input
+  is totals only (no names, payees or single records), about 420 to 470 tokens
+  in and 120 to 130 out in the two test calls; output capped at 400.
+- **Never inventing figures (the specification's rule):** the model is told to
+  copy figures exactly and calculate nothing, and `inventedNumbers` rejects
+  any answer containing a number the frozen figures do not contain (commas,
+  decimals and the peso sign are normalised, so "PHP 850,000" matches
+  "850,000.00"). A rejected answer is not shown and not cached; the person is
+  told why. Limit: a made-up sum that happens to equal another figure in the
+  report would pass the number check; the prompt forbids sums.
+- **Separate from the record:** the summary is labelled as written by AI,
+  shown beside the frozen figures, never stored on the revision and never in
+  its PDF.
+
+Browser-checked: September's income report had no summary and offered the
+button; the first answer quoted every figure exactly but repeated itself, so
+the prompt was revised (version 2) to make the points add the largest
+categories; the second answer passed the check and was cached; reopening the
+report showed it with no button and no new call. The TEST data, its six
+report revisions and PDFs, and the cached summary were deleted afterwards at
+the developer's request; the two usage-log lines are kept as real spend.
+
+Phase 9 (19 Oct 2026): the **acceptance run**. All eight tests of the
+specification's section 9 passed on TEST data, checked against an
+independent script that totals the raw records; the close timer was seen
+generating the reports and PDFs on its own after a server start. The record
+of each test, a coverage table for sections 1 to 8, and the open items are in
+`FINANCE_ACCEPTANCE.md`. The TEST data was removed afterwards.
+
+Open after the acceptance run (see `FINANCE_ACCEPTANCE.md`): the main
+Dashboard's Revenue and Expenses tiles still read the booking ledger, not
+Finance (planned in Phase 1, not built); one late unpaid entry flags every
+later standing report, each revised on its own; the member view of Finance
+has not been browser-tested; production needs a long-running server or a
+scheduled `npm run finance:close`.
+
+## Ads: Today and Yesterday (19 Oct 2026)
+
+The Ads range picker now offers **Today** and **Yesterday** before 7 days,
+30 days and Maximum. They are Meta's own `today` and `yesterday` presets:
+single days in the ad account's time zone (Asia/Manila for AUTOBLITZ).
+`windowForRange` (`src/lib/meta/ranges.ts`) gives the same day to the
+"Ads to bookings" panel, so spend and confirmed bookings cover one day, printed
+as "Oct 19, 2026". Ask AEGIS's ads tool uses them for "today" and the new
+"yesterday" period; the Dashboard's Ads Summary stays on 30 days.
+
+- **Sync cost.** Five ranges × three levels is fifteen insight calls plus three
+  for structure, 18 GETs a sync. Previously 13: the separate account-level
+  "today spend" call is gone, because the pacing bar now sums today's campaign
+  rows (`spendOfDay`). On the live account that sum matched Meta's account
+  figure exactly (₱727.69).
+- **Which day the figures are for.** Each sync stores `adSync.days`: the day
+  its Today and Yesterday figures cover and how many objects showed delivery.
+  `dayFigures` compares that with the day each range means now. A sync from
+  yesterday does not count as today: the screen shows "—" (never ₱0) with
+  "AEGIS has not read today (Oct 19, 2026) from Meta yet", and the pacing bar
+  says "Not read since today began". A day with no delivery reported reads
+  "Meta has not reported anything for today … yet". The funnel still counts
+  that day's confirmed bookings but leaves spend and cost per booking unknown.
+- **Delivery, not rows.** Asking for the `results` field makes Meta return a
+  row for every object, spent or not (139 for a day the account ran 8), so
+  "reported" means spend or impressions on at least one object (`readOfDay`).
+
+Checks: `npm run ads:check` (Manila day windows, a 23-hour DST day, stale and
+unreported days, the funnel without Meta's figures; with `-- BIZ-1001` it
+prints each campaign's today and yesterday from the live account).
+Browser-checked on AUTOBLITZ on 19 Oct 2026: Today ₱730 / 21 conversations,
+Yesterday ₱988 / 38, both matching Meta's account totals.
 
 ## Known issue
 

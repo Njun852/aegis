@@ -8,18 +8,26 @@ import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
 import { formatMoney } from "@/lib/format";
 import { amountInput, parseAmount } from "@/lib/quotations";
-import type { InvoiceSummary, MoneyAccountSummary } from "@/types";
+import { useFee } from "./fee-fields";
+import type { FeeRule, InvoiceSummary, MoneyAccountSummary } from "@/types";
 
-/** Money a customer paid on an invoice, in full or in part, into one of the business's accounts. */
+/**
+ * Money a customer paid on an invoice, in full or in part, into one of the
+ * business's accounts. A card's MDR or an e-wallet fee is taken before the
+ * money arrives: the invoice is settled by the gross, the account receives
+ * the net.
+ */
 export function CollectModal({
   invoice,
   accounts,
+  feeRules,
   today,
   onClose,
 }: {
   invoice: InvoiceSummary;
   /** Active accounts. */
   accounts: MoneyAccountSummary[];
+  feeRules: FeeRule[];
   today: string;
   onClose: () => void;
 }) {
@@ -31,6 +39,7 @@ export function CollectModal({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const fee = useFee(feeRules, parseAmount(amount) || 0, "in");
 
   const save = () => {
     const amountCents = parseAmount(amount);
@@ -42,9 +51,13 @@ export function CollectModal({
       setError(`That is more than the ${formatMoney(invoice.outstandingCents)} still owed.`);
       return;
     }
+    if (fee.problem) {
+      setError(fee.problem);
+      return;
+    }
     setError(null);
     startTransition(async () => {
-      const result = await collectInvoiceAction(invoice.ref, { accountRef, amountCents, paidOn, note });
+      const result = await collectInvoiceAction(invoice.ref, { accountRef, amountCents, fee: fee.fee, paidOn, note });
       if (!result.ok) {
         setError(result.error);
         toast({ tone: "error", title: "Collection not recorded", description: result.error, key: "finance-collect" });
@@ -54,7 +67,12 @@ export function CollectModal({
       toast({
         tone: "success",
         title: left === 0 ? `Invoice ${invoice.number} collected in full` : `${formatMoney(amountCents)} collected on invoice ${invoice.number}`,
-        description: left === 0 ? `Recorded as ${result.ref}.` : `${formatMoney(left)} still owed. Recorded as ${result.ref}.`,
+        description: [
+          fee.fee && `${formatMoney(amountCents - fee.fee.cents)} deposited after the ${formatMoney(fee.fee.cents)} fee.`,
+          left === 0 ? `Recorded as ${result.ref}.` : `${formatMoney(left)} still owed. Recorded as ${result.ref}.`,
+        ]
+          .filter(Boolean)
+          .join(" "),
         key: "finance-collect",
       });
       router.refresh();
@@ -103,6 +121,7 @@ export function CollectModal({
           <input style={INPUT} value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} />
         </Field>
       </div>
+      {fee.fields}
     </Modal>
   );
 }

@@ -35,7 +35,8 @@ export function conversionPercent(bookings: number, conversations: number | null
 /**
  * "Sep 4 – Oct 3, 2026": the days a Meta preset covers, in the ad account's
  * time zone. `to` is exclusive (the start of today), so the last day shown is
- * the day before it. Null bounds are Meta's whole account history.
+ * the day before it. A single day is just that day, "Oct 19, 2026". Null
+ * bounds are Meta's whole account history.
  */
 export function periodLabel(from: Date | null, to: Date | null, timeZone: string): string {
   if (!from || !to) return "All time";
@@ -53,6 +54,9 @@ export function periodLabel(from: Date | null, to: Date | null, timeZone: string
   };
   const start = parts(from);
   const end = parts(last);
+  if (start.year === end.year && start.month === end.month && start.day === end.day) {
+    return `${end.month} ${end.day}, ${end.year}`;
+  }
   return start.year === end.year
     ? `${start.month} ${start.day} – ${end.month} ${end.day}, ${end.year}`
     : `${start.month} ${start.day}, ${start.year} – ${end.month} ${end.day}, ${end.year}`;
@@ -66,9 +70,13 @@ export interface FunnelInput {
   bookings: CampaignBooking[];
   uncreditedConfirmed: number;
   periodLabel: string;
+  /** Why Meta's figures for a single day are not there, when they are not. */
+  missingFigures?: string | null;
 }
 
 export function buildFunnel(input: FunnelInput): CampaignFunnel {
+  if (input.missingFigures) return withoutMetaFigures(input, input.missingFigures);
+
   const rows: CampaignFunnelRow[] = input.campaigns.map((campaign) => {
     const conversations = campaign.resultLabel === CONVERSATION_RESULT ? campaign.results : null;
     const confirmed = input.confirmedByCampaign[campaign.id] ?? 0;
@@ -111,6 +119,43 @@ export function buildFunnel(input: FunnelInput): CampaignFunnel {
     totals,
     bookings: input.bookings,
     uncreditedConfirmed: input.uncreditedConfirmed,
+    missingFigures: input.missingFigures ?? null,
+  };
+}
+
+/**
+ * A single day Meta's figures are not in AEGIS for. The bookings are AEGIS's
+ * own and still counted; spend, conversations and everything divided by them
+ * are unknown, so they are null (shown "—") rather than a zero that would make
+ * cost per booking read as free. No flags: there is nothing to judge.
+ */
+function withoutMetaFigures(input: FunnelInput, missingFigures: string): CampaignFunnel {
+  const rows: CampaignFunnelRow[] = input.campaigns.map((campaign) => ({
+    campaignId: campaign.id,
+    name: campaign.name,
+    enabled: campaign.enabled,
+    spendCents: 0,
+    conversations: null,
+    costPerConversationCents: null,
+    confirmedBookings: input.confirmedByCampaign[campaign.id] ?? 0,
+    costPerBookingCents: null,
+    conversionPercent: null,
+    chatsReceived: input.chatsByCampaign[campaign.id] ?? 0,
+    flag: null,
+  }));
+  return {
+    periodLabel: input.periodLabel,
+    rows,
+    totals: {
+      spendCents: 0,
+      conversations: null,
+      confirmedBookings: rows.reduce((sum, row) => sum + row.confirmedBookings, 0),
+      costPerBookingCents: null,
+      conversionPercent: null,
+    },
+    bookings: input.bookings,
+    uncreditedConfirmed: input.uncreditedConfirmed,
+    missingFigures,
   };
 }
 

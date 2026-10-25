@@ -6,23 +6,28 @@ import { createBillAction, updateBillAction } from "@/app/actions/finance";
 import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
-import { EXPENSE_CATEGORIES, billInputProblem, termsDays } from "@/lib/finance";
+import { EXPENSE_CATEGORIES, MIN_CORRECTION_REASON, billInputProblem, termsDays } from "@/lib/finance";
 import { addDaysToKey } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
 import { amountInput, formatQuoteDay, parseAmount } from "@/lib/quotations";
+import { DuplicateNotice } from "./duplicate-notice";
+import { useFee } from "./fee-fields";
 import { locked } from "./locked";
-import type { BillSummary, ExpenseCategory, MoneyAccountSummary, PayeeOption, UnbilledReceipt } from "@/types";
+import type { BillSummary, DuplicateMatch, ExpenseCategory, FeeRule, MoneyAccountSummary, PayeeOption, UnbilledReceipt } from "@/types";
 
 /**
- * Enters a bill, edits one (`bill`), or makes one from a supplier receipt
+ * Enters a bill, corrects one (`bill`), or makes one from a supplier receipt
  * (`receipt`). A bill already paid in full when it is entered, such as a cash
- * purchase, records the payment with it.
+ * purchase, records the payment with it. A correction needs a reason; a new
+ * bill that looks like one on record is held until the person says it is
+ * different.
  */
 export function BillModal({
   bill,
   receipt,
   payees,
   accounts,
+  feeRules,
   today,
   defaultPerson,
   onClose,
@@ -33,6 +38,7 @@ export function BillModal({
   payees: PayeeOption[];
   /** Active accounts, to pay from. */
   accounts: MoneyAccountSummary[];
+  feeRules: FeeRule[];
   today: string;
   defaultPerson: string;
   onClose: () => void;
@@ -52,8 +58,11 @@ export function BillModal({
   const [paidNow, setPaidNow] = useState(false);
   const [paidFrom, setPaidFrom] = useState(accounts[0]?.ref ?? "");
   const [paidOn, setPaidOn] = useState(billDate);
+  const [reason, setReason] = useState("");
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const fee = useFee(feeRules, parseAmount(amount) || 0, "out");
 
   const supplier = payees.find((entry) => entry.name.trim().toLowerCase() === payee.trim().toLowerCase()) ?? null;
   const supplierRef = receipt?.supplierRef ?? bill?.supplierRef ?? supplier?.ref ?? null;
@@ -67,7 +76,7 @@ export function BillModal({
     if (!dueTouched && credit !== null && /^\d{4}-\d{2}-\d{2}$/.test(nextDate)) setDueDate(addDaysToKey(nextDate, credit));
   };
 
-  const save = () => {
+  const save = (confirmedDuplicates: string[] = []) => {
     const amountCents = parseAmount(amount);
     if (!amountCents) {
       setError("Enter the bill's amount, such as 4500 or 4,500.00.");
@@ -84,26 +93,32 @@ export function BillModal({
       category,
       responsiblePerson: person,
       remarks,
-      paidFrom: !bill && paidNow ? { accountRef: paidFrom, paidOn } : null,
+      paidFrom: !bill && paidNow ? { accountRef: paidFrom, paidOn, fee: fee.fee } : null,
+      confirmedDuplicates,
     };
-    const problem = billInputProblem(input, today);
+    const problem =
+      billInputProblem(input, today) ??
+      (input.paidFrom ? fee.problem : null) ??
+      (bill && reason.trim().length < MIN_CORRECTION_REASON ? "Say why this bill is being corrected." : null);
     if (problem) {
       setError(problem);
       return;
     }
     setError(null);
     startTransition(async () => {
-      const result = bill ? { ...(await updateBillAction(bill.ref, input)), ref: bill.ref } : await createBillAction(input);
+      const result = bill ? { ...(await updateBillAction(bill.ref, input, reason)), ref: bill.ref } : await createBillAction(input);
       if (!result.ok) {
-        setError(result.error);
+        setDuplicates(result.duplicates ?? null);
+        setError(result.duplicates ? null : result.error);
         toast({ tone: "error", title: "Bill not saved", description: result.error, key: "finance-bill" });
         return;
       }
+      setDuplicates(null);
       toast({
         tone: "success",
-        title: bill ? `${result.ref} saved` : `Bill ${result.ref} added`,
+        title: bill ? `${result.ref} corrected` : `Bill ${result.ref} added`,
         description: bill
-          ? undefined
+          ? "The reason and the old and new values are in its history."
           : input.paidFrom
             ? `${formatMoney(amountCents)} to ${payee.trim()}, recorded as paid.`
             : `${formatMoney(amountCents)} to ${payee.trim()}, due ${formatQuoteDay(dueDate)}.`,
@@ -116,7 +131,7 @@ export function BillModal({
 
   return (
     <Modal
-      title={bill ? `Edit ${bill.ref}` : receipt ? `Bill from ${receipt.ref}` : "New bill"}
+      title={bill ? `Correct ${bill.ref}` : receipt ? `Bill from ${receipt.ref}` : "New bill"}
       icon="file-text"
       width={620}
       onClose={onClose}
@@ -125,13 +140,21 @@ export function BillModal({
           <Button variant="ghost" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button icon="check" onClick={save} disabled={pending}>
-            {pending ? "Saving…" : bill ? "Save" : "Add bill"}
+          <Button icon="check" onClick={() => save()} disabled={pending}>
+            {pending ? "Saving…" : bill ? "Save correction" : "Add bill"}
           </Button>
         </>
       }
     >
       {error && <Notice tone="error">{error}</Notice>}
+      {duplicates && (
+        <DuplicateNotice
+          matches={duplicates}
+          href={(ref) => `/finance?tab=payables&bill=${encodeURIComponent(ref)}`}
+          pending={pending}
+          onSaveAnyway={() => save(duplicates.map((match) => match.ref))}
+        />
+      )}
       {receipt && (
         <Notice tone="info">
           Goods received on {formatQuoteDay(receipt.receivedDate)}, {formatMoney(receipt.totalCents)}.{" "}
@@ -243,7 +266,13 @@ export function BillModal({
               </Field>
             </div>
           )}
+          {paidNow && fee.fields}
         </div>
+      )}
+      {bill && (
+        <Field label="Reason for the correction" required hint="Kept in the bill's history with the old and new values.">
+          <input style={INPUT} value={reason} maxLength={300} placeholder="Due date was misread from the supplier invoice" onChange={(event) => setReason(event.target.value)} />
+        </Field>
       )}
     </Modal>
   );

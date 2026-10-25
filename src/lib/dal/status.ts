@@ -224,6 +224,7 @@ const SURFACE_LABELS: Record<string, string> = {
   "quote-photo": "Quotation from a photo",
   "ask-plan": "Ask AEGIS (choosing what to read)",
   "ask-answer": "Ask AEGIS (answering)",
+  "finance-summary": "Finance report summaries",
 };
 
 /** Plain readings of the outcome codes, so nobody has to look them up. */

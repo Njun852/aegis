@@ -93,6 +93,8 @@ export interface MetaInsight {
   actions?: MetaActionValue[];
   purchase_roas?: MetaActionValue[];
   results?: MetaResultValue[];
+  /** The first day the row covers, "2026-10-19", in the account's time zone. Meta sends it unasked. */
+  date_start?: string;
 }
 
 export interface MetaInsightSet {
@@ -110,7 +112,7 @@ export interface MetaSnapshot {
 
 // ---- What AEGIS stores ------------------------------------------------------
 
-export const AD_RANGE_KEYS: AdRange[] = ["last_7d", "last_30d", "maximum"];
+export const AD_RANGE_KEYS: AdRange[] = ["today", "yesterday", "last_7d", "last_30d", "maximum"];
 
 /** The range whose figures fill the flat metric fields on a stored row. */
 export const DEFAULT_AD_RANGE: AdRange = "last_30d";
@@ -359,6 +361,32 @@ function learningNote(adset: MetaAdSet | undefined): string {
     default:
       return "";
   }
+}
+
+// ---- Single days ------------------------------------------------------------
+
+/**
+ * The account's spend for one day, from that day's campaign rows. Every
+ * campaign that spent has a row, deleted ones included (insights are not
+ * filtered by status), so the rows add up to the account's spend. No row at
+ * all means nothing was spent, which is a real zero.
+ */
+export function spendOfDay(set: MetaInsightSet): number {
+  return set.campaigns.reduce((sum, row) => sum + decimalToMinor(row.spend ?? "0"), 0);
+}
+
+/**
+ * How many rows Meta reported delivery on for a single-day range, and the day
+ * it said they cover (null when it returned no rows, so named no day).
+ *
+ * Counted by delivery, not by rows: asking for the `results` field makes Meta
+ * return a row for every campaign, ad set and ad, spent or not (139 rows for
+ * a day the real account ran 8), so a row on its own proves nothing.
+ */
+export function readOfDay(set: MetaInsightSet): { rows: number; reportedDate: string | null } {
+  const all = [...set.campaigns, ...set.adsets, ...set.ads];
+  const delivered = all.filter((row) => decimalToMinor(row.spend) > 0 || count(row.impressions) > 0);
+  return { rows: delivered.length, reportedDate: all.find((row) => row.date_start)?.date_start ?? null };
 }
 
 // ---- The mapping ------------------------------------------------------------

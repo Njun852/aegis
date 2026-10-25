@@ -23,6 +23,7 @@ export type AskTool = (typeof ASK_TOOLS)[number];
 
 export const ASK_PERIODS = [
   "today",
+  "yesterday",
   "tomorrow",
   "this_week",
   "next_7_days",
@@ -175,6 +176,8 @@ export function periodRange(period: AskPeriod, now: Date): { from: Date | null; 
   switch (period) {
     case "today":
       return span(today, addDays(today, 1), `today, ${today}`);
+    case "yesterday":
+      return span(addDays(today, -1), today, `yesterday, ${addDays(today, -1)}`);
     case "tomorrow":
       return span(addDays(today, 1), addDays(today, 2), `tomorrow, ${addDays(today, 1)}`);
     case "this_week":

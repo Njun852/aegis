@@ -13,7 +13,9 @@ export type AiKind =
   | "mail-reply"
   | "quote-photo"
   | "ask-plan"
-  | "ask-answer";
+  | "ask-answer"
+  | "finance-summary"
+  | "finance-intake";
 
 /**
  * Why a generation did not produce text. Every one of these is a normal

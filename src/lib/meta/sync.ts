@@ -3,6 +3,7 @@ import "server-only";
 import {
   readAdSync,
   readMetaCredentialsFor,
+  readMetaTimezoneFor,
   recordAdSyncAttempt,
   recordAdSyncFailure,
   recordAdSyncSuccess,
@@ -12,6 +13,8 @@ import { verifySession } from "@/lib/dal/session";
 import { fetchAccount } from "./fetch";
 import type { MetaFailure } from "./failures";
 import { mapSnapshot } from "./mapping";
+import { dateKeyIn, windowForRange } from "./ranges";
+import type { AdDayRange, AdDayReports } from "@/types";
 
 /**
  * Retrieval: a read-only copy of the active business's Meta ad account,
@@ -53,6 +56,13 @@ export async function syncAds(): Promise<SyncAdsReport> {
   }
   await recordAdSyncAttempt(businessId);
 
+  // The days Meta's "today" and "yesterday" mean as the reads start, kept for
+  // when Meta returns no rows and so names no day itself.
+  const timeZone = await readMetaTimezoneFor(businessId);
+  const startedAt = new Date();
+  const expected = (range: AdDayRange) =>
+    dateKeyIn(windowForRange(range, timeZone, startedAt).from!, timeZone);
+
   const fetched = await fetchAccount(credentials);
   if (!fetched.ok) {
     await recordAdSyncFailure(businessId, fetched.reason);
@@ -60,8 +70,13 @@ export async function syncAds(): Promise<SyncAdsReport> {
   }
 
   const { snapshot, truncated, spentTodayCents } = fetched.data;
+  const days = {} as AdDayReports;
+  for (const range of ["today", "yesterday"] as const) {
+    const read = fetched.data.days[range];
+    days[range] = { date: read.reportedDate ?? expected(range), rows: read.rows };
+  }
   const rows = await replaceMetaRows(mapSnapshot(snapshot), truncated);
-  await recordAdSyncSuccess(businessId, { rowCount: rows, truncated, spentTodayCents });
+  await recordAdSyncSuccess(businessId, { rowCount: rows, truncated, spentTodayCents, days });
 
   return { rows, truncated, failed: null, retryInSeconds: null };
 }

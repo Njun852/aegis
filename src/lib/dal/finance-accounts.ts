@@ -3,10 +3,14 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { manilaDateKey } from "@/lib/booking-slots";
 import {
+  MIN_CORRECTION_REASON,
   MIN_RESOLUTION,
   accountIdentity,
   accountInputProblem,
   accountRows,
+  changeSummary,
+  feeKindLabel,
+  fieldChanges,
   figureOf,
   isAmount,
   lowestBalance,
@@ -15,7 +19,9 @@ import {
 } from "@/lib/finance";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
-import { logFinanceEvent, moneyAccounts, payments, reconciliations } from "./finance";
+import { logFinanceEvent, moneyAccounts, payments, reconciliations, recordAudit } from "./finance";
+import { toAccount } from "./finance-books";
+import { checkFee } from "./finance-fees";
 import { InputError, insertWithRef, isDuplicateKey } from "./refs";
 import type {
   CountRow,
@@ -52,20 +58,6 @@ function hashIdentity(identity: string): string {
   return createHash("sha256").update(identity).digest("hex");
 }
 
-export function toAccount(doc: MoneyAccountDocument): MoneyAccount {
-  return {
-    ref: doc.ref,
-    type: doc.type,
-    bankKind: doc.bankKind,
-    name: doc.name,
-    institution: doc.institution,
-    numberLast4: doc.numberLast4,
-    openingBalanceCents: doc.openingBalanceCents,
-    openingDate: doc.openingDate,
-    active: doc.active,
-  };
-}
-
 function toReconciliation(doc: ReconciliationDocument): Reconciliation {
   return {
     ref: doc.ref,
@@ -94,6 +86,7 @@ async function readAll() {
   ]);
   return {
     accounts: accountDocs.map(toAccount),
+    accountDocs,
     payments: paymentDocs,
     recorded: paymentDocs.filter((payment) => payment.status === "recorded"),
     counts: countDocs,
@@ -107,13 +100,15 @@ async function findAccount(ref: string): Promise<MoneyAccount | null> {
 }
 
 export async function listAccountSummaries(asOf: DateKey = todayKey()): Promise<MoneyAccountSummary[]> {
-  const { accounts, payments: all, recorded, counts } = await readAll();
+  const { accounts, accountDocs, payments: all, recorded, counts } = await readAll();
   return accounts
     .map((account) => {
       const rows = accountRows(account, recorded, asOf);
       const own = counts.filter((count) => count.accountRef === account.ref);
+      const doc = accountDocs.find((entry) => entry.ref === account.ref);
       return {
         ...account,
+        audit: doc ? recordAudit(doc, "Entered in Finance") : recordAudit({ createdAt: new Date(0) }, "Entered in Finance"),
         rows,
         balanceCents: figureOf(rows).cents,
         lastCount: own[0] ? toReconciliation(own[0]) : null,
@@ -189,6 +184,7 @@ export async function createAccount(input: MoneyAccountInput, actor: FinanceActo
         openingBalanceCents: input.openingBalanceCents,
         openingDate: input.openingDate,
         active: true,
+        createdBy: actor.name,
         createdAt: now,
         updatedAt: now,
       }),
@@ -214,17 +210,27 @@ export async function createAccount(input: MoneyAccountInput, actor: FinanceActo
 /**
  * The name can always change. The opening balance and its day can change only
  * while nothing has moved through the account and nobody has counted it,
- * since every balance and count after that was worked out from them.
+ * since every balance and count after that was worked out from them. A
+ * correction says why, and the history keeps the old and new values.
  */
 export async function updateAccount(
   ref: string,
   changes: { name: string; openingBalanceCents: number; openingDate: DateKey },
+  reason: string,
   actor: FinanceActor,
 ): Promise<void> {
   const account = await findAccount(ref);
   if (!account) throw new InputError("That account is no longer on record.");
   const name = changes.name.trim();
   if (!name) throw new InputError("Give the account a name.");
+  const why = reason.trim();
+  if (why.length < MIN_CORRECTION_REASON) throw new InputError("Say why this account is being changed.");
+  const changed = fieldChanges([
+    { field: "Name", from: account.name, to: name },
+    { field: "Opening balance", from: formatMoney(account.openingBalanceCents), to: formatMoney(changes.openingBalanceCents) },
+    { field: "Opening date", from: formatQuoteDay(account.openingDate), to: formatQuoteDay(changes.openingDate) },
+  ]);
+  if (changed.length === 0) throw new InputError("Nothing was changed, so nothing was saved.");
 
   const openingChanged =
     changes.openingBalanceCents !== account.openingBalanceCents || changes.openingDate !== account.openingDate;
@@ -242,12 +248,17 @@ export async function updateAccount(
   const collection = await moneyAccounts();
   await collection.updateOne(
     { ref },
-    { $set: { name, openingBalanceCents: changes.openingBalanceCents, openingDate: changes.openingDate, updatedAt: new Date() } },
+    {
+      $set: {
+        name,
+        openingBalanceCents: changes.openingBalanceCents,
+        openingDate: changes.openingDate,
+        updatedBy: actor.name,
+        updatedAt: new Date(),
+      },
+    },
   );
-  const detail = openingChanged
-    ? `${name}, opening balance now ${formatMoney(changes.openingBalanceCents)} on ${formatQuoteDay(changes.openingDate)}`
-    : `Renamed ${name}`;
-  await logFinanceEvent(actor, "account.updated", ref, detail);
+  await logFinanceEvent(actor, "account.corrected", ref, changeSummary(changed), { changes: changed, reason: why });
 }
 
 /** Set aside, never deleted; and only once it is empty, so no money drops out of Standing. */
@@ -258,7 +269,7 @@ export async function setAccountActive(ref: string, active: boolean, actor: Fina
     throw new InputError(`${summary.name} still holds ${formatMoney(summary.balanceCents)}. Transfer it to another account first.`);
   }
   const collection = await moneyAccounts();
-  await collection.updateOne({ ref }, { $set: { active, updatedAt: new Date() } });
+  await collection.updateOne({ ref }, { $set: { active, updatedBy: actor.name, updatedAt: new Date() } });
   await logFinanceEvent(actor, active ? "account.reopened" : "account.set-aside", ref, summary.name);
 }
 
@@ -273,6 +284,9 @@ export async function recordTransfer(input: TransferInput, actor: FinanceActor):
   const to = accounts.find((account) => account.ref === input.toRef) ?? null;
   const problem = transferProblem(input, from, to, today);
   if (problem || !from || !to) throw new InputError(problem ?? "Choose both accounts.");
+  // A fee on a transfer (InstaPay, a GCash cash-out) is paid by the account
+  // the money leaves; the other account receives the full amount moved.
+  const fee = await checkFee(input.fee, input.amountCents, "out");
 
   const note = input.note.trim();
   const candidate = {
@@ -282,6 +296,7 @@ export async function recordTransfer(input: TransferInput, actor: FinanceActor):
     direction: "out" as const,
     kind: "transfer" as const,
     amountCents: input.amountCents,
+    ...(fee ? { fee } : {}),
     paidOn: input.paidOn,
     note,
     status: "recorded" as const,
@@ -297,7 +312,9 @@ export async function recordTransfer(input: TransferInput, actor: FinanceActor):
     actor,
     "transfer.recorded",
     ref,
-    `${formatMoney(input.amountCents)} from ${from.name} to ${to.name} on ${formatQuoteDay(input.paidOn)}`,
+    `${formatMoney(input.amountCents)} from ${from.name} to ${to.name} on ${formatQuoteDay(input.paidOn)}${
+      fee ? `, plus ${feeKindLabel(fee.kind).toLowerCase()} ${formatMoney(fee.cents)} from ${from.name}` : ""
+    }`,
   );
   return ref;
 }
@@ -338,7 +355,10 @@ export async function voidPayment(
   }
 
   const collection = await payments();
-  const result = await collection.updateOne({ ref, status: "recorded" }, { $set: { status: "void", voidReason: why } });
+  const result = await collection.updateOne(
+    { ref, status: "recorded" },
+    { $set: { status: "void", voidReason: why, updatedBy: actor.name, updatedAt: new Date() } },
+  );
   if (result.modifiedCount === 0) throw new InputError("That payment is already void.");
   await logFinanceEvent(actor, "payment.voided", ref, `${formatMoney(target.amountCents)} · ${why}`);
   return target;

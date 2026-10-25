@@ -26,6 +26,8 @@ export interface AdDrawerProps {
    * attribution window.
    */
   live: boolean;
+  /** Why Meta's figures for the chosen day are not here, when they are not. Figures then read "—". */
+  missing?: string | null;
   onClose: () => void;
 }
 
@@ -35,6 +37,7 @@ export function AdDrawer({
   accountCostPerResultCents,
   currency,
   live,
+  missing = null,
   onClose,
 }: AdDrawerProps) {
   const formatMoney = (cents: number, withCents = true) =>
@@ -45,7 +48,7 @@ export function AdDrawer({
   const cpr = costPerResultCents(row);
   const freq = frequency(row);
 
-  const stats = [
+  const reported = [
     {
       label: "Amount spent",
       value: formatMoney(row.spendCents),
@@ -71,6 +74,9 @@ export function AdDrawer({
       meta: row.reach ? `${formatCount(row.reach)} reach` : "no delivery yet",
     },
   ];
+  const stats = missing
+    ? reported.map((stat) => ({ ...stat, value: "—", meta: "not reported for this day" }))
+    : reported;
 
   const fields = [
     { icon: "megaphone", label: "Objective", value: row.objective },
@@ -90,9 +96,11 @@ export function AdDrawer({
     {
       icon: "file-text",
       label: "Impressions · frequency",
-      value: freq
-        ? `${formatCount(row.impressions)} · ${freq}`
-        : "No impressions in this range",
+      value: missing
+        ? "Not reported for this day"
+        : freq
+          ? `${formatCount(row.impressions)} · ${freq}`
+          : "No impressions in this range",
     },
   ];
 

@@ -12,9 +12,12 @@ import { AccountDrawer } from "./account-drawer";
 import { AccountModal } from "./account-modal";
 import { CountBadge } from "./count-badge";
 import { CountModal } from "./count-modal";
+import { FeeRulesSection } from "./fee-rules";
+import { MoneyModal } from "./money-modal";
+import { PaymentDrawer } from "./payment-drawer";
 import { StatTiles, type StatTile } from "./stat-tiles";
 import { TransferModal } from "./transfer-modal";
-import type { CountRow, MoneyAccountSummary } from "@/types";
+import type { CountRow, FeeRule, MoneyAccountSummary, PaymentDetail, RecordTrail } from "@/types";
 
 const GRID =
   "grid gap-3 items-center grid-cols-[minmax(150px,1.4fr)_minmax(90px,1fr)_20px] wide:grid-cols-[minmax(180px,1.4fr)_110px_minmax(0,1fr)_minmax(0,1.1fr)_130px_22px]";
@@ -22,16 +25,20 @@ const GRID =
 export interface AccountsPanelProps {
   accounts: MoneyAccountSummary[];
   counts: CountRow[];
+  feeRules: FeeRule[];
   openRef: string | null;
+  /** The payment open over the account, with its history and documents. */
+  openPayment: { payment: PaymentDetail; trail: RecordTrail } | null;
   isAdmin: boolean;
   /** Manila's today, as the server saw it. */
   today: string;
 }
 
-/** The Accounts tab: cash, bank, passbook and e-wallet balances, transfers and counts. */
-export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: AccountsPanelProps) {
+/** The Accounts tab: cash, bank, passbook and e-wallet balances, money in and out, transfers and counts. */
+export function AccountsPanel({ accounts, counts, feeRules, openRef, openPayment, isAdmin, today }: AccountsPanelProps) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
+  const [moneyFor, setMoneyFor] = useState<string | null>(null);
   const [transferFrom, setTransferFrom] = useState<string | null>(null);
   const [counting, setCounting] = useState<string | null>(null);
   const [, startNavigation] = useTransition();
@@ -40,9 +47,14 @@ export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: Acc
   const active = accounts.filter((account) => account.active);
   const openCounts = counts.filter((count) => count.status === "open");
 
-  const select = (ref: string | null) => {
+  const select = (ref: string | null, payment?: string) => {
     startNavigation(() =>
-      router.replace(ref ? `/finance?tab=accounts&account=${encodeURIComponent(ref)}` : "/finance?tab=accounts", { scroll: false }),
+      router.replace(
+        ref
+          ? `/finance?tab=accounts&account=${encodeURIComponent(ref)}${payment ? `&payment=${encodeURIComponent(payment)}` : ""}`
+          : "/finance?tab=accounts",
+        { scroll: false },
+      ),
     );
   };
 
@@ -62,6 +74,9 @@ export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: Acc
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Balances as of {formatQuoteDay(today)}</span>
           <div className="flex flex-wrap items-center gap-2.5">
+            <Button icon="wallet" disabled={active.length === 0} onClick={() => setMoneyFor(open?.active ? open.ref : "")}>
+              Money in / out
+            </Button>
             <Button variant="secondary" icon="check" disabled={active.length === 0} onClick={() => setCounting(open?.ref ?? active[0]?.ref ?? null)}>
               Record count
             </Button>
@@ -195,6 +210,8 @@ export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: Acc
             </span>
           )}
         </section>
+
+        <FeeRulesSection rules={feeRules} isAdmin={isAdmin} />
       </div>
 
       {open && (
@@ -207,8 +224,22 @@ export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: Acc
           canTransfer={active.length >= 2}
           onCount={() => setCounting(open.ref)}
           onTransfer={() => setTransferFrom(open.ref)}
+          onMoney={() => setMoneyFor(open.ref)}
+          onOpenPayment={(ref) => select(open.ref, ref)}
           onClose={() => select(null)}
         />
+      )}
+      {openPayment && (
+        <PaymentDrawer
+          key={openPayment.payment.ref}
+          payment={openPayment.payment}
+          trail={openPayment.trail}
+          isAdmin={isAdmin}
+          onClose={() => select(open?.ref ?? openPayment.payment.accountRef)}
+        />
+      )}
+      {moneyFor !== null && (
+        <MoneyModal accounts={active} feeRules={feeRules} accountRef={moneyFor} today={today} onClose={() => setMoneyFor(null)} />
       )}
       {adding && (
         <AccountModal
@@ -222,7 +253,7 @@ export function AccountsPanel({ accounts, counts, openRef, isAdmin, today }: Acc
         />
       )}
       {transferFrom !== null && (
-        <TransferModal accounts={active} fromRef={transferFrom} today={today} onClose={() => setTransferFrom(null)} />
+        <TransferModal accounts={active} feeRules={feeRules} fromRef={transferFrom} today={today} onClose={() => setTransferFrom(null)} />
       )}
       {counting !== null && (
         <CountModal accounts={accounts} accountRef={counting} today={today} onClose={() => setCounting(null)} />

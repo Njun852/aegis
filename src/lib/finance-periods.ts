@@ -19,6 +19,11 @@ export function isMonthKey(value: string): value is MonthKey {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
+/** "2026": the period of the year-end reports. */
+export function isYearKey(value: string): boolean {
+  return /^\d{4}$/.test(value);
+}
+
 export function monthKeyOf(date: Date): MonthKey {
   return manilaDateKey(date).slice(0, 7);
 }
@@ -77,6 +82,16 @@ export function monthLabel(month: MonthKey): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** "September 2026" for a month, "2026 year-end" for a year. */
+export function periodLabel(period: string): string {
+  return period.length === 4 ? `${period} year-end` : monthLabel(period);
+}
+
+/** The last day a report's period covers: a month's last day, or 31 December. */
+export function periodEnd(period: string): DateKey {
+  return period.length === 4 ? `${period}-12-31` : monthDays(period).last;
 }
 
 /** Whole days from one day to another; negative when `to` is earlier. */

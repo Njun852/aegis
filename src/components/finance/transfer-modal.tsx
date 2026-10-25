@@ -9,21 +9,26 @@ import { Button } from "@/components/ui";
 import { accountTypeLabel } from "@/lib/finance";
 import { formatMoney } from "@/lib/format";
 import { parseAmount } from "@/lib/quotations";
-import type { MoneyAccountSummary } from "@/types";
+import { useFee } from "./fee-fields";
+import type { FeeRule, MoneyAccountSummary } from "@/types";
 
 /**
  * Money moved between two of the business's own accounts: cash banked, a
  * withdrawal for petty cash, an e-wallet cashed out. It changes where money
- * is, never how much there is, and is never income or expense.
+ * is, never how much there is, and is never income or expense. A fee for the
+ * move (InstaPay, a GCash cash-out) is the one expense in it, paid by the
+ * account the money leaves.
  */
 export function TransferModal({
   accounts,
+  feeRules,
   fromRef,
   today,
   onClose,
 }: {
   /** Active accounts only. */
   accounts: MoneyAccountSummary[];
+  feeRules: FeeRule[];
   fromRef: string;
   today: string;
   onClose: () => void;
@@ -40,6 +45,7 @@ export function TransferModal({
 
   const source = accounts.find((account) => account.ref === from);
   const target = accounts.find((account) => account.ref === to);
+  const fee = useFee(feeRules, parseAmount(amount) || 0, "out");
 
   const save = () => {
     const amountCents = parseAmount(amount);
@@ -51,9 +57,13 @@ export function TransferModal({
       setError("Choose two different accounts.");
       return;
     }
+    if (fee.problem) {
+      setError(fee.problem);
+      return;
+    }
     setError(null);
     startTransition(async () => {
-      const result = await recordTransferAction({ fromRef: from, toRef: to, amountCents, paidOn, note });
+      const result = await recordTransferAction({ fromRef: from, toRef: to, amountCents, fee: fee.fee, paidOn, note });
       if (!result.ok) {
         setError(result.error);
         toast({ tone: "error", title: "Transfer not recorded", description: result.error, key: "finance-transfer" });
@@ -62,7 +72,9 @@ export function TransferModal({
       toast({
         tone: "success",
         title: "Transfer recorded",
-        description: `${formatMoney(amountCents)} from ${source?.name} to ${target?.name} (${result.ref}).`,
+        description: `${formatMoney(amountCents)} from ${source?.name} to ${target?.name}${
+          fee.fee ? `, plus a ${formatMoney(fee.fee.cents)} fee from ${source?.name}` : ""
+        } (${result.ref}).`,
         key: "finance-transfer",
       });
       router.refresh();
@@ -118,6 +130,7 @@ export function TransferModal({
       <Field label="Note" hint="Deposit slip number, who carried it, what it was for.">
         <input style={INPUT} value={note} maxLength={200} onChange={(event) => setNote(event.target.value)} />
       </Field>
+      {fee.fields}
     </Modal>
   );
 }

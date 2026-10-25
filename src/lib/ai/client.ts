@@ -69,6 +69,10 @@ export const AI_MODELS = {
  * Hard ceiling on tokens per business per calendar month. Reaching it degrades
  * every surface to its fallback copy rather than failing: a runaway loop should
  * quietly stop spending, not take the app down.
+ *
+ * A million since Finance's invoice and receipt intake: at about 3,700 tokens
+ * a document, 200,000 was some fifty documents a month, shared with mail. At
+ * gpt-4.1-mini's rates a full month is a few US dollars per business.
  */
 export const AI_MONTHLY_TOKEN_BUDGET =
-  Number(process.env.OPENAI_MONTHLY_TOKEN_BUDGET) || 200_000;
+  Number(process.env.OPENAI_MONTHLY_TOKEN_BUDGET) || 1_000_000;

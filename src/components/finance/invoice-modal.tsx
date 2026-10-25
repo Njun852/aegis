@@ -6,12 +6,14 @@ import { createInvoiceAction, updateInvoiceAction } from "@/app/actions/finance"
 import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
-import { invoiceInputProblem } from "@/lib/finance";
+import { MIN_CORRECTION_REASON, invoiceInputProblem } from "@/lib/finance";
 import { addDaysToKey } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
 import { amountInput, formatQuoteDay, parseAmount } from "@/lib/quotations";
+import { DuplicateNotice } from "./duplicate-notice";
+import { useFee } from "./fee-fields";
 import { locked } from "./locked";
-import type { CustomerOption, InvoiceSummary, MoneyAccountSummary, UninvoicedJob } from "@/types";
+import type { CustomerOption, DuplicateMatch, FeeRule, InvoiceSummary, MoneyAccountSummary, UninvoicedJob } from "@/types";
 
 const TERMS = [
   { label: "On receipt", days: 0 },
@@ -20,15 +22,18 @@ const TERMS = [
 ];
 
 /**
- * Issues an invoice, edits one (`invoice`), or invoices a completed job order
- * (`job`). An invoice collected in full when it is issued, such as a cash
- * sale, records the collection with it.
+ * Issues an invoice, corrects one (`invoice`), or invoices a completed job
+ * order (`job`). An invoice collected in full when it is issued, such as a
+ * cash sale, records the collection with it. A correction needs a reason; a
+ * new invoice that looks like one on record is held until the person says it
+ * is different.
  */
 export function InvoiceModal({
   invoice,
   job,
   customers,
   accounts,
+  feeRules,
   suggestedNumber,
   today,
   defaultPerson,
@@ -40,6 +45,7 @@ export function InvoiceModal({
   customers: CustomerOption[];
   /** Active accounts, to collect into. */
   accounts: MoneyAccountSummary[];
+  feeRules: FeeRule[];
   suggestedNumber: string;
   today: string;
   defaultPerson: string;
@@ -59,13 +65,16 @@ export function InvoiceModal({
   const [collectedNow, setCollectedNow] = useState(false);
   const [collectInto, setCollectInto] = useState(accounts[0]?.ref ?? "");
   const [collectedOn, setCollectedOn] = useState(today);
+  const [reason, setReason] = useState("");
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const fee = useFee(feeRules, parseAmount(amount) || 0, "in");
 
   const moneyLocked = Boolean(invoice && invoice.collectedCents > 0);
   const customer = customers.find((entry) => entry.name.trim().toLowerCase() === customerName.trim().toLowerCase()) ?? null;
 
-  const save = () => {
+  const save = (confirmedDuplicates: string[] = []) => {
     const amountCents = parseAmount(amount);
     if (!amountCents) {
       setError("Enter the invoice amount, such as 12500 or 12,500.00.");
@@ -83,26 +92,34 @@ export function InvoiceModal({
       responsiblePerson: person,
       remarks,
       nextFollowUpDate: followUpOn || null,
-      collectedInto: !invoice && collectedNow ? { accountRef: collectInto, paidOn: collectedOn } : null,
+      collectedInto: !invoice && collectedNow ? { accountRef: collectInto, paidOn: collectedOn, fee: fee.fee } : null,
+      confirmedDuplicates,
     };
-    const problem = invoiceInputProblem(input, today);
+    const problem =
+      invoiceInputProblem(input, today) ??
+      (input.collectedInto ? fee.problem : null) ??
+      (invoice && reason.trim().length < MIN_CORRECTION_REASON ? "Say why this invoice is being corrected." : null);
     if (problem) {
       setError(problem);
       return;
     }
     setError(null);
     startTransition(async () => {
-      const result = invoice ? { ...(await updateInvoiceAction(invoice.ref, input)), ref: invoice.ref } : await createInvoiceAction(input);
+      const result = invoice
+        ? { ...(await updateInvoiceAction(invoice.ref, input, reason)), ref: invoice.ref }
+        : await createInvoiceAction(input);
       if (!result.ok) {
-        setError(result.error);
+        setDuplicates(result.duplicates ?? null);
+        setError(result.duplicates ? null : result.error);
         toast({ tone: "error", title: "Invoice not saved", description: result.error, key: "finance-invoice" });
         return;
       }
+      setDuplicates(null);
       toast({
         tone: "success",
-        title: invoice ? `${result.ref} saved` : `Invoice ${number.trim()} issued`,
+        title: invoice ? `${result.ref} corrected` : `Invoice ${number.trim()} issued`,
         description: invoice
-          ? undefined
+          ? "The reason and the old and new values are in its history."
           : input.collectedInto
             ? `${formatMoney(amountCents)} from ${customerName.trim()}, recorded as collected (${result.ref}).`
             : `${formatMoney(amountCents)} owed by ${customerName.trim()}, due ${formatQuoteDay(due)} (${result.ref}).`,
@@ -115,7 +132,7 @@ export function InvoiceModal({
 
   return (
     <Modal
-      title={invoice ? `Edit invoice ${invoice.number}` : job ? `Invoice ${job.ref}` : "New invoice"}
+      title={invoice ? `Correct invoice ${invoice.number}` : job ? `Invoice ${job.ref}` : "New invoice"}
       icon="file-text"
       width={620}
       onClose={onClose}
@@ -124,13 +141,21 @@ export function InvoiceModal({
           <Button variant="ghost" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button icon="check" onClick={save} disabled={pending}>
-            {pending ? "Saving…" : invoice ? "Save" : "Issue invoice"}
+          <Button icon="check" onClick={() => save()} disabled={pending}>
+            {pending ? "Saving…" : invoice ? "Save correction" : "Issue invoice"}
           </Button>
         </>
       }
     >
       {error && <Notice tone="error">{error}</Notice>}
+      {duplicates && (
+        <DuplicateNotice
+          matches={duplicates}
+          href={(ref) => `/finance?tab=receivables&invoice=${encodeURIComponent(ref)}`}
+          pending={pending}
+          onSaveAnyway={() => save(duplicates.map((match) => match.ref))}
+        />
+      )}
       {job && (
         <Notice tone="info">
           Completed job {job.ref}
@@ -219,8 +244,14 @@ export function InvoiceModal({
                 </Field>
               </div>
             )}
+            {collectedNow && fee.fields}
           </div>
         </>
+      )}
+      {invoice && (
+        <Field label="Reason for the correction" required hint="Kept in the invoice's history with the old and new values.">
+          <input style={INPUT} value={reason} maxLength={300} placeholder="Wrong amount typed; printed invoice says 12,500" onChange={(event) => setReason(event.target.value)} />
+        </Field>
       )}
     </Modal>
   );
