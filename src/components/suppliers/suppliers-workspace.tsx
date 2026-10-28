@@ -40,7 +40,6 @@ export interface SuppliersWorkspaceProps {
   inventoryEnabled: boolean;
   tab: SuppliersTab;
   openRef: string | null;
-  businessName: string;
   /** "Now" as the server saw it, so the 30-day window agrees on both sides. */
   nowIso: string;
 }
@@ -57,7 +56,6 @@ export function SuppliersWorkspace({
   inventoryEnabled,
   tab,
   openRef,
-  businessName,
   nowIso,
 }: SuppliersWorkspaceProps) {
   const router = useRouter();
@@ -108,10 +106,7 @@ export function SuppliersWorkspace({
             <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "22px", lineHeight: "28px", fontWeight: 700, letterSpacing: "-.02em" }}>
               Suppliers
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)" }}>
-              {businessName} · what each supplier charges, and how it changes
-            </p>
-          </div>
+            </div>
           <div className="flex flex-wrap items-center gap-2.5">
             {tab === "suppliers" && (
               <SearchInput placeholder="Search suppliers..." value={search} onChange={setSearch} width={220} />

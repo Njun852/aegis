@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import { generateAdsInsightAction } from "@/app/actions/ai";
-import { setAdEnabledAction, syncAdsAction } from "@/app/actions/ads";
+import { setAdEnabledAction } from "@/app/actions/ads";
 import {
   Badge,
   Button,
@@ -26,6 +26,7 @@ import {
   pacingPercent,
   rowsAtLevel,
 } from "@/lib/ads";
+import { ADS_SYNC_EVERY_MS, everyLabel } from "@/lib/auto-sync";
 import { AD_ACCOUNT, AD_LEVELS, AD_STATES } from "@/lib/data/ads";
 import { formatMoneyIn } from "@/lib/format";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
@@ -60,7 +61,6 @@ const GRID =
 
 export interface AdsWorkspaceProps {
   rows: AdRow[];
-  businessName: string;
   /** Cached commentary for these figures. Present means no request is needed. */
   cachedInsight: string | null;
   /** Sample copy shown when AI is off, or while the first one is generating. */
@@ -84,7 +84,6 @@ export interface AdsWorkspaceProps {
 
 export function AdsWorkspace({
   rows,
-  businessName,
   cachedInsight,
   fallbackInsight,
   aiEnabled,
@@ -101,7 +100,6 @@ export function AdsWorkspace({
   const currency = live ? (meta?.currency ?? "USD") : "USD";
   const money = (cents: number, withCents = true) =>
     formatMoneyIn(cents, currency, withCents);
-  const [syncing, startSync] = useTransition();
   const [changingRange, startRangeChange] = useTransition();
   // Meta's figures for the chosen single day are not in AEGIS. The rows still
   // list what exists, but every figure reads "—", never a zero Meta did not report.
@@ -180,42 +178,6 @@ export function AdsWorkspace({
 
       // Reconciles the optimistic switch — including putting it back if the
       // write failed.
-      router.refresh();
-    });
-  };
-
-  const sync = () => {
-    startSync(async () => {
-      const result = await syncAdsAction();
-
-      if (result.retryInSeconds !== null) {
-        toast({
-          tone: "info",
-          title: "Synced a moment ago",
-          description: `Meta limits how often an account is read. Try again in ${result.retryInSeconds}s.`,
-          key: "ads-sync",
-        });
-        return;
-      }
-      if (result.error) {
-        toast({
-          tone: "error",
-          title: "Sync failed",
-          description: `${result.error} The figures below are from the last successful sync.`,
-          key: "ads-sync",
-        });
-        router.refresh();
-        return;
-      }
-
-      toast({
-        tone: result.truncated ? "info" : "success",
-        title: `Synced ${result.rows} ${result.rows === 1 ? "row" : "rows"} from Meta`,
-        description: result.truncated
-          ? "The account is larger than one sync reads, so some rows may be missing."
-          : "Campaigns, ad sets and ads are up to date.",
-        key: "ads-sync",
-      });
       router.refresh();
     });
   };
@@ -353,19 +315,7 @@ export function AdsWorkspace({
             >
               Ads
             </h2>
-            <p
-              style={{
-                margin: "3px 0 0",
-                fontSize: "12.5px",
-                color: "var(--text-secondary)",
-                textWrap: "pretty",
-              }}
-            >
-              {live
-                ? `${businessName} · Meta ad account ${meta?.adAccountId ?? ""} · ${currency}${meta?.timezone ? ` · ${meta.timezone}` : ""}`
-                : `${businessName} · sample ad account ${AD_ACCOUNT.account} · Facebook and Instagram · attribution ${AD_ACCOUNT.attribution}`}
-            </p>
-          </div>
+            </div>
           <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput
               placeholder="Search campaign, ad set, audience..."
@@ -388,11 +338,8 @@ export function AdsWorkspace({
                 live ? undefined : "Sample data has one fixed period. Connect a Meta ad account to choose a range."
               }
             />
-            {live ? (
-              <Button icon="refresh-cw" disabled={syncing} onClick={sync}>
-                {syncing ? "Syncing…" : "Sync now"}
-              </Button>
-            ) : (
+            {/* A connected account syncs itself every five minutes (`AutoSync`). */}
+            {!live && (
               <Button icon="plus" disabled title="Campaign creation is not built yet">
                 Create Campaign
               </Button>
@@ -450,24 +397,21 @@ export function AdsWorkspace({
             <span style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
               {live
                 ? meta?.lastSyncAt
-                  ? `Read-only copy · synced ${relativeAge(meta.lastSyncAt)}`
-                  : "Read-only copy · not synced yet — press Sync now"
+                  ? `Read-only copy · synced ${relativeAge(meta.lastSyncAt)} · updates every ${everyLabel(ADS_SYNC_EVERY_MS)}`
+                  : "Read-only copy · not synced yet, the first sync starts in a moment"
                 : `Page ${AD_ACCOUNT.page} · Instagram ${AD_ACCOUNT.instagram}`}
             </span>
           </span>
+          {/* A healthy account carries no badge; only a problem earns one. */}
           {live ? (
-            <Badge
-              tone={
-                liveState === "ERROR"
-                  ? "negative"
-                  : liveState === "ONLINE"
-                    ? "positive"
-                    : "warning"
-              }
-              icon={liveState === "ONLINE" ? "check" : "alert-triangle"}
-            >
-              {liveState === "ONLINE" ? "LIVE" : liveState}
-            </Badge>
+            liveState !== "ONLINE" && (
+              <Badge
+                tone={liveState === "ERROR" ? "negative" : "warning"}
+                icon="alert-triangle"
+              >
+                {liveState}
+              </Badge>
+            )
           ) : (
             <Badge tone="warning" icon="alert-triangle">
               DEMO DATA
@@ -1086,7 +1030,7 @@ export function AdsWorkspace({
                 {live && levelRows.length === 0
                   ? meta?.lastSyncAt
                     ? `This ad account has no ${levelMeta.label.toLowerCase()} yet.`
-                    : "Nothing synced yet. Press Sync now to read this account from Meta."
+                    : `Nothing synced yet. AEGIS reads this account from Meta every ${everyLabel(ADS_SYNC_EVERY_MS)}, starting in a moment.`
                   : "Nothing at this level matches the filter."}
               </div>
             )}

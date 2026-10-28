@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
-import { useToast } from "@/components/layout/toast-provider";
-import { Badge, Button, Card, Icon } from "@/components/ui";
+import { Badge, Card, Icon } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
+import { useAutoSync } from "@/hooks/use-auto-sync";
+import { everyLabel, RECHECK_EVERY_MS } from "@/lib/auto-sync";
 import { relativeAge } from "@/lib/freshness";
 import type { IntegrationState, SystemStatus } from "@/types";
 
@@ -24,21 +24,10 @@ const STATE_TONES: Record<IntegrationState, { tone: BadgeTone; icon: string }> =
 
 export function StatusBoard({ status }: { status: SystemStatus }) {
   const router = useRouter();
-  const toast = useToast();
-  const [rechecking, startRecheck] = useTransition();
 
-  const recheck = () => {
-    // The toast is deliberately outside the transition: a notification queued
-    // inside one is applied with the transition's own priority and never
-    // reaches the screen before the refresh replaces the tree.
-    startRecheck(() => router.refresh());
-    toast({
-      tone: "info",
-      title: "Status re-checked",
-      description: "Every integration was read again just now.",
-      key: "status-recheck",
-    });
-  };
+  // Every integration is read again each minute while this screen is open;
+  // the mail and Meta syncs themselves run from the shell.
+  useAutoSync(() => router.refresh(), RECHECK_EVERY_MS, { immediate: false });
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,19 +52,10 @@ export function StatusBoard({ status }: { status: SystemStatus }) {
           >
             System status
           </h2>
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-            Every reading below was taken when this page loaded — checked{" "}
-            {relativeAge(status.checkedAt)}.
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          onClick={recheck}
-          disabled={rechecking}
-          icon="refresh-cw"
-        >
-          {rechecking ? "Checking…" : "Re-check now"}
-        </Button>
+          </div>
+        <Badge tone="neutral" icon="clock">
+          Re-checks every {everyLabel(RECHECK_EVERY_MS)}
+        </Badge>
       </div>
 
       <div className="grid gap-4 wide:grid-cols-2">

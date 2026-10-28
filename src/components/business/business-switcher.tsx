@@ -65,24 +65,14 @@ export function BusinessSwitcher({ collapsed, onOpen }: BusinessSwitcherProps) {
           transition: "background var(--dur-fast) var(--ease-standard)",
         }}
       >
-        <span
-          style={{
-            width: 28,
-            height: 28,
-            flex: "0 0 auto",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--grad-primary)",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "var(--font-display)",
-            fontWeight: 800,
-            fontSize: "14px",
-            color: "#fff",
-          }}
-        >
-          A
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element -- a small fixed brand image */}
+        <img
+          src="/brand/aegis-mark.png"
+          alt=""
+          width={28}
+          height={28}
+          style={{ flex: "0 0 auto", borderRadius: "var(--radius-sm)" }}
+        />
         {!collapsed && (
           <>
             <span

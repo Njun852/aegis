@@ -17,7 +17,7 @@ import {
   voidPayment,
 } from "@/lib/dal/finance-accounts";
 import { createBill, recordBillPayment, updateBill, voidBill, voidBillPayment } from "@/lib/dal/finance-bills";
-import { closeDueMonths, issueRevision } from "@/lib/dal/finance-close";
+import { issueRevision } from "@/lib/dal/finance-close";
 import { loadReport } from "@/lib/dal/finance-reports";
 import { generateFinanceSummary } from "@/lib/ai/finance-summary";
 import type { FinanceSummary } from "@/lib/finance-summary";
@@ -425,22 +425,6 @@ export async function voidCollectionAction(paymentRef: string, reason: string): 
 }
 
 // ---- Month-end reports --------------------------------------------------------
-
-/**
- * Runs the close now for this business: every month that has ended and lacks
- * a report gets Revision 1. The timer does the same on its own; this is for a
- * server that was not running on the 1st.
- */
-export async function closeDueMonthsAction(): Promise<Result<{ months: string[] }>> {
-  await requireModule("finance");
-  return guard(async () => {
-    await adminActor();
-    const { activeBusinessId } = await verifySession();
-    const months = await closeDueMonths(activeBusinessId);
-    refresh();
-    return { ok: true, months };
-  });
-}
 
 /** An approved correction: the next revision of one report, with its reason. */
 export async function issueRevisionAction(kind: string, period: string, reason: string): Promise<Result<{ revision: number }>> {

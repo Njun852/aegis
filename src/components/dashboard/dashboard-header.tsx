@@ -23,7 +23,7 @@ export function DashboardHeader() {
             letterSpacing: "-.02em",
           }}
         >
-          Welcome back, {firstNameOf(user.name)} 👋
+          Welcome back, {firstNameOf(user.name)}
         </h2>
         <p
           style={{

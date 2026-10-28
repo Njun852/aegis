@@ -10,7 +10,6 @@ import { PayablesPanel } from "@/components/finance/payables-panel";
 import { ReceivablesPanel } from "@/components/finance/receivables-panel";
 import { ReportsPanel } from "@/components/finance/reports-panel";
 import { StandingPanel } from "@/components/finance/standing-panel";
-import { ModulePage } from "@/components/modules/module-page";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedFinanceSummary } from "@/lib/ai/finance-summary";
 import { manilaDateKey } from "@/lib/booking-slots";
@@ -48,12 +47,6 @@ async function loadTrail(record: { ref: string; payments: { ref: string }[] } | 
 export default async function FinancePage(props: PageProps<"/finance">) {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
-
-  // Guarded here as well as in the sidebar, so the route stays locked when it
-  // is reached by URL.
-  if (!business.modules.includes("finance")) {
-    return <ModulePage moduleKey="finance" />;
-  }
 
   const params = await props.searchParams;
   const actor = await financeActor();
@@ -197,7 +190,7 @@ export default async function FinancePage(props: PageProps<"/finance">) {
   }
 
   return (
-    <FinanceWorkspace tab={tab} isAdmin={isAdmin} businessName={business.name} alerts={alerts}>
+    <FinanceWorkspace tab={tab} isAdmin={isAdmin} alerts={alerts}>
       {panel}
     </FinanceWorkspace>
   );

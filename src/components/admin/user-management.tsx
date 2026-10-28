@@ -211,7 +211,6 @@ export function UserManagement({ users }: UserManagementProps) {
     });
   };
 
-  const admins = users.filter((account) => account.role === "aegis_admin").length;
 
   return (
     <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-3.5">
@@ -229,11 +228,7 @@ export function UserManagement({ users }: UserManagementProps) {
           >
             Users
           </h2>
-          <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)" }}>
-            {users.length} {users.length === 1 ? "account" : "accounts"} ·{" "}
-            {admins} {admins === 1 ? "administrator" : "administrators"}
-          </p>
-        </div>
+          </div>
         <Button
           icon={adding ? "x" : "plus"}
           variant={adding ? "ghost" : "primary"}

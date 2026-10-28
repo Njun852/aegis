@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
-  runSweepAction,
   saveTextBlastSettingsAction,
   sendReminderAction,
   setSmsOptOutAction,
@@ -12,7 +11,8 @@ import {
 import { Badge, Button, Icon, SearchInput, Switch } from "@/components/ui";
 import type { BadgeTone } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
-import { relativeAge } from "@/lib/freshness";
+import { useAutoSync } from "@/hooks/use-auto-sync";
+import { RECHECK_EVERY_MS } from "@/lib/auto-sync";
 import {
   MAX_LEAD_DAYS,
   MAX_TEMPLATE_LENGTH,
@@ -69,6 +69,9 @@ export function TextBlastWorkspace({
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
+
+  // The server's sweep writes and sends on its own; this picks up what it did.
+  useAutoSync(() => router.refresh(), RECHECK_EVERY_MS, { immediate: false });
   const [tab, setTab] = useState<Tab>("Upcoming");
   const [search, setSearch] = useState("");
   const [template, setTemplate] = useState(settings.template);
@@ -180,28 +183,11 @@ export function TextBlastWorkspace({
           <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "22px", lineHeight: "28px", fontWeight: 700, letterSpacing: "-.02em" }}>
             Text Blast
           </h2>
-          <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)", textWrap: "pretty" }}>
-            {businessName} · a text to each customer when their car is due for service · last run{" "}
-            {relativeAge(settings.lastRunAt, now)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Badge tone={settings.enabled ? "positive" : "neutral"} icon={settings.enabled ? "check" : "minus"}>
-            {settings.enabled ? "AUTOMATIC: ON" : "AUTOMATIC: OFF"}
-          </Badge>
-          <Badge tone={providerName ? "positive" : "warning"} icon={providerName ? "check" : "alert-triangle"}>
-            {providerName ? `PROVIDER: ${providerName.toUpperCase()}` : "NO SMS PROVIDER"}
-          </Badge>
-          <Button
-            variant="outline"
-            icon="refresh-cw"
-            disabled={pending || !settings.enabled}
-            title={settings.enabled ? undefined : "Switch automatic reminders on first."}
-            onClick={() => run(runSweepAction, "Sweep finished", "text-blast-run")}
-          >
-            {pending ? "Working…" : "Run now"}
-          </Button>
-        </div>
+          </div>
+        {/* No "Run now": the sweep runs every 15 minutes on the server, and at once on switching on. */}
+        <Badge tone="neutral" icon="clock">
+          {settings.enabled ? "Runs every 15 minutes, 9:00 AM to 6:00 PM" : "Automatic reminders are off"}
+        </Badge>
       </div>
 
       {!providerName && (

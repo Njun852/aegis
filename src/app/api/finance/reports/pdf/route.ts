@@ -13,9 +13,7 @@ import { isMonthKey, isYearKey } from "@/lib/finance-periods";
  */
 export async function GET(request: Request) {
   const business = await getActiveBusiness();
-  if (!business?.modules.includes("finance")) {
-    return new Response("Finance is not enabled for this business.", { status: 403 });
-  }
+  if (!business) return new Response("No business is selected.", { status: 403 });
   const { role, activeBusinessId } = await verifySession();
   if (role !== "aegis_admin") return new Response("Reports are for administrators.", { status: 403 });
 

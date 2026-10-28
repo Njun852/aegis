@@ -234,71 +234,69 @@ async function buildAlerts(
     }
   }
 
-  if (has("finance")) {
-    // A cash or bank count that disagrees with the book is one of the owner's
-    // critical finance alerts, and stays until an administrator explains it.
-    const open = await listOpenDiscrepancies();
-    if (open.length > 0) {
-      const largest = [...open].sort((a, b) => Math.abs(b.differenceCents) - Math.abs(a.differenceCents))[0];
-      alerts.push({
-        weight: 1,
-        title: open.length === 1 ? "A count differs from the book" : `${open.length} counts differ from the book`,
-        meta: open.slice(0, 2).map((count) => count.accountName).join(", "),
-        amount: formatSignedMoney(largest.differenceCents),
-        amountTone: "negative",
-        tag: "Finance",
-        icon: "wallet",
-        iconColor: ALERT_COLORS.urgent,
-      });
-    }
+  // A cash or bank count that disagrees with the book is one of the owner's
+  // critical finance alerts, and stays until an administrator explains it.
+  const open = await listOpenDiscrepancies();
+  if (open.length > 0) {
+    const largest = [...open].sort((a, b) => Math.abs(b.differenceCents) - Math.abs(a.differenceCents))[0];
+    alerts.push({
+      weight: 1,
+      title: open.length === 1 ? "A count differs from the book" : `${open.length} counts differ from the book`,
+      meta: open.slice(0, 2).map((count) => count.accountName).join(", "),
+      amount: formatSignedMoney(largest.differenceCents),
+      amountTone: "negative",
+      tag: "Finance",
+      icon: "wallet",
+      iconColor: ALERT_COLORS.urgent,
+    });
+  }
 
-    // Overdue bills, and bills falling due in the next seven days: the other
-    // two payables alerts on the owner's critical list.
-    const owed = (await listBills(manilaDateKey(today))).filter((bill) => bill.outstandingCents > 0);
-    const total = (list: typeof owed) => list.reduce((sum, bill) => sum + bill.outstandingCents, 0);
-    const late = owed.filter((bill) => bill.group === "overdue" || bill.group === "critical-overdue");
-    if (late.length > 0) {
-      alerts.push({
-        weight: 1,
-        title: `${plural(late.length, "bill", "bills")} overdue`,
-        meta: late.slice(0, 2).map((bill) => bill.payee).join(", "),
-        amount: formatMoney(total(late)),
-        amountTone: "negative",
-        tag: "Payables",
-        icon: "file-text",
-        iconColor: ALERT_COLORS.urgent,
-      });
-    }
-    // Receivables over 90 days, the AR alert on the owner's critical list, with
-    // how many still lack the follow-up the 90+ day control requires.
-    const stale = (await listInvoices(manilaDateKey(today))).filter((invoice) => invoice.bucket === "90+");
-    if (stale.length > 0) {
-      const missing = stale.filter((invoice) => invoice.problems.length > 0).length;
-      alerts.push({
-        weight: 1,
-        title: `${plural(stale.length, "receivable", "receivables")} over 90 days`,
-        meta: missing > 0 ? `${missing} without the required follow-up` : stale.slice(0, 2).map((invoice) => invoice.customerName).join(", "),
-        amount: formatMoney(stale.reduce((sum, invoice) => sum + invoice.outstandingCents, 0)),
-        amountTone: "negative",
-        tag: "Receivables",
-        icon: "inbox",
-        iconColor: ALERT_COLORS.urgent,
-      });
-    }
+  // Overdue bills, and bills falling due in the next seven days: the other
+  // two payables alerts on the owner's critical list.
+  const owed = (await listBills(manilaDateKey(today))).filter((bill) => bill.outstandingCents > 0);
+  const total = (list: typeof owed) => list.reduce((sum, bill) => sum + bill.outstandingCents, 0);
+  const late = owed.filter((bill) => bill.group === "overdue" || bill.group === "critical-overdue");
+  if (late.length > 0) {
+    alerts.push({
+      weight: 1,
+      title: `${plural(late.length, "bill", "bills")} overdue`,
+      meta: late.slice(0, 2).map((bill) => bill.payee).join(", "),
+      amount: formatMoney(total(late)),
+      amountTone: "negative",
+      tag: "Payables",
+      icon: "file-text",
+      iconColor: ALERT_COLORS.urgent,
+    });
+  }
+  // Receivables over 90 days, the AR alert on the owner's critical list, with
+  // how many still lack the follow-up the 90+ day control requires.
+  const stale = (await listInvoices(manilaDateKey(today))).filter((invoice) => invoice.bucket === "90+");
+  if (stale.length > 0) {
+    const missing = stale.filter((invoice) => invoice.problems.length > 0).length;
+    alerts.push({
+      weight: 1,
+      title: `${plural(stale.length, "receivable", "receivables")} over 90 days`,
+      meta: missing > 0 ? `${missing} without the required follow-up` : stale.slice(0, 2).map((invoice) => invoice.customerName).join(", "),
+      amount: formatMoney(stale.reduce((sum, invoice) => sum + invoice.outstandingCents, 0)),
+      amountTone: "negative",
+      tag: "Receivables",
+      icon: "inbox",
+      iconColor: ALERT_COLORS.urgent,
+    });
+  }
 
-    const soon = owed.filter((bill) => bill.group === "due-today" || bill.group === "due-7");
-    if (soon.length > 0) {
-      alerts.push({
-        weight: 2,
-        title: `${plural(soon.length, "bill", "bills")} due within 7 days`,
-        meta: soon.slice(0, 2).map((bill) => bill.payee).join(", "),
-        amount: formatMoney(total(soon)),
-        amountTone: "neutral",
-        tag: "Payables",
-        icon: "file-text",
-        iconColor: ALERT_COLORS.attention,
-      });
-    }
+  const soon = owed.filter((bill) => bill.group === "due-today" || bill.group === "due-7");
+  if (soon.length > 0) {
+    alerts.push({
+      weight: 2,
+      title: `${plural(soon.length, "bill", "bills")} due within 7 days`,
+      meta: soon.slice(0, 2).map((bill) => bill.payee).join(", "),
+      amount: formatMoney(total(soon)),
+      amountTone: "neutral",
+      tag: "Payables",
+      icon: "file-text",
+      iconColor: ALERT_COLORS.attention,
+    });
   }
 
   return alerts

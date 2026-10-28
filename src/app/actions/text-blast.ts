@@ -35,13 +35,25 @@ export async function saveTextBlastSettingsAction(input: {
   leadDays: number;
 }): Promise<Result> {
   const business = await requireModule("sms");
-  return attempt(() =>
+  const saved = await attempt(() =>
     saveTextBlastSettings(business.id, {
       enabled: Boolean(input.enabled),
       template: String(input.template),
       leadDays: Number(input.leadDays),
     }),
   );
+  if (!saved.ok || !input.enabled) return saved;
+
+  // Switching on, or saving while on, runs the sweep straight away instead of
+  // leaving the first reminders to the timer's next turn up to fifteen minutes
+  // away. Same rules and limits as the timer, which is why it is safe to run.
+  try {
+    const sweep = await runReminderSweep(business.id);
+    revalidatePath("/text-blast");
+    return { ok: true, note: sweep.note };
+  } catch {
+    return { ok: true, note: "Saved. The next automatic run, within 15 minutes, will write any reminders due." };
+  }
 }
 
 export async function setSmsOptOutAction(customerRef: string, optedOut: boolean): Promise<Result> {
@@ -55,12 +67,4 @@ export async function setSmsOptOutAction(customerRef: string, optedOut: boolean)
 export async function sendReminderAction(vehicleRef: string): Promise<Result> {
   const business = await requireModule("sms");
   return attempt(() => queueManualReminder(business.id, vehicleRef));
-}
-
-/** Runs the sweep now instead of waiting for the timer. Same rules, same limits. */
-export async function runSweepAction(): Promise<Result> {
-  const business = await requireModule("sms");
-  const result = await runReminderSweep(business.id);
-  revalidatePath("/text-blast");
-  return result.ran ? { ok: true, note: result.note } : { ok: false, error: result.note };
 }

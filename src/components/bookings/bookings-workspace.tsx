@@ -6,10 +6,8 @@ import { Avatar, Badge, Button, Icon, SearchInput, Select } from "@/components/u
 import {
   countByStatus,
   filterBookings,
-  formatDay,
   formatMoney,
   getStatusStyle,
-  rangeBounds,
   recognisedRevenueCents,
 } from "@/lib/bookings";
 import {
@@ -18,7 +16,7 @@ import {
   DEFAULT_BOOKING_RANGE,
 } from "@/lib/data/bookings";
 import { useToast } from "@/components/layout/toast-provider";
-import { dayTally, monthLabel, monthOfKey, monthPrefix } from "@/lib/booking-calendar";
+import { dayTally, monthOfKey, monthPrefix } from "@/lib/booking-calendar";
 import type { CalendarMonth } from "@/lib/booking-calendar";
 import { activateOnKey } from "@/lib/interaction";
 import { BookingDrawer } from "./booking-drawer";
@@ -49,7 +47,6 @@ export interface BookingsWorkspaceProps {
   fleetEnabled: boolean;
   /** What each unlinked online request matches on file, by booking ref. */
   requestMatches: Record<string, RequestMatches>;
-  businessName: string;
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
    * clock so the date maths that runs during SSR and after hydration agree.
@@ -78,7 +75,6 @@ export function BookingsWorkspace({
   customers,
   fleetEnabled,
   requestMatches,
-  businessName,
   todayIso,
   todayKey,
   campaigns,
@@ -130,16 +126,6 @@ export function BookingsWorkspace({
   );
 
   const selected = bookings.find((booking) => booking.ref === openRef) ?? null;
-
-  // Null bounds mean "All time", which has no window to name.
-  const bounds = rangeBounds(range, today);
-  const windowLabel = calendar
-    ? monthLabel(month)
-    : bounds
-      ? `${formatDay(bounds.from)} – ${formatDay(
-          new Date(bounds.to.getTime() - 86_400_000),
-        )}`
-      : null;
 
   // Counted over every booking, not the filtered list: "how many today" must
   // not change because a status chip is selected.
@@ -197,20 +183,7 @@ export function BookingsWorkspace({
             >
               Bookings
             </h2>
-            <p
-              style={{
-                margin: "3px 0 0",
-                fontSize: "12.5px",
-                color: "var(--text-secondary)",
-                textWrap: "pretty",
-              }}
-            >
-              {businessName} · {inWindow.length}{" "}
-              {inWindow.length === 1 ? "appointment" : "appointments"}
-              {windowLabel ? ` in ${windowLabel}` : " in total"} · times shown in
-              local time
-            </p>
-          </div>
+            </div>
           <div className="flex items-center gap-2.5">
             <SearchInput
               placeholder="Search customer, service, ref..."

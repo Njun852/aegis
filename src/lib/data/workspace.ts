@@ -32,10 +32,23 @@ export const WORKSPACE_NAV: NavLink[] = [
     icon: "megaphone",
     title: "Ads",
   },
+  {
+    href: "/finance",
+    label: "Finance",
+    icon: "wallet",
+    title: "Finance",
+  },
 ];
 
 /** AEGIS-internal tooling, not part of any customer's module plan. */
 export const INTERNAL_NAV: NavLink[] = [
+  // Every business on one screen, for the owner.
+  {
+    href: "/owner",
+    label: "Owner Board",
+    icon: "layers",
+    title: "Owner Board",
+  },
   {
     href: "/admin/businesses",
     label: "Business Management",

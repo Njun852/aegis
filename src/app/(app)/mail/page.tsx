@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 export default async function MailPage() {
   const messages = await listMessages();
 
-  // Whether the install has a key at all. The screen never calls the model on
-  // its own; this only decides whether "Sync now" offers to analyse anything.
+  // Whether the install has a key at all, so Compose can offer to draft. Triage
+  // runs in the automatic sync, never from rendering this page.
   return (
     <MailWorkspace
       messages={messages}

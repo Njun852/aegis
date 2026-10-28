@@ -2,6 +2,7 @@ import "server-only";
 
 import { redirect } from "next/navigation";
 import { RESERVED_SLUGS } from "@/lib/data/booking-page";
+import { CORE_MODULES, OPTIONAL_MODULE_KEYS } from "@/lib/data/businesses";
 import { businessesCollection, getDb } from "./db";
 import { InputError, isDuplicateKey } from "./refs";
 import { allowedBusinessIds, requireAdmin, verifySession } from "./session";
@@ -13,7 +14,7 @@ import type {
   OptionalModuleKey,
 } from "@/types";
 
-const CORE_MODULE_KEYS: ModuleKey[] = ["dashboard", "mail", "ads"];
+const CORE_MODULE_KEYS: ModuleKey[] = CORE_MODULES.map((module) => module.key);
 
 function toBusiness(doc: BusinessDocument): Business {
   return {
@@ -21,7 +22,10 @@ function toBusiness(doc: BusinessDocument): Business {
     name: doc.name,
     meta: doc.meta,
     onboarded: doc.onboarded,
-    modules: doc.modules,
+    // Only modules still sold per business. One that has since become core
+    // (Finance) can linger in a stored list; it is everyone's now, so it is
+    // dropped here and leaves the record the next time the grants are saved.
+    modules: doc.modules.filter((key) => OPTIONAL_MODULE_KEYS.includes(key)),
   };
 }
 

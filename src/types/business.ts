@@ -1,5 +1,5 @@
 /** Modules every AEGIS business gets. These can never be switched off. */
-export type CoreModuleKey = "dashboard" | "mail" | "ads";
+export type CoreModuleKey = "dashboard" | "mail" | "ads" | "finance";
 
 /** Modules a business buys individually. An admin grants these per business. */
 export type OptionalModuleKey =
@@ -9,8 +9,7 @@ export type OptionalModuleKey =
   | "fleet"
   | "sms"
   | "quotes"
-  | "suppliers"
-  | "finance";
+  | "suppliers";
 
 export type ModuleKey = CoreModuleKey | OptionalModuleKey;
 

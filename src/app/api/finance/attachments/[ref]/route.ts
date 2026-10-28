@@ -7,9 +7,7 @@ import { readAttachment } from "@/lib/dal/finance-attachments";
  */
 export async function GET(request: Request, ctx: RouteContext<"/api/finance/attachments/[ref]">) {
   const business = await getActiveBusiness();
-  if (!business?.modules.includes("finance")) {
-    return new Response("Finance is not enabled for this business.", { status: 403 });
-  }
+  if (!business) return new Response("No business is selected.", { status: 403 });
 
   const { ref } = await ctx.params;
   const file = await readAttachment(ref);

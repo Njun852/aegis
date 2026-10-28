@@ -92,11 +92,7 @@ export function QuotationsWorkspace({
             >
               Quotations
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)" }}>
-              {businessName} · {quotations.length} {quotations.length === 1 ? "quotation" : "quotations"} ·{" "}
-              {priceItems.length} on the price list
-            </p>
-          </div>
+            </div>
           <div className="flex flex-wrap items-center gap-2.5">
             {tab === "quotations" && (
               <SearchInput placeholder="Search ref, customer, plate..." value={search} onChange={setSearch} width={240} />

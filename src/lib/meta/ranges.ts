@@ -142,7 +142,7 @@ export function dayFigures(
       date,
       label,
       read: false,
-      missing: `AEGIS has not read ${which} from Meta yet. Press Sync now to read it.`,
+      missing: `AEGIS has not read ${which} from Meta yet. It reads the account every 5 minutes.`,
       note: null,
     };
   }
@@ -153,7 +153,7 @@ export function dayFigures(
       read: true,
       missing:
         range === "today"
-          ? `Meta has not reported anything for ${which} yet: either nothing has run so far, or Meta has not caught up. Sync again later.`
+          ? `Meta has not reported anything for ${which} yet: either nothing has run so far, or Meta has not caught up. A later sync will pick it up.`
           : `Meta reported nothing for ${which}: either nothing ran that day, or Meta has not reported it yet.`,
       note: null,
     };

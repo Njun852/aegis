@@ -9,12 +9,16 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { ReactNode } from "react";
-import { refreshMailFreshnessAction } from "@/app/actions/mail";
+import type { SyncInboxState } from "@/app/actions/ai";
 import { freshnessTone, relativeAge } from "@/lib/freshness";
 import type { FreshnessTone } from "@/lib/freshness";
 import type { MailFreshnessState } from "@/types";
 
-
+/** What one automatic mail sync reports: the run, then the inbox's freshness after it. */
+export type MailSyncResult = SyncInboxState & {
+  newestReceivedAt: string | null;
+  connected: boolean;
+};
 
 interface SyncContextValue {
   /** True while a retrieval is in flight. */
@@ -23,8 +27,12 @@ interface SyncContextValue {
   label: string;
   tone: FreshnessTone;
   connected: boolean;
-  /** Re-reads freshness from the server. Resolves to the connection state. */
-  sync: () => Promise<boolean>;
+  /**
+   * Runs one mail sync and records the freshness it reports. Resolves to the
+   * report, or null when the server could not be reached. `AutoSync` calls
+   * this on its timer; nothing else should need to.
+   */
+  sync: () => Promise<MailSyncResult | null>;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -64,7 +72,8 @@ function readServerClock(): number {
  * This used to be a timer that counted from "2 min ago" and reset itself when
  * the sync button was pressed, which meant the top bar reported a retrieval
  * that had never happened. It now reports the newest message AEGIS actually
- * holds, and says "never" when that is the truth.
+ * holds, and says "never" when that is the truth. The sync itself runs on a
+ * timer in `AutoSync`, through `sync` below.
  */
 export function SyncProvider({
   children,
@@ -84,9 +93,18 @@ export function SyncProvider({
   const sync = useCallback(async () => {
     setSyncing(true);
     try {
-      const next = await refreshMailFreshnessAction();
-      setState((current) => ({ ...current, ...next }));
-      return next.connected;
+      const response = await fetch("/api/sync/mail", { method: "POST" });
+      if (!response.ok) return null;
+      const result = (await response.json()) as MailSyncResult;
+      setState((current) => ({
+        ...current,
+        newestReceivedAt: result.newestReceivedAt,
+        connected: result.connected,
+      }));
+      return result;
+    } catch {
+      // Offline, or signed out in another tab: the next turn tries again.
+      return null;
     } finally {
       setSyncing(false);
     }

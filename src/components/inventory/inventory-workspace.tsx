@@ -11,7 +11,7 @@ import {
   Select,
 } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
-import { formatDay, formatMoney } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import {
   belowReorder,
   countByStatus,
@@ -19,7 +19,6 @@ import {
   filterInventory,
   getStatusStyle,
   movesInPeriod,
-  periodBounds,
   totalValueCents,
 } from "@/lib/inventory";
 import {
@@ -49,7 +48,6 @@ export interface InventoryWorkspaceProps {
   moves: StockMove[];
   /** Every batch, newest first. The drawer shows the selected item's. */
   batches: StockBatch[];
-  businessName: string;
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
    * clock so the date maths that runs during SSR and after hydration agree.
@@ -61,7 +59,6 @@ export function InventoryWorkspace({
   items,
   moves,
   batches,
-  businessName,
   todayIso,
 }: InventoryWorkspaceProps) {
   const router = useRouter();
@@ -90,11 +87,6 @@ export function InventoryWorkspace({
   );
 
   const selected = items.find((item) => item.sku === openSku) ?? null;
-
-  const bounds = periodBounds(period, today);
-  const windowLabel = `${formatDay(bounds.from)} – ${formatDay(
-    new Date(bounds.to.getTime() - 86_400_000),
-  )}`;
 
   const stats = [
     {
@@ -146,20 +138,7 @@ export function InventoryWorkspace({
             >
               Inventory
             </h2>
-            <p
-              style={{
-                margin: "3px 0 0",
-                fontSize: "12.5px",
-                color: "var(--text-secondary)",
-                textWrap: "pretty",
-              }}
-            >
-              {businessName} · {items.length} tracked{" "}
-              {items.length === 1 ? "SKU" : "SKUs"} · stock in/out for{" "}
-              {windowLabel} · {windowMoves.length}{" "}
-              {windowMoves.length === 1 ? "movement" : "movements"} logged
-            </p>
-          </div>
+            </div>
           <div className="flex items-center gap-2.5">
             <SearchInput
               placeholder="Search item, SKU, supplier..."

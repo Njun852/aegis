@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { syncInboxAction } from "@/app/actions/ai";
 import { setMessageReadAction } from "@/app/actions/mail";
 import { useSync } from "@/components/layout/sync-provider";
 import { useToast } from "@/components/layout/toast-provider";
@@ -27,7 +26,7 @@ import styles from "./mail-workspace.module.css";
 
 export interface MailWorkspaceProps {
   messages: MailMessage[];
-  /** Whether this install has an OpenAI key, so "Sync now" can offer triage. */
+  /** Whether this install has an OpenAI key, so Compose can offer a draft. */
   aiEnabled: boolean;
   /** The connected mailbox address, or null when none is connected. */
   mailbox: string | null;
@@ -46,9 +45,9 @@ export function MailWorkspace({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
-  const [analysing, startAnalysing] = useTransition();
 
-  const { syncing, sync, connected } = useSync();
+  // The inbox syncs itself every two minutes, from the shell (`AutoSync`).
+  const { connected } = useSync();
 
   const folders = useMemo(() => buildFolders(messages), [messages]);
 
@@ -135,104 +134,9 @@ export function MailWorkspace({
     apply(value);
   };
 
-  /**
-   * "Sync now" runs the retrieval animation and, when AI is configured, triages
-   * whatever has not been analysed yet. Triage is a set difference on the
-   * server, so pressing this on an already-analysed inbox costs nothing.
-   */
-  const handleSync = () => {
-    // Re-reads real freshness. With no mailbox connected there is nothing to
-    // retrieve, and saying so is the point — the old version played a
-    // retrieval animation over an inbox nothing was feeding.
-    void sync().then((connected) => {
-      if (!connected) {
-        toast({
-          tone: "info",
-          title: "No mailbox connected",
-          description:
-            "Mail is showing the seeded sample inbox. Connect a company mailbox to retrieve new messages.",
-          key: "mail-connection",
-        });
-      }
-    });
-
-    if (!aiEnabled) return;
-
-    startAnalysing(async () => {
-      const result = await syncInboxAction();
-
-      // A mailbox failure outranks anything the analysis has to say: if mail
-      // could not be retrieved, what was or was not analysed is a detail.
-      if (result.mailNote) {
-        toast({
-          tone: "error",
-          title: "Mailbox could not be read",
-          description: result.mailNote,
-          key: "mail-sync",
-        });
-        return;
-      }
-
-      // One key for the whole operation, so pressing Sync repeatedly replaces
-      // the last result rather than stacking identical notices.
-      if (result.note) {
-        toast({
-          tone: "error",
-          title: "Inbox not fully analysed",
-          description: result.note,
-          key: "mail-sync",
-        });
-      } else if (
-        result.retrieved > 0 ||
-        result.analysed > 0 ||
-        result.drafted > 0
-      ) {
-        const parts: string[] = [];
-        if (result.retrieved > 0) {
-          parts.push(
-            `retrieved ${result.retrieved} new ${result.retrieved === 1 ? "message" : "messages"}`,
-          );
-        }
-        if (result.analysed > 0) {
-          parts.push(
-            `analysed ${result.analysed} ${result.analysed === 1 ? "message" : "messages"}`,
-          );
-        }
-        if (result.drafted > 0) {
-          parts.push(
-            `wrote ${result.drafted} suggested ${result.drafted === 1 ? "reply" : "replies"}`,
-          );
-        }
-
-        toast({
-          tone: "info",
-          title: `Inbox updated — ${parts.join(", ")}`,
-          description:
-            result.draftsPending > 0
-              ? `${result.draftsPending} still to draft; press Sync again to continue.`
-              : "Priorities, summaries, deadlines and suggested replies are current.",
-          key: "mail-sync",
-        });
-        router.refresh();
-      } else {
-        toast({
-          tone: "info",
-          title: "Inbox is already up to date",
-          description: "Every message has been analysed — nothing was spent.",
-          key: "mail-sync",
-        });
-      }
-    });
-  };
-
   return (
     <div className={styles.workspace}>
-      <MailHeader
-        syncing={syncing || analysing}
-        onSync={handleSync}
-        mailboxConnected={connected}
-        mailbox={mailbox}
-      />
+      <MailHeader />
 
       <div className={styles.panes}>
         <MailFolderRail

@@ -33,7 +33,6 @@ export interface FleetWorkspaceProps {
   crmEnabled: boolean;
   /** Whether a past service is saved as a completed booking. */
   bookingsEnabled: boolean;
-  businessName: string;
   /** "Now" as the server saw it, for the date a new service log defaults to. */
   todayIso: string;
 }
@@ -44,7 +43,6 @@ export function FleetWorkspace({
   history,
   crmEnabled,
   bookingsEnabled,
-  businessName,
   todayIso,
 }: FleetWorkspaceProps) {
   const router = useRouter();
@@ -116,19 +114,7 @@ export function FleetWorkspace({
             >
               Fleet
             </h2>
-            <p
-              style={{
-                margin: "3px 0 0",
-                fontSize: "12.5px",
-                color: "var(--text-secondary)",
-                textWrap: "pretty",
-              }}
-            >
-              {businessName} · {vehicles.length}{" "}
-              {vehicles.length === 1 ? "customer vehicle" : "customer vehicles"} ·
-              most urgent first
-            </p>
-          </div>
+            </div>
           <div className="flex items-center gap-2.5">
             <SearchInput
               placeholder="Search plate, owner, model..."

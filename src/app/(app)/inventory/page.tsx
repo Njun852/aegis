@@ -24,7 +24,6 @@ export default async function InventoryPage() {
       items={items}
       moves={moves}
       batches={batches}
-      businessName={business.name}
       todayIso={new Date().toISOString()}
     />
   );

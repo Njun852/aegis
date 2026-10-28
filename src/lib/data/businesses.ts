@@ -36,6 +36,13 @@ export const CORE_MODULES: ModuleDefinition[] = [
     desc: "Campaign performance",
     href: "/ads",
   },
+  {
+    key: "finance",
+    name: "Finance",
+    icon: "wallet",
+    desc: "Books, cash & reports",
+    href: "/finance",
+  },
 ];
 
 /** Sold per business. An AEGIS admin grants these in Business Management. */
@@ -88,13 +95,6 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
     icon: "truck",
     desc: "Suppliers, what each charges for every part, and how those costs change.",
     href: "/suppliers",
-  },
-  {
-    key: "finance",
-    name: "Finance",
-    icon: "wallet",
-    desc: "Monthly income and financial standing reports, receivables, payables, cash and bank.",
-    href: "/finance",
   },
 ];
 

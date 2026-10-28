@@ -35,9 +35,10 @@ export const config = {
    * is by checking Meta's signature instead — and the public booking page,
    * which customers use without an account. That page reaches the database
    * only through `src/lib/dal/public-booking.ts`, by the business its link
-   * names, and its actions are rate limited per visitor.
+   * names, and its actions are rate limited per visitor. The brand images and
+   * icons are public too: the sign-in page and its boot screen show them.
    */
   matcher: [
-    "/((?!api/auth|api/meta/webhook|book/|login|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|api/meta/webhook|book/|login|_next/static|_next/image|favicon.ico|apple-icon.png|brand/).*)",
   ],
 };

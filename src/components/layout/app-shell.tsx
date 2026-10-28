@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { AskAegis, type AskAegisProps } from "@/components/ask/ask-aegis";
+import { AutoSync } from "./auto-sync";
 import { Sidebar } from "./sidebar";
 import { SyncProvider } from "./sync-provider";
 import type { MailFreshnessState } from "@/types";
@@ -34,6 +35,7 @@ export function AppShell({
     // screen — a connected badge over a business with no mailbox.
     <SyncProvider key={mailFreshness.businessId} initial={mailFreshness}>
       <ToastProvider>
+        <AutoSync />
         <ShellFrame unreadCount={unreadCount} mailFreshness={mailFreshness}>
           {children}
         </ShellFrame>
@@ -78,7 +80,6 @@ function ShellFrame({ children, unreadCount }: AppShellProps) {
         }}
       >
         <Topbar
-          hasNotifications={unreadCount > 0}
           onToggleSidebar={() => setCollapsed((isCollapsed) => !isCollapsed)}
         />
         <main

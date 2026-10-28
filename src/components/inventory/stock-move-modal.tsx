@@ -229,22 +229,16 @@ export function StockMoveModal({
           >
             <Icon name={kind === "out" ? "arrow-up" : "arrow-down"} size={17} />
           </span>
-          <span className="flex min-w-0 flex-1 flex-col leading-tight">
-            <span
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "16px",
-                fontWeight: 700,
-                letterSpacing: "-.015em",
-              }}
-            >
-              {kind === "out" ? "Record stock out" : "Record stock in"}
-            </span>
-            <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-              {kind === "out"
-                ? "Units leaving stock — picks, transfers, write-offs."
-                : "Units arriving into stock — deliveries and returns."}
-            </span>
+          <span
+            className="min-w-0 flex-1 leading-tight"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "16px",
+              fontWeight: 700,
+              letterSpacing: "-.015em",
+            }}
+          >
+            {kind === "out" ? "Record stock out" : "Record stock in"}
           </span>
           <IconButton icon="x" size={32} label="Close" onClick={onClose} />
         </div>

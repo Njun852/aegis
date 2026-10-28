@@ -103,19 +103,7 @@ export function BusinessList() {
           >
             Business Management
           </h2>
-          <p
-            style={{
-              margin: "3px 0 0",
-              fontSize: "12.5px",
-              color: "var(--text-secondary)",
-              textWrap: "pretty",
-            }}
-          >
-            {businesses.length}{" "}
-            {businesses.length === 1 ? "business" : "businesses"} provisioned ·
-            Dashboard, Mail and Ads are always included
-          </p>
-        </div>
+          </div>
         <div className="flex items-center gap-2.5">
           <SearchInput
             placeholder="Search businesses..."
@@ -160,7 +148,7 @@ export function BusinessList() {
               New business
             </span>
             <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-              Dashboard, Mail and Ads are included. Optional modules and a
+              Dashboard, Mail, Ads and Finance are included. Optional modules and a
               mailbox are set on the business itself, once it exists.
             </span>
           </div>

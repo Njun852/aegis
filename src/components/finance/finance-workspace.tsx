@@ -9,13 +9,11 @@ import { FINANCE_TABS, defaultFinanceTab, type FinanceTab } from "@/lib/finance-
 export function FinanceWorkspace({
   tab,
   isAdmin,
-  businessName,
   alerts,
   children,
 }: {
   tab: FinanceTab;
   isAdmin: boolean;
-  businessName: string;
   /** How many items need attention on each tab, shown beside its name. */
   alerts: Partial<Record<FinanceTab, number>>;
   children: ReactNode;
@@ -31,10 +29,7 @@ export function FinanceWorkspace({
         <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "22px", lineHeight: "28px", fontWeight: 700, letterSpacing: "-.02em" }}>
           Finance
         </h2>
-        <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)" }}>
-          {businessName} · how much the business made, and where it stands
-        </p>
-      </div>
+        </div>
       <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="Finance view">
         {FINANCE_TABS.filter((item) => isAdmin || !item.adminOnly).map((item, index, shown) => {
           const active = tab === item.id;

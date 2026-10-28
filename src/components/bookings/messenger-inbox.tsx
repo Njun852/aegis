@@ -18,6 +18,8 @@ export interface MessengerInboxProps {
   fleetEnabled: boolean;
   campaigns: AdCampaignOption[];
   pageName: string | null;
+  /** A chat to open on arrival, from a link such as the owner's board. */
+  openChat?: string | null;
 }
 
 /**
@@ -26,12 +28,14 @@ export interface MessengerInboxProps {
  * they do here is turn a chat into a booking request, which carries the ad the
  * chat started from automatically, and confirm it later from Bookings.
  */
-export function MessengerInbox({ conversations, vehicles, customers, fleetEnabled, campaigns, pageName }: MessengerInboxProps) {
+export function MessengerInbox({ conversations, vehicles, customers, fleetEnabled, campaigns, pageName, openChat = null }: MessengerInboxProps) {
   const router = useRouter();
   const toast = useToast();
-  const [filter, setFilter] = useState<ChatFilter>("Waiting");
+  const linked = openChat ? conversations.find((chat) => chat.psid === openChat) ?? null : null;
+  // A linked chat opens under All, so a filter can never hide the chat that was asked for.
+  const [filter, setFilter] = useState<ChatFilter>(linked ? "All" : "Waiting");
   const [search, setSearch] = useState("");
-  const [openPsid, setOpenPsid] = useState<string | null>(conversations[0]?.psid ?? null);
+  const [openPsid, setOpenPsid] = useState<string | null>(linked?.psid ?? conversations[0]?.psid ?? null);
   const [composing, setComposing] = useState<MessengerConversation | null>(null);
 
   const visible = useMemo(() => {
@@ -67,10 +71,7 @@ export function MessengerInbox({ conversations, vehicles, customers, fleetEnable
             <h2 style={{ margin: "4px 0 0", fontFamily: "var(--font-display)", fontSize: "22px", lineHeight: "28px", fontWeight: 700, letterSpacing: "-.02em" }}>
               Messenger
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)" }}>
-              {pageName ?? "Facebook Page"} · chats are read only; reply in Meta Business Suite
-            </p>
-          </div>
+            </div>
           <SearchInput placeholder="Search chats, campaigns..." value={search} onChange={setSearch} width={240} />
         </div>
 

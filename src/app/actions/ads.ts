@@ -51,17 +51,25 @@ export interface SyncAdsState {
   /** Set when a run was refused because the last one was too recent. */
   retryInSeconds: number | null;
   truncated: boolean;
+  /** False when the business has no Meta ad account linked: nothing to read. */
+  connected: boolean;
 }
 
 /**
- * Pulls the connected Meta ad account, read-only. Anyone who can see the Ads
- * screen may refresh it; what they can refresh is limited to their own
- * business by the session.
+ * Pulls the connected Meta ad account, read-only. Every signed-in tab runs it
+ * every five minutes; what it reads is limited to the session's own business,
+ * and `syncAds` refuses a second read of an account within two minutes.
  */
 export async function syncAdsAction(): Promise<SyncAdsState> {
   await requireModule("ads");
 
   const report = await syncAds();
+
+  // The usual state for a business without Meta, asked about every five
+  // minutes: nothing changed, so nothing is revalidated.
+  if (report.failed === "not-configured") {
+    return { rows: 0, error: null, retryInSeconds: null, truncated: false, connected: false };
+  }
 
   if (!report.failed && report.retryInSeconds === null) {
     revalidatePath("/ads");
@@ -76,5 +84,6 @@ export async function syncAdsAction(): Promise<SyncAdsState> {
     error: report.failed ? explainMetaFailure(report.failed) : null,
     retryInSeconds: report.retryInSeconds,
     truncated: report.truncated,
+    connected: true,
   };
 }

@@ -97,17 +97,54 @@ export interface SyncInboxState {
   mailNote: string | null;
 }
 
+const QUIET: SyncInboxState = {
+  retrieved: 0,
+  analysed: 0,
+  pending: 0,
+  drafted: 0,
+  draftsPending: 0,
+  note: null,
+  mailNote: null,
+};
+
+/** A business's inbox is synced at most this often, however many tabs ask. */
+const INBOX_MIN_GAP_MS = 60_000;
+
+const inboxSyncs = globalThis as typeof globalThis & {
+  aegisInboxSyncs?: Map<string, { running: Promise<SyncInboxState> | null; finishedAt: number }>;
+};
+
 /**
- * Runs on "Sync now". Analyses only what has never been analysed, so pressing
- * it repeatedly on an already-triaged inbox does nothing and costs nothing.
+ * The automatic inbox sync, which every signed-in tab runs every two minutes.
+ * Analyses only what has never been analysed, so a run over an already-triaged
+ * inbox does nothing and costs nothing.
+ *
+ * One sync per business at a time, and not twice within a minute. Two tabs
+ * landing together is ordinary now that every open screen syncs; without this
+ * they would both fetch the same mail and, worse, both pay to triage the same
+ * messages before either had stored its result. A caller that arrives while a
+ * sync is running shares that sync's result.
  */
 export async function syncInboxAction(): Promise<SyncInboxState> {
-  await requireModule("mail");
+  const business = await requireModule("mail");
 
+  const syncs = (inboxSyncs.aegisInboxSyncs ??= new Map());
+  const last = syncs.get(business.id);
+  if (last?.running) return last.running;
+  if (last && Date.now() - last.finishedAt < INBOX_MIN_GAP_MS) return QUIET;
+
+  const running = syncInbox().finally(() =>
+    syncs.set(business.id, { running: null, finishedAt: Date.now() }),
+  );
+  syncs.set(business.id, { running, finishedAt: last?.finishedAt ?? 0 });
+  return running;
+}
+
+async function syncInbox(): Promise<SyncInboxState> {
   /**
    * Retrieve first, then analyse what arrived. The order matters: triage is a
    * set difference over what is stored, so anything pulled in on this run is
-   * picked up by the same sweep rather than waiting for the next press.
+   * picked up by the same sweep rather than waiting for the next one.
    *
    * A mailbox that is simply not connected is not an error — it is the state
    * this install has been in all along, and the screen already says so. Only a

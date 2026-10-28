@@ -8,11 +8,13 @@ import { listCustomers } from "@/lib/dal/customers";
 import { listVehicleOptions } from "@/lib/dal/fleet";
 import { listConversations } from "@/lib/dal/messenger";
 
-export default async function MessengerPage() {
+export default async function MessengerPage(props: PageProps<"/bookings/messenger">) {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
   if (!business.modules.includes("bookings")) return <ModulePage moduleKey="bookings" />;
 
+  // ?chat= opens one conversation, as the owner's board links to it.
+  const chat = (await props.searchParams).chat;
   const [conversations, meta, campaigns, vehicles, customers] = await Promise.all([
     listConversations(),
     readActiveMetaAdsStatus(),
@@ -24,6 +26,7 @@ export default async function MessengerPage() {
   return (
     <MessengerInbox
       conversations={conversations}
+      openChat={typeof chat === "string" ? chat : null}
       vehicles={vehicles}
       customers={customers}
       fleetEnabled={business.modules.includes("fleet")}

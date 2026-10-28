@@ -100,3 +100,11 @@ export function clip(text: string, maxChars: number): string {
   const trimmed = text.trim();
   return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars)}…`;
 }
+
+/**
+ * Text from outside, such as an email subject, without its emoji, for the
+ * dashboards, which show it as plain text. The stored message is unchanged.
+ */
+export function withoutEmoji(text: string): string {
+  return text.replace(/\p{Extended_Pictographic}|️|‍/gu, "").replace(/\s+/g, " ").trim();
+}

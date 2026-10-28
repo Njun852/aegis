@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { useToast } from "@/components/layout/toast-provider";
 import { useBusiness } from "@/components/business/business-provider";
-import { Badge, Button, Icon } from "@/components/ui";
+import { Button, Icon } from "@/components/ui";
 import {
   renameBusinessAction,
   saveModuleGrantsAction,
@@ -287,35 +287,9 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
                 </button>
               </h2>
             )}
-            <p
-              className="flex flex-wrap items-center gap-2"
-              hidden={editingName}
-              style={{
-                margin: "3px 0 0",
-                fontSize: "12px",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "11px",
-                  color: "var(--text-muted)",
-                }}
-              >
-                {business.id}
-              </span>
-              <span style={{ color: "var(--border-strong)" }}>·</span>
-              <span>{business.meta}</span>
-              <span style={{ color: "var(--border-strong)" }}>·</span>
-              <span>Onboarded {business.onboarded}</span>
-            </p>
-          </div>
+            </div>
         </div>
         <div className="flex items-center gap-2.5">
-          <Badge tone="positive" icon="shield-check">
-            Active
-          </Badge>
           <Button variant="outline" icon="external-link" onClick={openAsClient}>
             Open as client
           </Button>
@@ -354,7 +328,7 @@ export function BusinessDetail({ businessId }: BusinessDetailProps) {
                 textWrap: "pretty",
               }}
             >
-              Dashboard, Mail and Ads are included with every AEGIS business and
+              Dashboard, Mail, Ads and Finance are included with every AEGIS business and
               can&apos;t be turned off.
             </span>
           </div>

@@ -54,7 +54,6 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
       inventoryEnabled={inventoryEnabled}
       tab={tab}
       openRef={openRef}
-      businessName={business.name}
       nowIso={now.toISOString()}
     />
   );

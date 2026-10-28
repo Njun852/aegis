@@ -17,8 +17,8 @@ import { revalidatePath } from "next/cache";
  * Re-reads how current the mail data is.
  *
  * Cheap and side-effect free: one indexed read plus a count. It exists so the
- * top bar can refresh its age without a full page render, and so pressing
- * "Sync now" reports the state that actually resulted rather than an animation.
+ * top bar can refresh its age without a full page render, and so each automatic
+ * sync reports the state that actually resulted rather than an animation.
  */
 export async function refreshMailFreshnessAction(): Promise<{
   newestReceivedAt: string | null;

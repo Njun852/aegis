@@ -23,35 +23,15 @@ export function LoginScreen() {
       style={{ background: "var(--bg-app)", padding: "32px 24px" }}
     >
       <form action={formAction} className="flex w-full max-w-[380px] flex-col gap-4">
-        <div className="flex items-center justify-center gap-2.5">
-          <span
-            style={{
-              width: 30,
-              height: 30,
-              flex: "0 0 auto",
-              borderRadius: "9px",
-              background: "var(--grad-primary)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: "var(--font-display)",
-              fontWeight: 800,
-              fontSize: "14px",
-              color: "#fff",
-            }}
-          >
-            A
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: "17px",
-              letterSpacing: "-.015em",
-            }}
-          >
-            {ORGANIZATION.product}
-          </span>
+        <div className="flex justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a small fixed brand image */}
+          <img
+            src="/brand/aegis-logo.png"
+            alt="AEGIS, Autonomous Enterprise Guidance & Intelligence Suite"
+            width={150}
+            height={144}
+            style={{ borderRadius: "var(--radius-xl)", boxShadow: "var(--shadow-card)" }}
+          />
         </div>
 
         <div
@@ -125,7 +105,7 @@ export function LoginScreen() {
               <input
                 name="username"
                 autoComplete="username"
-                placeholder="ahmed.ben"
+                placeholder="Enter your username"
                 style={{
                   flex: 1,
                   minWidth: 0,

@@ -2,17 +2,16 @@
 
 import { usePathname } from "next/navigation";
 import { useBusiness } from "@/components/business/business-provider";
-import { Avatar, IconButton } from "@/components/ui";
+import { IconButton } from "@/components/ui";
 import { routeTitle } from "@/lib/navigation";
 
 export interface TopbarProps {
   onToggleSidebar: () => void;
-  hasNotifications?: boolean;
 }
 
-export function Topbar({ onToggleSidebar, hasNotifications }: TopbarProps) {
+export function Topbar({ onToggleSidebar }: TopbarProps) {
   const pathname = usePathname();
-  const { businesses, user } = useBusiness();
+  const { businesses } = useBusiness();
   const title = routeTitle(pathname, businesses);
 
   return (
@@ -74,11 +73,6 @@ export function Topbar({ onToggleSidebar, hasNotifications }: TopbarProps) {
             {pathname}
           </span>
         </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <IconButton icon="bell" badge={hasNotifications} label="Notifications" />
-        <Avatar name={user.name} ring />
       </div>
     </header>
   );

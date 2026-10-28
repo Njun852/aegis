@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { closeDueMonthsAction, issueRevisionAction } from "@/app/actions/finance";
+import { issueRevisionAction } from "@/app/actions/finance";
 import { INPUT, Modal, Notice } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button } from "@/components/ui";
@@ -69,22 +69,6 @@ export function ReportsPanel({
       ),
     );
 
-  const closeNow = () =>
-    startTransition(async () => {
-      const result = await closeDueMonthsAction();
-      if (!result.ok) {
-        toast({ tone: "error", title: "Reports not generated", description: result.error, key: "finance-close" });
-        return;
-      }
-      toast({
-        tone: result.months.length > 0 ? "success" : "info",
-        title: result.months.length > 0 ? `Closed ${result.months.map(periodLabel).join(", ")}` : "Nothing to close",
-        description: result.months.length > 0 ? "Both reports and their PDFs were made for each period." : "Every period that has ended already has its reports.",
-        key: "finance-close",
-      });
-      router.refresh();
-    });
-
   return (
     <>
       <div className="flex flex-col gap-3.5">
@@ -93,9 +77,10 @@ export function ReportsPanel({
             Each month&apos;s two reports are made automatically after it ends (Manila time), and the two year-end reports after December
             closes, all kept with their PDFs. A correction makes a new revision; earlier revisions stay as they were.
           </span>
-          <Button variant="secondary" icon="refresh-cw" onClick={closeNow} disabled={pending}>
-            {pending ? "Checking…" : "Make any reports due"}
-          </Button>
+          {/* No button: the server checks for reports due every 30 minutes, and on starting up. */}
+          <Badge tone="neutral" icon="clock">
+            Checked every 30 minutes
+          </Badge>
         </div>
 
         {archive.length === 0 && (

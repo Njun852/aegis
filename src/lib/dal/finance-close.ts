@@ -167,10 +167,10 @@ export async function closeDueMonths(businessId: string, now = new Date()): Prom
   return written;
 }
 
-/** Every business with Finance switched on, for the timer. */
+/** Every active business, for the timer: Finance comes with every business. */
 export async function listFinanceBusinessIds(): Promise<string[]> {
   const { businesses } = await collections();
-  const docs = await businesses.find({ modules: "finance", status: "active" }, { projection: { businessId: 1 } }).toArray();
+  const docs = await businesses.find({ status: "active" }, { projection: { businessId: 1 } }).toArray();
   return docs.map((doc) => doc.businessId);
 }
 

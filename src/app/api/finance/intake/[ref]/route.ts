@@ -8,9 +8,7 @@ import { readIntakeFile } from "@/lib/dal/finance-intake";
  */
 export async function GET(_request: Request, ctx: RouteContext<"/api/finance/intake/[ref]">) {
   const business = await getActiveBusiness();
-  if (!business?.modules.includes("finance")) {
-    return new Response("Finance is not enabled for this business.", { status: 403 });
-  }
+  if (!business) return new Response("No business is selected.", { status: 403 });
 
   const { ref } = await ctx.params;
   const file = await readIntakeFile(ref);

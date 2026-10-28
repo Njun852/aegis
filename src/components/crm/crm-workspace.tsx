@@ -26,7 +26,6 @@ export interface CrmWorkspaceProps {
   profile: CustomerProfile | null;
   fleetEnabled: boolean;
   smsEnabled: boolean;
-  businessName: string;
   todayIso: string;
 }
 
@@ -35,7 +34,6 @@ export function CrmWorkspace({
   profile,
   fleetEnabled,
   smsEnabled,
-  businessName,
   todayIso,
 }: CrmWorkspaceProps) {
   const router = useRouter();
@@ -109,11 +107,7 @@ export function CrmWorkspace({
             >
               Customers
             </h2>
-            <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "var(--text-secondary)", textWrap: "pretty" }}>
-              {businessName} · {customers.length} {customers.length === 1 ? "customer" : "customers"} ·
-              most recently active first
-            </p>
-          </div>
+            </div>
           <div className="flex items-center gap-2.5">
             <SearchInput
               placeholder="Search name, phone, email..."

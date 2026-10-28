@@ -243,7 +243,7 @@ export function MessageList({
             {totalHeld > 0
               ? "No threads match this filter."
               : mailboxConnected
-                ? "No mail retrieved yet. Press Sync now to check the mailbox."
+                ? "No mail retrieved yet. AEGIS checks the mailbox every 2 minutes."
                 : "No mailbox is connected. An AEGIS administrator can connect one in Business Management."}
           </p>
         )}

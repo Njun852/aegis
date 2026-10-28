@@ -39,7 +39,7 @@ export function isModuleEnabled(
   return business?.modules.includes(key as OptionalModuleKey) ?? false;
 }
 
-/** Core modules always count, so the total is 3 plus whatever was granted. */
+/** Core modules always count, so the total is the core four plus whatever was granted. */
 export function activeModuleCount(business: Business) {
   return CORE_MODULES.length + business.modules.length;
 }

@@ -53,7 +53,6 @@ export default async function AdsPage(props: PageProps<"/ads">) {
     <AdsWorkspace
       funnel={funnel}
       rows={rows}
-      businessName={business.name}
       cachedInsight={cached}
       fallbackInsight={AD_FALLBACK_INSIGHT}
       aiEnabled={isAiConfigured()}

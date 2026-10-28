@@ -86,7 +86,6 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
       customers={customers}
       fleetEnabled={business.modules.includes("fleet")}
       requestMatches={requestMatches}
-      businessName={business.name}
       todayIso={today.toISOString()}
       todayKey={dateKeyOf(today)}
       campaigns={campaigns}

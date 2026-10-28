@@ -49,7 +49,7 @@ const ad = await db
   .collection<AdRowDocument>("adRows")
   .findOne({ businessId, source: "meta", level: "ads" }, { sort: { enabled: -1 } });
 if (!ad) {
-  console.error(`${businessId} has no synced Meta ads. Press Sync now on the Ads screen first.`);
+  console.error(`${businessId} has no synced Meta ads. Open AEGIS on that business and let the Ads sync run first.`);
   await mongo.close();
   process.exit(1);
 }

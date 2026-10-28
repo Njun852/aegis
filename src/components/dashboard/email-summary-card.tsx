@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Card, ListRow } from "@/components/ui";
+import { withoutEmoji } from "@/lib/format";
 import { countAwaitingReply, countByPriority, countUnread, getPriorityStyle, recentMessages } from "@/lib/mail";
 import type { MailMessage, MailStat } from "@/types";
 
@@ -56,8 +57,8 @@ export function EmailSummaryCard({ messages }: EmailSummaryCardProps) {
           return (
             <ListRow
               key={message.id}
-              title={message.subject}
-              meta={`${message.from} · ${message.time}`}
+              title={withoutEmoji(message.subject)}
+              meta={`${withoutEmoji(message.from)} · ${message.time}`}
               icon={priority.icon}
               iconColor={priority.color}
               tag={message.priority}

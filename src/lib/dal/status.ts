@@ -168,7 +168,7 @@ export async function readSystemStatus(): Promise<SystemStatus> {
       : meta.lastError
         ? `The last sync failed: ${meta.lastError} The Ads screen still shows the last good figures.`
         : metaTone === "never"
-          ? "Connected, but nothing has been synced yet. Press Sync now on the Ads screen."
+          ? "Connected, but nothing has been synced yet. AEGIS reads it every 5 minutes while the business is open."
           : metaTone === "stale"
             ? "No sync in the last day. The figures on the Ads screen may be out of date."
             : "Ad performance is read from the connected Meta account. AEGIS only reads it; nothing is changed in Meta.",

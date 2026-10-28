@@ -62,7 +62,7 @@ export function MetaAdsPanel({
       toast({
         tone: "success",
         title: "Meta ad account connected",
-        description: `${result.status?.accountName ?? "The account"} is linked to ${businessName}. Press Sync now on the Ads screen to read it.`,
+        description: `${result.status?.accountName ?? "The account"} is linked to ${businessName}. AEGIS reads it every 5 minutes while the business is open in AEGIS.`,
         key: "meta-ads",
       });
     });
