@@ -314,6 +314,25 @@ export function parseAmount(input: string): number | null | undefined {
   return Math.round(Number(cleaned) * 100);
 }
 
+/** A discount percentage as typed: null when empty, undefined when it is not between 0 and 100. */
+export function parsePercent(input: string): number | null | undefined {
+  const cleaned = input.replace(/[%\s]/g, "");
+  if (!cleaned) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return undefined;
+  const percent = Number(cleaned);
+  return percent > 0 && percent <= 100 ? percent : percent === 0 ? null : undefined;
+}
+
+/** The amount a percentage discount takes off the subtotal, to the centavo. */
+export function discountFromPercent(subtotalCents: number, percent: number): number {
+  return Math.round((subtotalCents * percent) / 100);
+}
+
+/** "10%" or "12.5%", as a discount is labelled. */
+export function formatPercent(percent: number): string {
+  return `${Number.isInteger(percent) ? percent : percent.toFixed(2).replace(/0$/, "")}%`;
+}
+
 /** A quantity as typed. Two decimals at most, for litres and metres. */
 export function parseQty(input: string): number | undefined {
   const cleaned = input.replace(/[,\s]/g, "");

@@ -11,9 +11,10 @@ import { pricingCleared } from "@/lib/quotations";
  * `?rev=2` prints an earlier revision exactly as it was kept, so the version
  * a customer was given can be shown again after the quotation changed.
  *
- * A quotation with an unpriced line, or special pricing nobody approved, can
- * be previewed while it is being drafted, but not downloaded, since a
- * download is usually on its way to a customer.
+ * A quotation with special pricing nobody approved can be previewed while
+ * it is being drafted, but not downloaded, since a download is usually on its
+ * way to a customer. Unpriced lines print blank, so a draft can be printed
+ * and handed over or priced by hand.
  */
 export async function GET(request: Request, ctx: RouteContext<"/api/quotations/[ref]/pdf">) {
   const business = await getActiveBusiness();
@@ -32,9 +33,6 @@ export async function GET(request: Request, ctx: RouteContext<"/api/quotations/[
   if (!quotation) return new Response("That quotation is not on file.", { status: 404 });
 
   const download = params.get("download") === "1";
-  if (download && quotation.totals.unpricedCount > 0) {
-    return new Response("Price every line before downloading this quotation.", { status: 409 });
-  }
   if (download && !pricingCleared(quotation)) {
     return new Response("An administrator must approve the discount or below-cost pricing first.", { status: 409 });
   }

@@ -13,10 +13,13 @@ import {
 import { useToast } from "@/components/layout/toast-provider";
 import { Button, Icon } from "@/components/ui";
 import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
+import { PreviewModal } from "./quote-actions";
 import {
   QUOTE_HANDOVER_METHODS,
   QUOTE_RESPONSE_METHODS,
   amountInput,
+  discountFromPercent,
+  formatPercent,
   formatPeso,
   formatQuoteDay,
   lineAmountCents,
@@ -27,27 +30,58 @@ import {
 } from "@/lib/quotations";
 import type { Quotation, QuoteResponseMethod, QuoteResponseOutcome } from "@/types";
 
-export interface QuoteProgressProps {
-  quotation: Quotation;
-  /** Unsaved edits: nothing here acts until they are saved, since every step works on the stored copy. */
-  dirty: boolean;
+export interface QuoteFlowOptions {
+  /** Null for a quotation not saved yet, which has no steps. */
+  quotation: Quotation | null;
   isAdmin: boolean;
   bookingsEnabled: boolean;
 }
 
 type StepState = "done" | "current" | "todo" | "stopped";
 
+export interface FlowStep {
+  title: string;
+  state: StepState;
+  detail: ReactNode;
+  note?: string;
+}
+
+/** The one thing to do next, for the button that stays in the same place. */
+export interface NextStep {
+  label: string;
+  icon: string;
+  /** Absent when the step cannot be taken yet; `blocked` says why. */
+  run?: () => void;
+  blocked?: string;
+}
+
+export interface QuoteFlow {
+  steps: FlowStep[];
+  next: NextStep | null;
+  /** A step's dialog is open, so keyboard shortcuts leave the page alone. */
+  dialogOpen: boolean;
+  openPreview: () => void;
+  /** The step dialogs and the preview; render once. */
+  dialogs: ReactNode;
+}
+
 /**
  * Draft, sent, answered, job order: where the quotation stands and the one
- * thing to do next, in a single strip. Each step is a person's click;
- * nothing here moves on its own. The details of who did what are in History.
+ * thing to do next. The strip at the top only shows where it stands; the
+ * next step is the single button in the Totals panel (or Ctrl+Enter), so
+ * there is one place to act. Each step is a person's action; nothing
+ * moves on its own. The details of who did what are in History.
  */
-export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: QuoteProgressProps) {
+export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowOptions): QuoteFlow {
   const router = useRouter();
   const toast = useToast();
-  const [giving, setGiving] = useState(false);
+  /** The handover method the Mark as given dialog opens on, or null when it is closed. */
+  const [giving, setGiving] = useState<string | null>(null);
   const [answering, setAnswering] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  if (!quotation) return { steps: [], next: null, dialogOpen: false, openPreview: () => undefined, dialogs: null };
 
   const sent = quotation.status !== "Draft";
   const awaiting = quotation.status === "Sent" || quotation.status === "Expired";
@@ -57,8 +91,7 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
   const pricingKey = specialPricingKey(quotation.lines, quotation.discountCents);
   const approval = pricingKey && quotation.pricingApproval?.key === pricingKey ? quotation.pricingApproval : null;
   const response = quotation.response;
-  const busy = pending || dirty;
-  const saveFirst = dirty ? "Save first" : undefined;
+  const unpriced = quotation.totals.unpricedCount;
 
   const act = (work: () => Promise<{ ok: true } | { ok: false; error: string }>, success: { title: string; description?: string }) =>
     startTransition(async () => {
@@ -74,7 +107,7 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
   const approvePricing = () =>
     act(() => approveSpecialPricingAction(quotation.ref, pricingKey), {
       title: "Pricing approved",
-      description: `${quotation.ref} can now be sent.`,
+      description: `${quotation.ref} can now be printed or sent.`,
     });
 
   const clearAnswer = () => {
@@ -103,6 +136,9 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
     });
   };
 
+  const give = (method: string = QUOTE_HANDOVER_METHODS[0]) => setGiving(method);
+  const readyToGive = !sent && cleared && unpriced === 0;
+
   // Step 2: sending, and what stands in its way.
   let sendDetail: ReactNode;
   if (sent) {
@@ -112,30 +148,14 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
       quotation.sent ?? "Sent"
     );
   } else if (!cleared) {
-    sendDetail = (
-      <>
-        <span style={{ color: "var(--status-warning)" }}>Needs admin approval</span>
-        {isAdmin ? (
-          <Button size="sm" variant="secondary" icon="shield-check" disabled={busy} title={saveFirst} onClick={approvePricing}>
-            Approve pricing
-          </Button>
-        ) : null}
-      </>
-    );
-  } else if (quotation.totals.unpricedCount > 0) {
+    sendDetail = <span style={{ color: "var(--status-warning)" }}>Needs admin approval</span>;
+  } else if (unpriced > 0) {
     sendDetail = <span style={{ color: "var(--status-warning)" }}>Price every line first</span>;
   } else {
-    sendDetail = (
-      <>
-        <span>Email it, or</span>
-        <Button size="sm" variant="secondary" disabled={busy} title={saveFirst} onClick={() => setGiving(true)}>
-          Mark as given
-        </Button>
-      </>
-    );
+    sendDetail = "Ready to print, email or give";
   }
 
-  const steps: { title: string; state: StepState; detail: ReactNode; note?: string }[] = [
+  const steps: FlowStep[] = [
     {
       title: quotation.revision > 1 ? `Draft · rev ${quotation.revision}` : "Draft",
       state: "done",
@@ -163,9 +183,7 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
           )}
         </>
       ) : awaiting ? (
-        <Button size="sm" icon="check" disabled={busy} title={saveFirst} onClick={() => setAnswering(true)}>
-          Record answer
-        </Button>
+        "Waiting for the customer"
       ) : (
         "After it is sent"
       ),
@@ -178,9 +196,7 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
           {quotation.jobOrderRef} →
         </Link>
       ) : approved ? (
-        <Button size="sm" icon="wrench" disabled={busy} title={saveFirst} onClick={makeJobOrder}>
-          Make job order
-        </Button>
+        "Ready to make"
       ) : declined ? (
         "Not needed"
       ) : (
@@ -189,42 +205,99 @@ export function QuoteProgress({ quotation, dirty, isAdmin, bookingsEnabled }: Qu
     },
   ];
 
-  return (
-    <>
-      <ol
-        className="grid grid-cols-2 gap-x-4 gap-y-3 wide:grid-cols-4"
-        style={{
-          listStyle: "none",
-          margin: 0,
-          padding: "12px 14px",
-          background: "var(--surface-card)",
-          border: "1px solid var(--border-default)",
-          borderRadius: "var(--radius-lg)",
-          boxShadow: "var(--shadow-card)",
-        }}
-      >
-        {steps.map((step, index) => (
-          <li key={step.title + index} className="flex min-w-0 gap-2.5">
-            <StepDot state={step.state} index={index + 1} />
-            <span className="flex min-w-0 flex-col" style={{ gap: 3 }}>
-              <span style={{ fontSize: "12.5px", fontWeight: 700, color: step.state === "todo" ? "var(--text-muted)" : "var(--text-primary)" }}>
-                {step.title}
-              </span>
-              <span
-                className="flex flex-wrap items-center gap-x-2 gap-y-1"
-                style={{ fontSize: "11.5px", color: "var(--text-secondary)", minHeight: 22 }}
-              >
-                {step.detail}
-              </span>
-              {step.note && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{step.note}</span>}
-            </span>
-          </li>
-        ))}
-      </ol>
+  // The same decisions as the strip, as the single button at the bottom.
+  let next: NextStep | null;
+  if (quotation.jobOrderRef) {
+    const jobRef = quotation.jobOrderRef;
+    next = { label: `Open ${jobRef}`, icon: "arrow-right", run: () => router.push(`/quotations/jobs/${encodeURIComponent(jobRef)}`) };
+  } else if (declined) {
+    next = null;
+  } else if (approved) {
+    next = { label: "Make job order", icon: "wrench", run: makeJobOrder };
+  } else if (awaiting) {
+    next = { label: "Record answer", icon: "check", run: () => setAnswering(true) };
+  } else if (!cleared) {
+    next = isAdmin
+      ? { label: "Approve pricing", icon: "shield-check", run: approvePricing }
+      : {
+          label: "Needs admin approval",
+          icon: "shield-check",
+          blocked: "An administrator must approve the discount or below-cost pricing before it is given.",
+        };
+  } else if (unpriced > 0) {
+    next = {
+      label: "Price every line first",
+      icon: "alert-triangle",
+      blocked: `${unpriced} ${unpriced === 1 ? "line has" : "lines have"} no price yet. Preview and print still work.`,
+    };
+  } else {
+    next = { label: "Preview & give", icon: "eye", run: () => setPreviewing(true) };
+  }
+  if (next?.run && pending) next = { ...next, run: undefined, blocked: "Working…" };
 
-      {giving && <GiveModal quotation={quotation} onClose={() => setGiving(false)} />}
+  const dialogs = (
+    <>
+      {previewing && (
+        <PreviewModal
+          quotation={quotation}
+          onClose={() => setPreviewing(false)}
+          onGive={
+            readyToGive
+              ? (printed) => {
+                  setPreviewing(false);
+                  give(printed ? "Printed and handed over" : QUOTE_HANDOVER_METHODS[0]);
+                }
+              : undefined
+          }
+        />
+      )}
+      {giving !== null && <GiveModal quotation={quotation} defaultMethod={giving} onClose={() => setGiving(null)} />}
       {answering && <AnswerModal quotation={quotation} onClose={() => setAnswering(false)} />}
     </>
+  );
+
+  return {
+    steps,
+    next,
+    dialogOpen: previewing || giving !== null || answering,
+    openPreview: () => setPreviewing(true),
+    dialogs,
+  };
+}
+
+/** The strip at the top: every step, where the quotation is, and who did what. */
+export function QuoteProgress({ steps }: { steps: FlowStep[] }) {
+  return (
+    <ol
+      className="grid grid-cols-2 gap-x-4 gap-y-3 wide:grid-cols-4"
+      style={{
+        listStyle: "none",
+        margin: 0,
+        padding: "12px 14px",
+        background: "var(--surface-card)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
+      {steps.map((step, index) => (
+        <li key={step.title + index} className="flex min-w-0 gap-2.5">
+          <StepDot state={step.state} index={index + 1} />
+          <span className="flex min-w-0 flex-col" style={{ gap: 3 }}>
+            <span style={{ fontSize: "12.5px", fontWeight: 700, color: step.state === "todo" ? "var(--text-muted)" : "var(--text-primary)" }}>
+              {step.title}
+            </span>
+            <span
+              className="flex flex-wrap items-center gap-x-2 gap-y-1"
+              style={{ fontSize: "11.5px", color: "var(--text-secondary)", minHeight: 22 }}
+            >
+              {step.detail}
+            </span>
+            {step.note && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{step.note}</span>}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -269,10 +342,10 @@ function StepDot({ state, index }: { state: StepState; index: number }) {
   );
 }
 
-function GiveModal({ quotation, onClose }: { quotation: Quotation; onClose: () => void }) {
+function GiveModal({ quotation, defaultMethod, onClose }: { quotation: Quotation; defaultMethod: string; onClose: () => void }) {
   const router = useRouter();
   const toast = useToast();
-  const [how, setHow] = useState<string>(QUOTE_HANDOVER_METHODS[0]);
+  const [how, setHow] = useState<string>(defaultMethod);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -301,7 +374,8 @@ function GiveModal({ quotation, onClose }: { quotation: Quotation; onClose: () =
           <Button variant="ghost" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button icon="check" onClick={submit} disabled={pending}>
+          {/* Focused on open, so Enter confirms without reaching for the mouse. */}
+          <Button icon="check" onClick={submit} disabled={pending} autoFocus>
             {pending ? "Saving…" : "Mark as given"}
           </Button>
         </>
@@ -344,12 +418,22 @@ function AnswerModal({ quotation, onClose }: { quotation: Quotation; onClose: ()
     .filter((line) => approvedIds.includes(line.id))
     .reduce((sum, line) => sum + lineAmountCents(line), 0);
   const typedDiscount = parseAmount(discountText);
+  // A percentage discount applies to whatever part of the work is approved.
+  const percent = quotation.discountPercent;
   const discount =
-    outcome === "Approved" ? quotation.discountCents : outcome === "Declined" ? 0 : typeof typedDiscount === "number" ? typedDiscount : 0;
+    outcome === "Approved"
+      ? quotation.discountCents
+      : outcome === "Declined"
+        ? 0
+        : percent
+          ? Math.min(discountFromPercent(subtotal, percent), quotation.discountCents)
+          : typeof typedDiscount === "number"
+            ? typedDiscount
+            : 0;
   const approvedTotal = Math.max(subtotal - discount, 0);
 
   const submit = () => {
-    if (outcome === "Partially Approved" && typedDiscount === undefined) {
+    if (outcome === "Partially Approved" && !percent && typedDiscount === undefined) {
       setError("The discount is not an amount.");
       return;
     }
@@ -443,7 +527,12 @@ function AnswerModal({ quotation, onClose }: { quotation: Quotation; onClose: ()
               </span>
             </label>
           ))}
-          {quotation.discountCents > 0 && (
+          {quotation.discountCents > 0 && percent && (
+            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+              Discount {formatPercent(percent)} of the approved work: {formatPeso(discount)}
+            </span>
+          )}
+          {quotation.discountCents > 0 && !percent && (
             <Field label="Discount on this work">
               <input
                 style={{ ...INPUT, textAlign: "right", maxWidth: 160 }}

@@ -8,6 +8,7 @@ import { AR_AGING_BUCKETS } from "@/lib/finance";
 import { formatMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { CollectModal } from "./collect-modal";
+import { buildFolders, FolderBar, folderKey, FolderRow, LayoutToggle, matchFolders, useFolderToggle, type CompanyFolder, type FolderLayout } from "./company-folders";
 import { InvoiceDrawer } from "./invoice-drawer";
 import { InvoiceModal } from "./invoice-modal";
 import { StateBadge } from "./bill-badges";
@@ -48,10 +49,14 @@ const MONEY = { ...TD, textAlign: "right" as const, fontVariantNumeric: "tabular
 /** Oldest first: the money least likely to come in is what needs looking at. */
 const BUCKET_ORDER: ArAgingBucket[] = ["90+", "61-90", "31-60", "0-30"];
 
+const companyOf = (invoice: InvoiceSummary) => folderKey(invoice.customerRef, invoice.customerName);
+
 /**
- * The Accounts Receivable screen: every invoice with money still owed,
- * grouped by age, with who is chasing it and when. A receivable over 90 days
- * without the follow-up the control requires is marked and counted.
+ * The Accounts Receivable screen: every invoice with money still owed, with
+ * who is chasing it and when. A receivable over 90 days without the follow-up
+ * the control requires is marked and counted. Invoices are filed in a
+ * collapsible folder per customer, oldest first inside each; the List layout
+ * groups them by age.
  */
 export function ReceivablesPanel({
   invoices,
@@ -67,8 +72,14 @@ export function ReceivablesPanel({
   userName,
 }: ReceivablesPanelProps) {
   const router = useRouter();
+  const open = openRef ? invoices.find((invoice) => invoice.ref === openRef) ?? null : null;
   const [view, setView] = useState<View>("outstanding");
+  const [layout, setLayout] = useState<FolderLayout>("folders");
+  const [query, setQuery] = useState("");
+  const expanded = useFolderToggle(open ? companyOf(open) : null);
   const [adding, setAdding] = useState(false);
+  /** The company a new invoice was started for, from its folder. */
+  const [addingFor, setAddingFor] = useState<{ name: string; ref: string | null } | null>(null);
   const [fromJob, setFromJob] = useState<UninvoicedJob | null>(null);
   const [choosingJob, setChoosingJob] = useState(false);
   const [editing, setEditing] = useState<InvoiceSummary | null>(null);
@@ -76,7 +87,6 @@ export function ReceivablesPanel({
   const [, startNavigation] = useTransition();
 
   const active = accounts.filter((account) => account.active);
-  const open = openRef ? invoices.find((invoice) => invoice.ref === openRef) ?? null : null;
   const outstanding = invoices.filter((invoice) => invoice.outstandingCents > 0);
   const needFollowUp = outstanding.filter((invoice) => invoice.problems.length > 0);
 
@@ -104,7 +114,7 @@ export function ReceivablesPanel({
     return outstanding;
   }, [invoices, outstanding, view]);
 
-  const groups =
+  const byAge =
     view === "outstanding"
       ? BUCKET_ORDER.map((bucket) => ({
           key: bucket,
@@ -112,6 +122,24 @@ export function ReceivablesPanel({
           invoices: shown.filter((invoice) => invoice.bucket === bucket),
         })).filter((group) => group.invoices.length > 0)
       : [{ key: view, label: "", invoices: shown }];
+
+  const folders = buildFolders(shown, (invoice) => ({
+    key: companyOf(invoice),
+    name: invoice.customerName,
+    outstandingCents: invoice.outstandingCents,
+    alert: invoice.outstandingCents > 0 && invoice.bucket === "90+",
+  }));
+  /** Inside a folder, the oldest invoices first: the same order as the List. */
+  const oldest = byAge.flatMap((group) => group.invoices);
+  const groups: { key: string; label: string; folder?: CompanyFolder; invoices: InvoiceSummary[] }[] =
+    layout === "folders"
+      ? matchFolders(folders, query).map((folder) => ({
+          key: folder.key,
+          label: "",
+          folder,
+          invoices: oldest.filter((invoice) => companyOf(invoice) === folder.key),
+        }))
+      : byAge;
 
   const views: { id: View; label: string; count: number }[] = [
     { id: "outstanding", label: "Outstanding", count: outstanding.length },
@@ -152,6 +180,7 @@ export function ReceivablesPanel({
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
+            <LayoutToggle layout={layout} onChange={setLayout} />
             {jobs.length > 0 && (
               <Button variant="secondary" icon="wrench" onClick={() => setChoosingJob(true)}>
                 From a job order ({jobs.length})
@@ -201,6 +230,15 @@ export function ReceivablesPanel({
             minWidth: 0,
           }}
         >
+          {layout === "folders" && (
+            <FolderBar
+              total={folders.length}
+              query={query}
+              onQuery={setQuery}
+              onExpandAll={() => expanded.setAll(folders.map((folder) => folder.key))}
+              onCollapseAll={() => expanded.setAll([])}
+            />
+          )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", minWidth: 1220, borderCollapse: "collapse" }}>
               <thead>
@@ -222,6 +260,17 @@ export function ReceivablesPanel({
               <tbody>
                 {groups.map((group) => (
                   <Fragment key={group.key}>
+                    {group.folder && (
+                      <FolderRow
+                        folder={group.folder}
+                        open={expanded.isOpen(group.key)}
+                        noun="invoice"
+                        alertLabel="over 90 days"
+                        colSpan={12}
+                        onToggle={() => expanded.toggle(group.key)}
+                        onAdd={() => setAddingFor({ name: group.folder!.name, ref: group.invoices[0]?.customerRef ?? null })}
+                      />
+                    )}
                     {group.label && (
                       <tr>
                         <td colSpan={12} style={{ padding: "12px 10px 6px", background: "var(--gray-25)", borderBottom: "1px solid var(--border-subtle)" }}>
@@ -242,7 +291,8 @@ export function ReceivablesPanel({
                         </td>
                       </tr>
                     )}
-                    {group.invoices.map((invoice) => {
+                    {(!group.folder || expanded.isOpen(group.key)) &&
+                      group.invoices.map((invoice) => {
                       const followUpDue = invoice.outstandingCents > 0 && invoice.followUp.nextFollowUpDate && invoice.followUp.nextFollowUpDate <= today;
                       return (
                         <tr
@@ -300,6 +350,13 @@ export function ReceivablesPanel({
                     })}
                   </Fragment>
                 ))}
+                {shown.length > 0 && groups.length === 0 && (
+                  <tr>
+                    <td colSpan={12} style={{ padding: "30px 10px", textAlign: "center", fontSize: "12.5px", color: "var(--text-muted)" }}>
+                      No company matches “{query.trim()}”.
+                    </td>
+                  </tr>
+                )}
                 {shown.length === 0 && (
                   <tr>
                     <td colSpan={12} style={{ padding: "30px 10px", textAlign: "center", fontSize: "12.5px", color: "var(--text-muted)" }}>
@@ -332,9 +389,10 @@ export function ReceivablesPanel({
           onClose={() => select(null)}
         />
       )}
-      {(adding || fromJob || editing) && (
+      {(adding || addingFor || fromJob || editing) && (
         <InvoiceModal
           invoice={editing}
+          company={addingFor}
           job={fromJob}
           customers={customers}
           accounts={active}
@@ -344,11 +402,13 @@ export function ReceivablesPanel({
           defaultPerson={userName}
           onClose={() => {
             setAdding(false);
+            setAddingFor(null);
             setFromJob(null);
             setEditing(null);
           }}
           onSaved={(ref) => {
             setAdding(false);
+            setAddingFor(null);
             setFromJob(null);
             setEditing(null);
             select(ref);

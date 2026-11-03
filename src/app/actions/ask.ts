@@ -223,6 +223,7 @@ async function draftQuotation(proposal: AskProposal, modules: string[]): Promise
     technician: "",
     lines,
     discountCents: 0,
+    discountPercent: null,
     discountReason: "",
     notes: settings.notes,
   });

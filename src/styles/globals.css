@@ -193,11 +193,26 @@ body {
   animation: aegis-dot 1.2s ease-in-out infinite;
 }
 
+/* A document being read: a bar of light sweeping along the scan box. */
+@keyframes aegis-scan-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.aegis-scan-sweep {
+  animation: aegis-scan-sweep 1.3s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .aegis-spin,
   .aegis-fade-up,
   .aegis-work-glow,
-  .aegis-dot {
+  .aegis-dot,
+  .aegis-scan-sweep {
     animation: none;
   }
 }

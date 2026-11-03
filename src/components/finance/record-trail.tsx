@@ -7,6 +7,7 @@ import { useToast } from "@/components/layout/toast-provider";
 import { Button, Icon } from "@/components/ui";
 import { shrinkImage } from "@/lib/image-resize";
 import type { FinanceAttachment, RecordAudit, RecordTrail } from "@/types";
+import { HistoryTimeline } from "./history-timeline";
 
 const HEADING = { margin: 0, fontFamily: "var(--font-display)", fontSize: "13.5px", fontWeight: 700 };
 const LABEL = { width: 104, flex: "0 0 auto", fontSize: "11.5px", color: "var(--text-muted)" };
@@ -33,7 +34,8 @@ export function formatStamp(iso: string): string {
   });
 }
 
-async function prepare(file: File): Promise<string> {
+/** A photo shrunk to a stored JPEG, or a PDF as it is, ready to upload. */
+export async function prepareUpload(file: File): Promise<string> {
   if (file.type === "application/pdf") {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -75,9 +77,9 @@ export function AuditLines({ audit, reference }: { audit: RecordAudit; reference
 }
 
 /**
- * The documents behind a record and everything that has happened to it. Any
- * file attached is kept; a correction shows its reason and each field's old
- * and new value, so the record as first entered can always be read back.
+ * The documents behind a record and everything that has happened to it, as a
+ * timeline. Any file attached is kept; a correction shows its reason and each
+ * field's old and new value, so the record as first entered can always be read back.
  */
 export function RecordTrailPanel({
   recordRef,
@@ -98,7 +100,7 @@ export function RecordTrailPanel({
     if (!file) return;
     setBusy(true);
     try {
-      const dataUrl = await prepare(file);
+      const dataUrl = await prepareUpload(file);
       const result = await attachFileAction(recordRef, file.name, dataUrl);
       if (!result.ok) {
         toast({ tone: "error", title: "Not attached", description: result.error, key: "finance-attach" });
@@ -153,33 +155,7 @@ export function RecordTrailPanel({
         )}
       </section>
 
-      {trail.history.length > 0 && (
-        <details>
-          <summary style={{ ...HEADING, cursor: "pointer" }}>History ({trail.history.length})</summary>
-          <div className="flex flex-col gap-2" style={{ marginTop: 8 }}>
-            {trail.history.map((line, index) => (
-              <div key={`${line.at}-${index}`} style={{ fontSize: "11.5px", color: "var(--text-secondary)", overflowWrap: "anywhere" }}>
-                <span style={{ color: "var(--text-muted)" }}>
-                  {formatStamp(line.at)} · {line.actor}
-                  {line.ref !== recordRef ? ` · ${line.ref}` : ""} ·{" "}
-                </span>
-                {line.changes.length > 0 ? (
-                  <span className="flex flex-col gap-0.5" style={{ marginTop: 2 }}>
-                    <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>Corrected: {line.reason}</span>
-                    {line.changes.map((change) => (
-                      <span key={change.field}>
-                        {change.field}: <span style={{ textDecoration: "line-through" }}>{change.from || "(empty)"}</span> → {change.to || "(empty)"}
-                      </span>
-                    ))}
-                  </span>
-                ) : (
-                  line.detail
-                )}
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+      {trail.history.length > 0 && <HistoryTimeline history={trail.history} recordRef={recordRef} />}
     </>
   );
 }

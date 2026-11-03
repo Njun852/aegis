@@ -50,12 +50,15 @@ export function Field({
   label,
   hint,
   required,
+  optional,
   children,
   className,
 }: {
   label: string;
   hint?: ReactNode;
   required?: boolean;
+  /** Says "(optional)" beside the label, for a field people might think they must fill. */
+  optional?: boolean;
   children: ReactNode;
   className?: string;
 }) {
@@ -64,6 +67,7 @@ export function Field({
       <span style={{ fontSize: "11.5px", fontWeight: 600, color: "var(--text-primary)" }}>
         {label}
         {required && <span style={{ color: "var(--status-negative)" }}> *</span>}
+        {optional && <span style={{ fontWeight: 400, color: "var(--text-muted)" }}> (optional)</span>}
       </span>
       {children}
       {hint && <span style={{ fontSize: "11px", color: "var(--text-muted)", textWrap: "pretty" }}>{hint}</span>}

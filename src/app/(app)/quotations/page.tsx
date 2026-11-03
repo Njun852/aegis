@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
-import { isAiConfigured } from "@/lib/ai/client";
 import { QuotationsWorkspace, type QuotationsTab } from "@/components/quotations/quotations-workspace";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { listJobOrderSummaries } from "@/lib/dal/job-orders";
@@ -35,7 +34,6 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
       settings={settings}
       tab={tab}
       businessName={business.name}
-      aiConfigured={isAiConfigured()}
     />
   );
 }

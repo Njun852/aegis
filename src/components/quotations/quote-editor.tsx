@@ -13,12 +13,14 @@ import {
   addDays,
   amountInput,
   defaultQuoteEmail,
+  discountFromPercent,
   emptyLine,
+  formatPercent,
   formatPeso,
   hasLeftShop,
   parseAmount,
+  parsePercent,
   parseQty,
-  pricingCleared,
   quoteStatusTone,
   quoteTotals,
   specialPricingReason,
@@ -26,9 +28,10 @@ import {
 import { Field, INPUT, Notice, Panel, SELECT } from "@/components/forms/form-kit";
 import { LinkedNote, MatchList, matchKeys, type MatchOption } from "@/components/forms/match-list";
 import { QuoteLines, type EditorLine } from "./quote-lines";
-import { QuoteActions } from "./quote-actions";
+import { QuoteScanBox } from "./quote-scan";
+import { QuoteLockedActions, QuoteTotalsAction, useQuoteActions } from "./quote-actions";
 import { QuoteHistory } from "./quote-history";
-import { QuoteProgress } from "./quote-workflow";
+import { QuoteProgress, useQuoteFlow } from "./quote-workflow";
 import type {
   Customer,
   Quotation,
@@ -61,6 +64,8 @@ export interface QuoteEditorProps {
   quotation: Quotation | null;
   /** The photo a draft was read from, shown beside it for checking. */
   photo: QuotePhotoView | null;
+  /** Whether a new quotation can be filled in from a scan. */
+  aiConfigured?: boolean;
   /** Where a new quotation starts: today's date, its validity, the default notes, and a booking when started from one. */
   defaults: { quoteDate: string; validUntil: string; notes: string; prefill?: QuoteEditorPrefill | null };
   settings: QuotationSettings;
@@ -99,6 +104,8 @@ interface Draft {
   serviceAdvisor: string;
   technician: string;
   lines: EditorLine[];
+  /** A peso amount, or a percentage of the subtotal. */
+  discountMode: "amount" | "percent";
   discount: string;
   discountReason: string;
   notes: string;
@@ -133,6 +140,7 @@ function initialDraft(quotation: Quotation | null, defaults: QuoteEditorProps["d
       serviceAdvisor: "",
       technician: "",
       lines: [blankEditorLine("parts"), blankEditorLine("labor")],
+      discountMode: "amount",
       discount: "",
       discountReason: "",
       notes: defaults.notes,
@@ -157,7 +165,12 @@ function initialDraft(quotation: Quotation | null, defaults: QuoteEditorProps["d
     serviceAdvisor: quotation.serviceAdvisor,
     technician: quotation.technician,
     lines,
-    discount: quotation.discountCents ? amountInput(quotation.discountCents) : "",
+    discountMode: quotation.discountPercent ? "percent" : "amount",
+    discount: quotation.discountPercent
+      ? String(quotation.discountPercent)
+      : quotation.discountCents
+        ? amountInput(quotation.discountCents)
+        : "",
     discountReason: quotation.discountReason,
     notes: quotation.notes,
   };
@@ -193,6 +206,7 @@ function readLines(lines: EditorLine[]): { lines: QuoteLine[]; error: string | n
 export function QuoteEditor({
   quotation,
   photo,
+  aiConfigured = false,
   defaults,
   settings,
   priceItems,
@@ -217,6 +231,8 @@ export function QuoteEditor({
   const [error, setError] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
   const [deleting, startDeleting] = useTransition();
+  // Unsaved edits are saved by the main button before any step, which works on the stored copy.
+  const flow = useQuoteFlow({ quotation, isAdmin, bookingsEnabled });
   /** Once a job order is made from it, the quotation is the record of what was agreed. */
   const locked = Boolean(quotation?.jobOrderRef);
   const storedStatus: StoredQuoteStatus | null = quotation
@@ -253,7 +269,15 @@ export function QuoteEditor({
   };
 
   const parsed = useMemo(() => readLines(draft.lines), [draft.lines]);
-  const discountCents = parseAmount(draft.discount);
+  const subtotalCents = useMemo(() => quoteTotals(parsed.lines, 0).subtotalCents, [parsed.lines]);
+  // A percentage follows the lines: the amount is worked out from the subtotal as it stands.
+  const discountPercent = draft.discountMode === "percent" ? parsePercent(draft.discount) : null;
+  const discountCents =
+    draft.discountMode === "percent"
+      ? typeof discountPercent === "number"
+        ? discountFromPercent(subtotalCents, discountPercent)
+        : discountPercent
+      : parseAmount(draft.discount);
   const totals = useMemo(
     () => quoteTotals(parsed.lines, typeof discountCents === "number" ? discountCents : 0),
     [parsed.lines, discountCents],
@@ -419,7 +443,9 @@ export function QuoteEditor({
 
   const buildInput = (): QuotationInput | string => {
     if (parsed.error) return parsed.error;
-    if (discountCents === undefined) return "The discount is not an amount.";
+    if (discountCents === undefined) {
+      return draft.discountMode === "percent" ? "The discount must be a percentage from 0 to 100." : "The discount is not an amount.";
+    }
     if (discountCents && !draft.discountReason.trim()) return "Say why the discount is given.";
     const odometer = parseWholeNumber(draft.odometer);
     if (odometer === undefined) return "The odometer reading must be a whole number of km.";
@@ -439,6 +465,7 @@ export function QuoteEditor({
       technician: draft.technician,
       lines: parsed.lines,
       discountCents: discountCents ?? 0,
+      discountPercent: typeof discountPercent === "number" && discountCents ? discountPercent : null,
       discountReason: discountCents ? draft.discountReason : "",
       notes: draft.notes,
     };
@@ -502,10 +529,22 @@ export function QuoteEditor({
     });
   };
 
+  const actions = useQuoteActions({
+    quotation,
+    flow,
+    dirty,
+    saving,
+    locked,
+    saveLabel: storedStatus && hasLeftShop(storedStatus) ? `Save as revision ${(quotation?.revision ?? 1) + 1}` : "Save",
+    unpricedCount: totals.unpricedCount,
+    mailConnected,
+    email: quotation ? defaultQuoteEmail(quotation, businessName, settings.contact) : null,
+    save,
+  });
+
   // Special pricing is judged on the saved copy, which is what the approval
-  // and the send both work on; the progress strip offers the approval.
+  // and the send both work on; the progress strip and the next-step button offer the approval.
   const draftPricingReason = specialPricingReason(parsed.lines, totals.discountCents);
-  const savedCleared = quotation ? pricingCleared(quotation) : true;
 
   /** Only a first draft nobody outside the shop has seen. */
   const deletable =
@@ -554,41 +593,16 @@ export function QuoteEditor({
               {deleting ? "Deleting…" : "Delete"}
             </Button>
           )}
-          {quotation && (
-            <QuoteActions
-              quotation={quotation}
-              dirty={dirty}
-              unpricedCount={totals.unpricedCount}
-              mailConnected={mailConnected}
-              pricingBlocked={!savedCleared || (dirty && draftPricingReason !== null)}
-              email={defaultQuoteEmail(quotation, businessName, settings.contact)}
-              save={save}
-            />
-          )}
-          {/* Once the stored copy matches the screen there is nothing to save,
-              and the button says so instead of inviting a click. */}
-          {locked ? (
-            <Button variant="secondary" icon="lock" disabled>
-              Locked
-            </Button>
-          ) : quotation && !dirty && !saving ? (
-            <Button variant="secondary" icon="check" disabled>
-              Saved
-            </Button>
-          ) : (
-            <Button icon="check" onClick={() => void save()} disabled={saving || deleting}>
-              {saving
-                ? "Saving…"
-                : storedStatus && hasLeftShop(storedStatus)
-                  ? `Save as revision ${(quotation?.revision ?? 1) + 1}`
-                  : "Save"}
-            </Button>
-          )}
+          {/* Everything else is in the Totals panel; a locked form cannot use it. */}
+          {locked && <QuoteLockedActions actions={actions} />}
         </div>
       </div>
 
+      {/* A scan makes its own draft, so it is offered on a blank quotation, not one started from a booking. */}
+      {!quotation && !defaults.prefill?.bookingRef && <QuoteScanBox aiConfigured={aiConfigured} dirty={dirty} />}
+
       {quotation && (
-        <QuoteProgress quotation={quotation} dirty={dirty} isAdmin={isAdmin} bookingsEnabled={bookingsEnabled} />
+        <QuoteProgress steps={flow.steps} />
       )}
 
       {locked && quotation && (
@@ -689,10 +703,11 @@ export function QuoteEditor({
                     onKeyDown={customerKeys}
                   />
                 </Field>
-                <Field label="Email address">
+                <Field label="Email address" optional>
                   <input
                     style={INPUT}
                     type="email"
+                    placeholder="Only needed to email the quotation"
                     value={draft.billTo.email}
                     maxLength={120}
                     onChange={(event) => updateBillTo({ email: event.target.value })}
@@ -930,17 +945,41 @@ export function QuoteEditor({
           <Panel title="Totals" icon="wallet">
             <TotalRow label="Parts" value={formatPeso(totals.partsCents)} />
             <TotalRow label="Labor" value={formatPeso(totals.laborCents)} />
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-2">
               <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>Discount</span>
-              <input
-                aria-label="Discount"
-                style={{ ...INPUT, width: 120, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
-                inputMode="decimal"
-                placeholder="0.00"
-                value={draft.discount}
-                onChange={(event) => update({ discount: event.target.value })}
-              />
+              <span className="flex items-center gap-1.5">
+                <DiscountModeToggle
+                  mode={draft.discountMode}
+                  onChange={(mode) => {
+                    if (mode === draft.discountMode) return;
+                    // Keep the same discount when switching: the amount it is now, as the other kind.
+                    const cents = typeof discountCents === "number" ? discountCents : 0;
+                    const discount =
+                      mode === "percent"
+                        ? cents && subtotalCents
+                          ? String(Math.round((cents / subtotalCents) * 10000) / 100)
+                          : ""
+                        : cents
+                          ? amountInput(cents)
+                          : "";
+                    update({ discountMode: mode, discount });
+                  }}
+                />
+                <input
+                  aria-label={draft.discountMode === "percent" ? "Discount percentage" : "Discount amount"}
+                  style={{ ...INPUT, width: 96, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                  inputMode="decimal"
+                  placeholder={draft.discountMode === "percent" ? "0%" : "0.00"}
+                  value={draft.discount}
+                  onChange={(event) => update({ discount: event.target.value })}
+                />
+              </span>
             </div>
+            {draft.discountMode === "percent" && typeof discountPercent === "number" && (
+              <span style={{ alignSelf: "flex-end", fontSize: "11.5px", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                {formatPercent(discountPercent)} of {formatPeso(subtotalCents)} = {formatPeso(totals.discountCents)} off
+              </span>
+            )}
             {Boolean(discountCents) && (
               <input
                 aria-label="Reason for the discount"
@@ -976,6 +1015,8 @@ export function QuoteEditor({
             {dirty && draftPricingReason && (
               <span style={{ fontSize: "11.5px", color: "var(--status-warning)" }}>Needs admin approval before sending</span>
             )}
+            {/* The next step where pricing ends, so it is under the cursor after the total is checked. */}
+            {!locked && <QuoteTotalsAction actions={actions} />}
 
             {/* Internal figures: on screen only, never in the PDF or the email. */}
             <div
@@ -1019,7 +1060,50 @@ export function QuoteEditor({
       </fieldset>
 
       {quotation && <QuoteHistory quotation={quotation} revisions={revisions} events={events} />}
+
+      {flow.dialogs}
+      {actions.dialogs}
     </div>
+  );
+}
+
+/** Peso amount or percentage, for the discount. */
+function DiscountModeToggle({ mode, onChange }: { mode: Draft["discountMode"]; onChange: (mode: Draft["discountMode"]) => void }) {
+  const options: { id: Draft["discountMode"]; label: string; title: string }[] = [
+    { id: "amount", label: "₱", title: "A fixed peso amount" },
+    { id: "percent", label: "%", title: "A percentage of the subtotal" },
+  ];
+  return (
+    <span role="radiogroup" aria-label="Discount type" className="flex" style={{ padding: 2, borderRadius: 8, background: "var(--surface-inset)" }}>
+      {options.map((option) => {
+        const on = mode === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            title={option.title}
+            onClick={() => onChange(option.id)}
+            style={{
+              width: 28,
+              height: 26,
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontFamily: "var(--font-body)",
+              fontSize: "12.5px",
+              fontWeight: 700,
+              color: on ? "var(--text-accent)" : "var(--text-muted)",
+              background: on ? "var(--surface-card)" : "transparent",
+              boxShadow: on ? "var(--shadow-card)" : "none",
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </span>
   );
 }
 

@@ -14,12 +14,12 @@ import type {
  * the model call so `scripts/quote-check.ts` can prove it without spending.
  */
 
-export const QUOTE_PHOTO_PROMPT_VERSION = 1;
+export const QUOTE_PHOTO_PROMPT_VERSION = 2;
 export const MAX_PHOTO_LINES = 40;
 /** A suggestion list for a photo of a car is a starting point, not an inspection. */
 export const MAX_SUGGESTED_LINES = 8;
 
-const KINDS: QuotePhotoKind[] = ["written_estimate", "supplier_document", "vehicle_photo", "other"];
+const KINDS: QuotePhotoKind[] = ["written_estimate", "service_request", "supplier_document", "vehicle_photo", "other"];
 const SECTIONS: QuoteSection[] = ["parts", "labor"];
 
 const nullableNumber = { type: ["number", "null"] };
@@ -31,6 +31,7 @@ export const QUOTE_PHOTO_SCHEMA: Record<string, unknown> = {
     "kind",
     "summary",
     "customerName",
+    "company",
     "customerPhone",
     "plate",
     "makeModel",
@@ -42,6 +43,7 @@ export const QUOTE_PHOTO_SCHEMA: Record<string, unknown> = {
     kind: { type: "string", enum: KINDS },
     summary: { type: "string" },
     customerName: { type: "string" },
+    company: { type: "string" },
     customerPhone: { type: "string" },
     plate: { type: "string" },
     makeModel: { type: "string" },
@@ -72,19 +74,21 @@ export const QUOTE_PHOTO_INSTRUCTIONS = [
   "",
   "First decide what the photo shows:",
   "- written_estimate: a handwritten or printed estimate, job order or quotation listing work and prices.",
+  "- service_request: a customer's repair request, maintenance service request, work order or job request listing complaints, defects found or work to be done, usually with no prices.",
   "- supplier_document: a parts supplier's receipt, invoice or price quote. Its prices are what the shop pays.",
   "- vehicle_photo: a car, an engine bay or a part, with no list of work on it.",
   "- other: anything else.",
   "",
   "Then fill the lines:",
   "- written_estimate: transcribe every line. Put parts (items, fluids, materials) under parts and work (cleaning, replacing, calibrating, installing) under labor. unitPrice is the price per unit as written; if only a line total is written, divide it by the quantity. cost is null.",
+  "- service_request: turn each repair asked for into lines. Every part to be replaced or supplied is a parts line (for example Clutch lining, Pilot bearing, Door rubber seal), and the work is a labor line (for example Replace clutch lining, Repair door rust and corrosion). Use the defects found or the work requested; when there is only a complaint, add the labor that fixes it. unitPrice and cost are null unless a price is written. Skip approval, signature, budget, tire table and office-use sections.",
   "- supplier_document: transcribe every part. cost is the supplier's price per unit. unitPrice is null.",
   "- vehicle_photo: propose at most 8 lines of likely parts and labor for what is visibly wrong. unitPrice and cost are always null. Add a warning that these are suggestions from a photo.",
   "- other: no lines, and a warning saying what the photo shows.",
   "Amounts are plain numbers in pesos, with no currency sign or thousands separators. Never invent or estimate a price; use null when none is written or it cannot be read.",
   "Skip subtotal, total, discount, VAT and signature rows. qty defaults to 1. unit is a short unit as written (pc, set, L) or an empty string.",
   "Descriptions are short and in the photo's own words, with obvious misspellings corrected.",
-  "customerName, customerPhone, plate, makeModel and odometerKm only when clearly written in the photo; otherwise an empty string or null. A plate is only a registration number.",
+  "customerName, company, customerPhone, plate, makeModel and odometerKm only when clearly written in the photo; otherwise an empty string or null. customerName is a person; company is the business or organisation the document is from or for, such as a letterhead on a service request. A plate is only a registration number; on a service request the equipment or unit number is the plate when it looks like one (such as LGU 881 or ABC 1234).",
   "summary is one short sentence describing the photo. warnings lists anything unreadable or doubtful, briefly.",
 ].join("\n");
 
@@ -131,6 +135,7 @@ export function parseQuotePhotoRead(raw: unknown): QuotePhotoRead | null {
     kind,
     summary: text(value.summary, 200),
     customerName: text(value.customerName, 120),
+    company: text(value.company, 120),
     customerPhone: text(value.customerPhone, 40),
     plate: text(value.plate, 12).toUpperCase(),
     makeModel: text(value.makeModel, 80),
@@ -203,9 +208,10 @@ export function draftLinesFromRead(
 export function describeRead(read: QuotePhotoRead, lines: QuoteLine[]): string {
   const what: Record<QuotePhotoKind, string> = {
     written_estimate: "a written estimate",
+    service_request: "a repair request, so its lines are priced from the price list where they match",
     supplier_document: "a supplier document, so its prices were taken as costs and marked up",
     vehicle_photo: "a photo of the vehicle, so the lines are suggestions with no prices from the photo",
-    other: "something other than an estimate",
+    other: "something other than an estimate, a repair request, a supplier document or a car",
   };
   const unpriced = lines.filter((line) => line.unitPriceCents === null).length;
   const parts = [`Read as ${what[read.kind]}. ${lines.length} ${lines.length === 1 ? "line" : "lines"} found.`];

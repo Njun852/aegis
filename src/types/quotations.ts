@@ -158,6 +158,8 @@ export interface Quotation {
   technician: string;
   lines: QuoteLine[];
   discountCents: number;
+  /** Set when the discount was given as a percentage of the subtotal; `discountCents` follows it. */
+  discountPercent: number | null;
   /** Why the discount was given, for the log and the approver. */
   discountReason: string;
   notes: string;
@@ -195,6 +197,8 @@ export interface QuotationDocument {
   technician: string;
   lines: QuoteLine[];
   discountCents: number;
+  /** Absent on quotations from before percentage discounts, which read as a fixed amount. */
+  discountPercent?: number | null;
   discountReason?: string;
   notes: string;
   source: QuoteSource;
@@ -217,7 +221,7 @@ export interface QuotationDocument {
 export type QuoteContent = Pick<
   QuotationDocument,
   "quoteDate" | "drNumber" | "billTo" | "vehicle" | "serviceAdvisor" | "technician" | "lines" | "discountCents" | "notes"
-> & { validUntil: string; bookingRef: string | null; discountReason: string };
+> & { validUntil: string; bookingRef: string | null; discountReason: string; discountPercent: number | null };
 
 /**
  * A version that was superseded. Written once, when a quotation that had left
@@ -295,6 +299,8 @@ export interface QuotationInput {
   technician: string;
   lines: QuoteLine[];
   discountCents: number;
+  /** A percentage of the subtotal, or null for a fixed amount. The server works the amount out from it. */
+  discountPercent: number | null;
   discountReason: string;
   notes: string;
 }
@@ -371,7 +377,7 @@ export interface QuotationSummary {
 }
 
 /** What the model saw in a photo, decided before any line was read. */
-export type QuotePhotoKind = "written_estimate" | "supplier_document" | "vehicle_photo" | "other";
+export type QuotePhotoKind = "written_estimate" | "service_request" | "supplier_document" | "vehicle_photo" | "other";
 
 /** One line read off, or proposed from, a photo. Pesos, as the model reports them. */
 export interface QuotePhotoLine {
@@ -390,6 +396,8 @@ export interface QuotePhotoRead {
   kind: QuotePhotoKind;
   summary: string;
   customerName: string;
+  /** The business the document is from or for, e.g. the letterhead on a service request. */
+  company: string;
   customerPhone: string;
   plate: string;
   makeModel: string;

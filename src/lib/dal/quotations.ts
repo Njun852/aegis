@@ -105,6 +105,7 @@ function toQuotation(doc: QuotationDocument): Quotation {
     technician: doc.technician,
     lines: doc.lines,
     discountCents: doc.discountCents,
+    discountPercent: doc.discountPercent ?? null,
     discountReason: doc.discountReason ?? "",
     notes: doc.notes,
     source: doc.source,
@@ -197,6 +198,7 @@ function contentOf(doc: QuotationDocument): QuoteContent {
     technician: doc.technician,
     lines: doc.lines,
     discountCents: doc.discountCents,
+    discountPercent: doc.discountPercent ?? null,
     discountReason: doc.discountReason ?? "",
     notes: doc.notes,
   };
@@ -214,6 +216,7 @@ function contentFromInput(input: QuotationInput, lines: QuoteLine[]): QuoteConte
     technician: input.technician,
     lines,
     discountCents: input.discountCents,
+    discountPercent: input.discountPercent,
     discountReason: input.discountReason,
     notes: input.notes,
   };
@@ -291,6 +294,7 @@ export async function createQuotation(
       technician: input.technician,
       lines,
       discountCents: input.discountCents,
+      discountPercent: input.discountPercent,
       discountReason: input.discountReason,
       notes: input.notes,
       source: options.source ?? "manual",

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
-import { formatAmount, formatQuoteDay, lineAmountCents } from "@/lib/quotations";
+import { formatAmount, formatPercent, formatQuoteDay, lineAmountCents } from "@/lib/quotations";
 import type { Quotation, QuotationSettings, QuoteLine, QuoteSection } from "@/types";
 
 /**
@@ -174,7 +174,10 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
     ["TOTAL PARTS", formatAmount(totals.partsCents)],
     ["TOTAL LABOR", formatAmount(totals.laborCents)],
     ["SUBTOTAL", formatAmount(totals.subtotalCents)],
-    ["DISCOUNT", totals.discountCents ? formatAmount(totals.discountCents) : ""],
+    [
+      quotation.discountPercent && totals.discountCents ? `DISCOUNT (${formatPercent(quotation.discountPercent)})` : "DISCOUNT",
+      totals.discountCents ? formatAmount(totals.discountCents) : "",
+    ],
     ["TOTAL", formatAmount(totals.totalCents), true],
   ];
 

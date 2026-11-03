@@ -50,6 +50,7 @@ import {
   QUOTE_HANDOVER_METHODS,
   QUOTE_RESPONSE_METHODS,
   addDays,
+  discountFromPercent,
   formatPeso,
   isBlankLine,
   isDateKey,
@@ -196,11 +197,20 @@ async function readInput(
   }
 
   const lines = readLines(raw.lines);
-  const discountCents = cents(raw.discountCents ?? 0);
+  const totals = quoteTotals(lines, 0);
+  // A percentage is the source of truth when given: the amount is worked out
+  // here from the lines saved, never taken from the browser.
+  const percentRaw = raw.discountPercent;
+  const discountPercent =
+    typeof percentRaw === "number" && Number.isFinite(percentRaw) && percentRaw > 0 ? Math.round(percentRaw * 100) / 100 : null;
+  if (discountPercent !== null && discountPercent > 100) {
+    throw new InputError("A discount cannot be more than 100%.");
+  }
+  const discountCents =
+    discountPercent !== null ? discountFromPercent(totals.subtotalCents, discountPercent) : cents(raw.discountCents ?? 0);
   if (discountCents === undefined || discountCents === null) {
     throw new InputError("The discount is not a valid amount.");
   }
-  const totals = quoteTotals(lines, 0);
   if (discountCents > totals.subtotalCents) {
     throw new InputError("The discount is larger than the quotation.");
   }
@@ -233,6 +243,7 @@ async function readInput(
     technician: text(raw.technician, 80),
     lines,
     discountCents,
+    discountPercent: discountCents > 0 ? discountPercent : null,
     discountReason,
     notes: text(raw.notes, 600),
   };
@@ -640,7 +651,7 @@ export async function createQuotationFromPhotoAction(
     const billTo: QuoteBillTo = {
       customerRef: null,
       name: read.customerName,
-      company: "",
+      company: read.company,
       address: "",
       phone: read.customerPhone,
       email: "",
@@ -663,7 +674,7 @@ export async function createQuotationFromPhotoAction(
       Object.assign(billTo, {
         customerRef: customer.ref,
         name: customer.name,
-        company: customer.company,
+        company: customer.company || billTo.company,
         phone: customer.phone || billTo.phone,
         email: customer.email,
       });
@@ -685,6 +696,7 @@ export async function createQuotationFromPhotoAction(
         technician: "",
         lines,
         discountCents: 0,
+        discountPercent: null,
         discountReason: "",
         notes: settings.notes,
       },

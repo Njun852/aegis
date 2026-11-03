@@ -10,8 +10,10 @@ import { MIN_CORRECTION_REASON, invoiceInputProblem } from "@/lib/finance";
 import { addDaysToKey } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
 import { amountInput, formatQuoteDay, parseAmount } from "@/lib/quotations";
+import { sameName } from "./company-folders";
 import { DuplicateNotice } from "./duplicate-notice";
 import { useFee } from "./fee-fields";
+import { ScanBox, scanAmount, useAttachScan, type Scan } from "./scan-fill";
 import { locked } from "./locked";
 import type { CustomerOption, DuplicateMatch, FeeRule, InvoiceSummary, MoneyAccountSummary, UninvoicedJob } from "@/types";
 
@@ -23,7 +25,7 @@ const TERMS = [
 
 /**
  * Issues an invoice, corrects one (`invoice`), or invoices a completed job
- * order (`job`). An invoice collected in full when it is issued, such as a
+ * order (`job`), or starts one for a customer's folder (`company`). An invoice collected in full when it is issued, such as a
  * cash sale, records the collection with it. A correction needs a reason; a
  * new invoice that looks like one on record is held until the person says it
  * is different.
@@ -31,6 +33,7 @@ const TERMS = [
 export function InvoiceModal({
   invoice,
   job,
+  company = null,
   customers,
   accounts,
   feeRules,
@@ -42,6 +45,8 @@ export function InvoiceModal({
 }: {
   invoice: InvoiceSummary | null;
   job: UninvoicedJob | null;
+  /** The customer whose folder the new invoice was started from. */
+  company?: { name: string; ref: string | null } | null;
   customers: CustomerOption[];
   /** Active accounts, to collect into. */
   accounts: MoneyAccountSummary[];
@@ -54,7 +59,7 @@ export function InvoiceModal({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [customerName, setCustomerName] = useState(invoice?.customerName ?? job?.customerName ?? "");
+  const [customerName, setCustomerName] = useState(invoice?.customerName ?? job?.customerName ?? company?.name ?? "");
   const [number, setNumber] = useState(invoice?.number ?? suggestedNumber);
   const [invoiceDate, setInvoiceDate] = useState(invoice?.invoiceDate ?? today);
   const [dueDate, setDueDate] = useState(invoice?.dueDate ?? "");
@@ -68,11 +73,30 @@ export function InvoiceModal({
   const [reason, setReason] = useState("");
   const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scan, setScan] = useState<Scan | null>(null);
+  const attachScan = useAttachScan();
   const [pending, startTransition] = useTransition();
   const fee = useFee(feeRules, parseAmount(amount) || 0, "in");
 
   const moneyLocked = Boolean(invoice && invoice.collectedCents > 0);
-  const customer = customers.find((entry) => entry.name.trim().toLowerCase() === customerName.trim().toLowerCase()) ?? null;
+  const customer = customers.find((entry) => sameName(entry.name, customerName)) ?? null;
+
+  /** Puts what a scan read into the fields; anything it did not find is left as it was. */
+  const fill = (next: Scan) => {
+    const { read } = next;
+    setScan(next);
+    setDuplicates(null);
+    if (read.party) setCustomerName(read.party);
+    if (read.reference) setNumber(read.reference);
+    if (read.date) setInvoiceDate(read.date);
+    if (read.dueDate) setDueDate(read.dueDate);
+    if (read.amountCents !== null) setAmount(scanAmount(read.amountCents));
+    if (read.description) setRemarks(read.description);
+    if (read.paid) {
+      setCollectedNow(true);
+      if (read.date) setCollectedOn(read.date);
+    }
+  };
 
   const save = (confirmedDuplicates: string[] = []) => {
     const amountCents = parseAmount(amount);
@@ -83,7 +107,8 @@ export function InvoiceModal({
     const due = collectedNow && !dueDate ? invoiceDate : dueDate;
     const input = {
       customerName,
-      customerRef: job?.customerRef ?? invoice?.customerRef ?? customer?.ref ?? null,
+      customerRef:
+        job?.customerRef ?? invoice?.customerRef ?? customer?.ref ?? (company && sameName(company.name, customerName) ? company.ref : null),
       jobOrderRef: job?.ref ?? null,
       number,
       invoiceDate,
@@ -115,14 +140,15 @@ export function InvoiceModal({
         return;
       }
       setDuplicates(null);
+      const attached = invoice ? "" : await attachScan(result.ref, scan?.file);
       toast({
         tone: "success",
         title: invoice ? `${result.ref} corrected` : `Invoice ${number.trim()} issued`,
         description: invoice
           ? "The reason and the old and new values are in its history."
-          : input.collectedInto
-            ? `${formatMoney(amountCents)} from ${customerName.trim()}, recorded as collected (${result.ref}).`
-            : `${formatMoney(amountCents)} owed by ${customerName.trim()}, due ${formatQuoteDay(due)} (${result.ref}).`,
+          : (input.collectedInto
+              ? `${formatMoney(amountCents)} from ${customerName.trim()}, recorded as collected (${result.ref}).`
+              : `${formatMoney(amountCents)} owed by ${customerName.trim()}, due ${formatQuoteDay(due)} (${result.ref}).`) + attached,
         key: "finance-invoice",
       });
       router.refresh();
@@ -132,7 +158,7 @@ export function InvoiceModal({
 
   return (
     <Modal
-      title={invoice ? `Correct invoice ${invoice.number}` : job ? `Invoice ${job.ref}` : "New invoice"}
+      title={invoice ? `Correct invoice ${invoice.number}` : job ? `Invoice ${job.ref}` : company ? `New invoice for ${company.name}` : "New invoice"}
       icon="file-text"
       width={620}
       onClose={onClose}
@@ -147,6 +173,7 @@ export function InvoiceModal({
         </>
       }
     >
+      {!invoice && !job && <ScanBox scan={scan} expect="in" onScan={fill} />}
       {error && <Notice tone="error">{error}</Notice>}
       {duplicates && (
         <DuplicateNotice

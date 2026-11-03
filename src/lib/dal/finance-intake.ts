@@ -9,7 +9,7 @@ import { INTAKE_DOC_TYPES, intakePostProblem, intakeReviewReasons } from "@/lib/
 import { formatMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { tokensUsedThisMonth } from "./ai";
-import { bills, financeIntake, invoices, logFinanceEvent } from "./finance";
+import { bills, countEventsSince, financeIntake, invoices, logFinanceEvent } from "./finance";
 import { checkUpload, recordsWithFile, storeAttachment } from "./finance-attachments";
 import { billCandidate, createBill } from "./finance-bills";
 import { createInvoice, invoiceCandidate } from "./finance-invoices";
@@ -82,20 +82,44 @@ export async function countIntakeWaiting(): Promise<number> {
   return collection.countDocuments({ status: { $in: IN_QUEUE } });
 }
 
+/** The event a paid scan from an entry form leaves, so it counts towards the same daily limit. */
+const SCAN_EVENT = "scan.read";
+
+/** Paid reads today: Review Queue uploads and scans from the entry forms share one limit. */
 async function readToday(): Promise<number> {
   const collection = await financeIntake();
-  return collection.countDocuments({ billed: true, readAt: { $gte: midnight() } });
+  const [queued, scanned] = await Promise.all([
+    collection.countDocuments({ billed: true, readAt: { $gte: midnight() } }),
+    countEventsSince(SCAN_EVENT, midnight()),
+  ]);
+  return queued + scanned;
 }
+
+/** Why a document cannot be read now, if it cannot. */
+async function readRefusal(): Promise<{ count: number; refusal: "off" | "budget" | "limit" | null }> {
+  const [count, used] = await Promise.all([readToday(), tokensUsedThisMonth()]);
+  if (!isAiConfigured()) return { count, refusal: "off" };
+  if (used >= AI_MONTHLY_TOKEN_BUDGET * INTAKE_BUDGET_SHARE) return { count, refusal: "budget" };
+  if (count >= INTAKE_PER_DAY) return { count, refusal: "limit" };
+  return { count, refusal: null };
+}
+
+const QUEUE_REFUSALS = {
+  off: "AI is not switched on, so uploads wait unread; type their details in.",
+  budget: "Most of this month's AI allowance is used, and the rest is kept for mail. Uploads wait unread; type them in.",
+  limit: `Today's ${INTAKE_PER_DAY} reads are used. Uploads wait unread until tomorrow, or type them in.`,
+};
+
+const SCAN_REFUSALS = {
+  off: "AI is not switched on, so scans cannot be read. Type the details in.",
+  budget: "Most of this month's AI allowance is used, and the rest is kept for mail. Type the details in.",
+  limit: `Today's ${INTAKE_PER_DAY} document reads are used. Scan again tomorrow, or type the details in.`,
+};
 
 /** Today's reads against the limit, and whether reading is open at all. */
 export async function intakeAllowance(): Promise<IntakeAllowance> {
-  const [count, used] = await Promise.all([readToday(), tokensUsedThisMonth()]);
-  if (!isAiConfigured()) return { readToday: count, perDay: INTAKE_PER_DAY, available: false, note: "AI is not switched on, so uploads wait unread; type their details in." };
-  if (used >= AI_MONTHLY_TOKEN_BUDGET * INTAKE_BUDGET_SHARE) {
-    return { readToday: count, perDay: INTAKE_PER_DAY, available: false, note: "Most of this month's AI allowance is used, and the rest is kept for mail. Uploads wait unread; type them in." };
-  }
-  if (count >= INTAKE_PER_DAY) return { readToday: count, perDay: INTAKE_PER_DAY, available: false, note: `Today's ${INTAKE_PER_DAY} reads are used. Uploads wait unread until tomorrow, or type them in.` };
-  return { readToday: count, perDay: INTAKE_PER_DAY, available: true, note: "" };
+  const { count, refusal } = await readRefusal();
+  return { readToday: count, perDay: INTAKE_PER_DAY, available: refusal === null, note: refusal ? QUEUE_REFUSALS[refusal] : "" };
 }
 
 /**
@@ -146,6 +170,49 @@ export async function readIntake(ref: string, businessName: string, actor: Finan
     }`,
   );
   return { status: "review", note: result.data.summary };
+}
+
+/**
+ * Reads a photo or PDF scanned from a bill, invoice or money form, to fill
+ * the form in. Nothing is stored or posted: the person checks the fields and
+ * saves, and the form attaches the file to the record it made. Uses the Review
+ * Queue's reader, cache and limits, so a document read in either place is
+ * never paid for twice.
+ */
+export async function scanForEntry(
+  upload: { name: string; dataUrl: string },
+  businessName: string,
+  actor: FinanceActor,
+): Promise<{ read: IntakeExtraction; cached: boolean }> {
+  const file = checkUpload(upload);
+  const cached = await isIntakeReadCached(file.sha256, businessName);
+  if (!cached) {
+    const { refusal } = await readRefusal();
+    if (refusal) throw new InputError(SCAN_REFUSALS[refusal]);
+  }
+
+  let dataUrl = file.dataUrl;
+  if (file.contentType === "application/pdf") {
+    const trimmed = await firstPages(file.dataUrl);
+    if (!trimmed) throw new InputError("This PDF could not be opened (it may be damaged or password-protected). Type its details in.");
+    dataUrl = trimmed.dataUrl;
+  }
+
+  const result = await readIntakeDocument({ name: file.name, contentType: file.contentType, dataUrl, sha256: file.sha256 }, businessName);
+  if (!result.ok) {
+    // A failed call may still have been billed; it counts towards the limit.
+    await logFinanceEvent(actor, SCAN_EVENT, "SCAN", `${file.name}: not read (${result.reason})`);
+    throw new InputError(`Not read: ${explainFailure(result.reason)} Try a clearer photo, or type the details in.`);
+  }
+  if (!result.cached) {
+    await logFinanceEvent(
+      actor,
+      SCAN_EVENT,
+      "SCAN",
+      `${file.name}: ${result.data.party || "no name"}, ${result.data.amountCents !== null ? formatMoney(result.data.amountCents) : "no amount"}`,
+    );
+  }
+  return { read: result.data, cached: result.cached };
 }
 
 function toItem(doc: Omit<FinanceIntakeDocument, "dataUrl">, reasons: string[], duplicates: IntakeItem["possibleDuplicates"]): IntakeItem {

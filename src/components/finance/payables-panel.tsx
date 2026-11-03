@@ -9,6 +9,7 @@ import { formatMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
 import { BillDrawer } from "./bill-drawer";
 import { BillModal } from "./bill-modal";
+import { buildFolders, FolderBar, folderKey, FolderRow, LayoutToggle, matchFolders, useFolderToggle, type CompanyFolder, type FolderLayout } from "./company-folders";
 import { groupTone, StateBadge } from "./bill-badges";
 import { PayBillModal } from "./pay-bill-modal";
 import { StatTiles, type StatTile } from "./stat-tiles";
@@ -44,15 +45,24 @@ const TH = {
 const TD = { padding: "9px 10px", fontSize: "12.5px", borderBottom: "1px solid var(--gray-50)", verticalAlign: "top" as const };
 const MONEY = { ...TD, textAlign: "right" as const, fontVariantNumeric: "tabular-nums" as const, whiteSpace: "nowrap" as const };
 
+const companyOf = (bill: BillSummary) => folderKey(bill.supplierRef, bill.payee);
+
 /**
  * The Accounts Payable screen. Every bill with something still owed is shown,
- * whether it is due next quarter or long overdue, grouped by how soon it is
- * due; paid and void bills are a click away.
+ * whether it is due next quarter or long overdue; paid and void bills are a
+ * click away. Bills are filed in a collapsible folder per supplier, most
+ * urgent first inside each; the List layout groups them by how soon they are due.
  */
 export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trail, feeRules, isAdmin, today, userName }: PayablesPanelProps) {
   const router = useRouter();
+  const open = openRef ? bills.find((bill) => bill.ref === openRef) ?? null : null;
   const [view, setView] = useState<View>("outstanding");
+  const [layout, setLayout] = useState<FolderLayout>("folders");
+  const [query, setQuery] = useState("");
+  const expanded = useFolderToggle(open ? companyOf(open) : null);
   const [adding, setAdding] = useState(false);
+  /** The company a new bill was started for, from its folder. */
+  const [addingFor, setAddingFor] = useState<{ name: string; ref: string | null } | null>(null);
   const [fromReceipt, setFromReceipt] = useState<UnbilledReceipt | null>(null);
   const [choosingReceipt, setChoosingReceipt] = useState(false);
   const [editing, setEditing] = useState<BillSummary | null>(null);
@@ -60,7 +70,6 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
   const [, startNavigation] = useTransition();
 
   const active = accounts.filter((account) => account.active);
-  const open = openRef ? bills.find((bill) => bill.ref === openRef) ?? null : null;
   const outstanding = bills.filter((bill) => bill.outstandingCents > 0);
 
   const select = (ref: string | null) => {
@@ -88,10 +97,28 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
     return outstanding;
   }, [bills, outstanding, view]);
 
-  const groups =
+  const byDue =
     view === "outstanding"
       ? AP_STATUS_GROUPS.map((group) => ({ ...group, bills: shown.filter((bill) => bill.group === group.key) })).filter((group) => group.bills.length > 0)
       : [{ key: view, label: "", bills: shown }];
+
+  const folders = buildFolders(shown, (bill) => ({
+    key: companyOf(bill),
+    name: bill.payee,
+    outstandingCents: bill.outstandingCents,
+    alert: bill.outstandingCents > 0 && bill.daysUntilDue < 0,
+  }));
+  /** Inside a folder, the most urgent bills first: the same order as the List. */
+  const urgent = byDue.flatMap((group) => group.bills);
+  const groups: { key: string; label: string; folder?: CompanyFolder; bills: BillSummary[] }[] =
+    layout === "folders"
+      ? matchFolders(folders, query).map((folder) => ({
+          key: folder.key,
+          label: "",
+          folder,
+          bills: urgent.filter((bill) => companyOf(bill) === folder.key),
+        }))
+      : byDue;
 
   const views: { id: View; label: string; count: number }[] = [
     { id: "outstanding", label: "Outstanding", count: outstanding.length },
@@ -132,6 +159,7 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
+            <LayoutToggle layout={layout} onChange={setLayout} />
             {receipts.length > 0 && (
               <Button variant="secondary" icon="truck" onClick={() => setChoosingReceipt(true)}>
                 From a receipt ({receipts.length})
@@ -171,6 +199,15 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
             minWidth: 0,
           }}
         >
+          {layout === "folders" && (
+            <FolderBar
+              total={folders.length}
+              query={query}
+              onQuery={setQuery}
+              onExpandAll={() => expanded.setAll(folders.map((folder) => folder.key))}
+              onCollapseAll={() => expanded.setAll([])}
+            />
+          )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse" }}>
               <thead>
@@ -192,6 +229,17 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
               <tbody>
                 {groups.map((group) => (
                   <Fragment key={group.key}>
+                    {group.folder && (
+                      <FolderRow
+                        folder={group.folder}
+                        open={expanded.isOpen(group.key)}
+                        noun="bill"
+                        alertLabel="overdue"
+                        colSpan={12}
+                        onToggle={() => expanded.toggle(group.key)}
+                        onAdd={() => setAddingFor({ name: group.folder!.name, ref: group.bills[0]?.supplierRef ?? null })}
+                      />
+                    )}
                     {group.label && (
                       <tr>
                         <td colSpan={12} style={{ padding: "12px 10px 6px", background: "var(--gray-25)", borderBottom: "1px solid var(--border-subtle)" }}>
@@ -217,7 +265,8 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
                         </td>
                       </tr>
                     )}
-                    {group.bills.map((bill) => (
+                    {(!group.folder || expanded.isOpen(group.key)) &&
+                      group.bills.map((bill) => (
                       <tr
                         key={bill.ref}
                         tabIndex={0}
@@ -263,6 +312,13 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
                     ))}
                   </Fragment>
                 ))}
+                {shown.length > 0 && groups.length === 0 && (
+                  <tr>
+                    <td colSpan={12} style={{ padding: "30px 10px", textAlign: "center", fontSize: "12.5px", color: "var(--text-muted)" }}>
+                      No company matches “{query.trim()}”.
+                    </td>
+                  </tr>
+                )}
                 {shown.length === 0 && (
                   <tr>
                     <td colSpan={12} style={{ padding: "30px 10px", textAlign: "center", fontSize: "12.5px", color: "var(--text-muted)" }}>
@@ -295,9 +351,10 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
           onClose={() => select(null)}
         />
       )}
-      {(adding || fromReceipt || editing) && (
+      {(adding || addingFor || fromReceipt || editing) && (
         <BillModal
           bill={editing}
+          company={addingFor}
           receipt={fromReceipt}
           payees={payees}
           accounts={active}
@@ -306,11 +363,13 @@ export function PayablesPanel({ bills, accounts, payees, receipts, openRef, trai
           defaultPerson={userName}
           onClose={() => {
             setAdding(false);
+            setAddingFor(null);
             setFromReceipt(null);
             setEditing(null);
           }}
           onSaved={(ref) => {
             setAdding(false);
+            setAddingFor(null);
             setFromReceipt(null);
             setEditing(null);
             select(ref);

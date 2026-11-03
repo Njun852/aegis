@@ -11,19 +11,21 @@ import styles from "./boot-screen.module.css";
  *
  * The scene is the reference picture, split into layers: the Earth and space
  * as a plate with its logo, text and cards painted out, the motto as a layer
- * of its own, and the current AEGIS logo (the one the sidebar and the sign-in
- * form use) as a light layer placed where the picture had its mark, with its
- * shape as the mask for the light that runs across the chrome. The bar, the
- * status and the cards are live on top, placed where the picture has them.
+ * of its own, and the mark from the current AEGIS logo (the one the sidebar and
+ * the sign-in form use) as a light layer placed where the picture had its mark,
+ * with its shape as the mask for the light that runs across the chrome. Under
+ * the mark the name runs down the screen, one letter a line, each meaning typed
+ * out beside its letter. The bar, the status and the cards are live on top,
+ * placed where the picture has them.
  *
  * It is decoration, so it must never stand between someone and the form: it
- * plays once per browser session, lasts about four seconds, any click or key
+ * plays once per browser session, lasts about six seconds, any click or key
  * skips it, and with reduced motion it shows the finished frame briefly and
  * fades without animating.
  */
 
 const SEEN_KEY = "aegis.boot.seen";
-const DURATION_MS = 4200;
+const DURATION_MS = 6000;
 const REDUCED_MS = 900;
 /** The plate is waited for this long at most before the sequence starts anyway. */
 const LOAD_WAIT_MS = 800;
@@ -36,6 +38,20 @@ const SYSTEMS = [
   { name: "PRIMEWORKX", Icon: Building2, appear: 0.38, online: 0.7 },
   { name: "AEGIS", Icon: ShieldCheck, appear: 0.46, online: 0.86 },
 ];
+
+/** The name, a letter a line, and what each letter stands for. */
+const ACRONYM = [
+  { letter: "A", word: "Autonomous" },
+  { letter: "E", word: "Enterprise" },
+  { letter: "G", word: "Guidance" },
+  { letter: "I", word: "Intelligence" },
+  { letter: "S", word: "Suite" },
+];
+
+/** The meanings are typed one after another between these two moments. */
+const TYPE_FROM = 0.3;
+const TYPE_UNTIL = 0.8;
+const TYPED_TOTAL = ACRONYM.reduce((sum, { word }) => sum + word.length, 0);
 
 /**
  * The rim of the atmosphere in the picture's pixels: the ellipse its bright
@@ -142,6 +158,12 @@ export function BootScreen() {
   const at = (moment: number) => (phase !== "waiting" && progress >= moment ? styles.shown : "");
   const filled = Math.round(progress * 100);
 
+  // How many letters of the meanings are typed so far, counted across all five.
+  const typing = phase !== "waiting" && progress >= TYPE_FROM;
+  const typedCount = typing
+    ? Math.min(TYPED_TOTAL, Math.floor(((progress - TYPE_FROM) / (TYPE_UNTIL - TYPE_FROM)) * TYPED_TOTAL))
+    : 0;
+
   return (
     <div
       className={`${styles.screen} ${phase === "leaving" ? styles.leaving : ""}`}
@@ -181,14 +203,32 @@ export function BootScreen() {
           <span key={`${star.x}-${star.y}`} className={styles.star} style={{ left: `${star.x}%`, top: `${star.y}%`, animationDelay: `${star.d}s` }} />
         ))}
 
-        {/* The logo: the mark comes up out of the dark, then the name under it,
-            then a sheet of light passes across the chrome. One image, cut in two. */}
+        {/* The logo: the mark comes up out of the dark, then the name runs down
+            under it a letter at a time, each meaning typed out beside it, and a
+            sheet of light passes across the chrome. */}
         <div className={styles.logo} role="img" aria-label="AEGIS, Autonomous Enterprise Guidance & Intelligence Suite">
           {/* eslint-disable-next-line @next/next/no-img-element -- an additive layer over the plate */}
           <img className={`${styles.logoMark} ${at(0.1)}`} src={`${ASSET}/boot-logo.png`} alt="" draggable={false} />
-          {/* eslint-disable-next-line @next/next/no-img-element -- the same layer, its lower part */}
-          <img className={`${styles.logoWord} ${at(0.26)}`} src={`${ASSET}/boot-logo.png`} alt="" draggable={false} />
           <span className={`${styles.shine} ${at(0.44)}`} aria-hidden="true" />
+          <div className={styles.acronym} aria-hidden="true">
+            {ACRONYM.map(({ letter, word }, index) => {
+              const before = ACRONYM.slice(0, index).reduce((sum, row) => sum + row.word.length, 0);
+              const typed = Math.max(0, Math.min(word.length, typedCount - before));
+              // The caret sits on the line being typed, and stays on the last once done.
+              const caret = typing && (typed < word.length ? typedCount >= before : index === ACRONYM.length - 1);
+              return (
+                <div key={letter} className={`${styles.acronymRow} ${at(0.24 + index * 0.04)}`}>
+                  <span className={styles.acronymLetter}>{letter}</span>
+                  <span className={styles.acronymWord}>
+                    {word.slice(0, typed)}
+                    {caret && <span className={styles.caret} />}
+                    {/* The rest, unseen, holds the line's width so nothing shifts as it types. */}
+                    <span className={styles.untyped}>{word.slice(typed)}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* The light at the heart of the A, and a glint at its apex. */}

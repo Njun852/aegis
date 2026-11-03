@@ -1,24 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { sendQuotationAction } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
 import { Field, INPUT, Modal, Notice } from "@/components/forms/form-kit";
+import { pricingCleared } from "@/lib/quotations";
 import type { Quotation } from "@/types";
-
-export interface QuoteActionsProps {
-  quotation: Quotation;
-  dirty: boolean;
-  unpricedCount: number;
-  mailConnected: boolean;
-  /** A discount or below-cost line no administrator has approved yet. */
-  pricingBlocked: boolean;
-  /** The defaults the compose box opens with. */
-  email: { subject: string; body: string };
-  /** Saves the editor; resolves with the ref, or null when the save was refused. */
-  save: () => Promise<string | null>;
-}
+import type { QuoteFlow } from "./quote-workflow";
 
 function pdfUrl(ref: string, version: string, download = false) {
   // The version keeps the browser from showing a PDF cached before the last save.
@@ -27,22 +16,162 @@ function pdfUrl(ref: string, version: string, download = false) {
   return `/api/quotations/${encodeURIComponent(ref)}/pdf?${params}`;
 }
 
+const NOT_APPROVED = "An administrator must approve the discount or below-cost pricing first.";
+
 /**
- * Preview, download and email. Each works on the saved quotation, so unsaved
- * edits are saved first: the customer must never receive a PDF that differs
- * from what the screen showed.
+ * The PDF as the customer would get it, with Print and Download beside it,
+ * so it is always seen before it leaves the shop. Printing needs no email.
+ * Once printed, Mark as given records the handover in the same place.
  */
-export function QuoteActions({
+export function PreviewModal({
   quotation,
+  onClose,
+  onGive,
+}: {
+  quotation: Quotation;
+  onClose: () => void;
+  /** Offered when the quotation can be given now; `printed` picks the handover method. */
+  onGive?: (printed: boolean) => void;
+}) {
+  const toast = useToast();
+  const frame = useRef<HTMLIFrameElement>(null);
+  const giveButton = useRef<HTMLButtonElement>(null);
+  const [printed, setPrinted] = useState(false);
+  const unpriced = quotation.totals.unpricedCount;
+  // Special pricing waits for an administrator before any copy leaves the shop.
+  const blocked = pricingCleared(quotation) ? null : NOT_APPROVED;
+  const url = pdfUrl(quotation.ref, quotation.updatedAt);
+
+  const print = () => {
+    const view = frame.current?.contentWindow;
+    try {
+      view?.focus();
+      view?.print();
+    } catch {
+      // A browser that cannot print a framed PDF opens it in a tab to print from there.
+      window.open(url, "_blank", "noopener");
+    }
+    setPrinted(true);
+    toast({ tone: "info", title: `Printing ${quotation.ref}`, description: "Choose the printer in the print window.", key: "quote-pdf" });
+    window.setTimeout(() => giveButton.current?.focus(), 0);
+  };
+
+  const download = () => {
+    // The response is an attachment, so the page stays where it is.
+    window.location.href = pdfUrl(quotation.ref, `${Date.now()}`, true);
+    toast({ tone: "info", title: "Downloading PDF", description: `${quotation.ref}.pdf`, key: "quote-pdf" });
+  };
+
+  return (
+    <Modal
+      title={`${quotation.ref} preview`}
+      icon="file-text"
+      width={880}
+      onClose={onClose}
+      footer={
+        <>
+          {blocked && <span style={{ marginRight: "auto", fontSize: "12px", color: "var(--status-warning)" }}>{blocked}</span>}
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+          <Button variant="secondary" icon="arrow-down" disabled={blocked !== null} title={blocked ?? "Download the PDF"} onClick={download}>
+            Download
+          </Button>
+          <Button
+            variant={onGive && printed ? "secondary" : "primary"}
+            icon="file-text"
+            disabled={blocked !== null}
+            title={blocked ?? "Print the quotation"}
+            autoFocus={blocked === null}
+            onClick={print}
+          >
+            Print
+          </Button>
+          {onGive && (
+            <Button ref={giveButton} variant={printed ? "primary" : "secondary"} icon="check" onClick={() => onGive(printed)}>
+              Mark as given
+            </Button>
+          )}
+        </>
+      }
+    >
+      {unpriced > 0 && (
+        <Notice tone="warning">
+          {unpriced} {unpriced === 1 ? "line has" : "lines have"} no price yet. {unpriced === 1 ? "Its" : "Their"} price and amount
+          print blank.
+        </Notice>
+      )}
+      <iframe
+        ref={frame}
+        title={`${quotation.ref} PDF`}
+        src={url}
+        style={{
+          width: "100%",
+          height: "70vh",
+          border: "1px solid var(--border-default)",
+          borderRadius: "var(--radius-md)",
+          background: "var(--surface-inset)",
+        }}
+      />
+    </Modal>
+  );
+}
+
+export interface QuoteActionsOptions {
+  /** Null until the first save. */
+  quotation: Quotation | null;
+  flow: QuoteFlow;
+  dirty: boolean;
+  saving: boolean;
+  /** Made into a job order: nothing to save, only the job order to open. */
+  locked: boolean;
+  /** "Save", or "Save as revision 3" once the customer has a copy. */
+  saveLabel: string;
+  /** Lines without a price as typed, saved or not. */
+  unpricedCount: number;
+  mailConnected: boolean;
+  /** The defaults the compose box opens with. */
+  email: { subject: string; body: string } | null;
+  /** Saves the editor; resolves with the ref, or null when the save was refused. */
+  save: () => Promise<string | null>;
+}
+
+export interface QuoteActions {
+  /** The one button that is always the next thing to do; null once there is nothing left. */
+  primary: { label: string; icon: string; run?: () => void; blocked?: string } | null;
+  /** Whether the primary button is Save. */
+  needsSave: boolean;
+  /** What the line under the primary button says. */
+  hint: { text: string; warn: boolean };
+  hasQuotation: boolean;
+  saving: boolean;
+  preview: () => void;
+  emailBlocked: string | null;
+  email: () => void;
+  /** The compose box; render once. */
+  dialogs: ReactNode;
+}
+
+/**
+ * What the quotation's buttons do, shared by the header and the Totals
+ * panel. The main button is always the next thing to do and changes in
+ * place: Save, then Approve pricing, Preview & give, Record answer, Make job
+ * order. After saving, the next stage is under the same cursor. Ctrl+S saves
+ * and Ctrl+Enter takes the next step from anywhere on the page.
+ */
+export function useQuoteActions({
+  quotation,
+  flow,
   dirty,
+  saving,
+  locked,
+  saveLabel,
   unpricedCount,
   mailConnected,
-  pricingBlocked,
   email,
   save,
-}: QuoteActionsProps) {
+}: QuoteActionsOptions): QuoteActions {
   const toast = useToast();
-  const [previewing, setPreviewing] = useState(false);
   const [composing, setComposing] = useState(false);
 
   const afterSave = async (next: () => void) => {
@@ -50,67 +179,65 @@ export function QuoteActions({
     next();
   };
 
-  const unpriced =
-    unpricedCount > 0
-      ? `${unpricedCount} ${unpricedCount === 1 ? "line has" : "lines have"} no price yet.`
-      : null;
-  // A download is usually on its way to a customer, so it waits for the same approval as the email.
-  const blocked =
-    unpriced ?? (pricingBlocked ? "The discount or a below-cost price needs an administrator's approval first." : null);
-  const emailBlocked = quotation.jobOrderRef ? `${quotation.ref} is already job order ${quotation.jobOrderRef}.` : blocked;
+  const needsSave = !locked && (dirty || !quotation);
+  const primary: QuoteActions["primary"] = needsSave
+    ? { label: saving ? "Saving…" : saveLabel, icon: "check", run: saving ? undefined : () => void save() }
+    : flow.next;
 
-  return (
-    <>
-      <Button variant="secondary" icon="eye" onClick={() => void afterSave(() => setPreviewing(true))}>
-        Preview
-      </Button>
-      <Button
-        variant="secondary"
-        icon="arrow-down"
-        disabled={blocked !== null}
-        title={blocked ?? "Download the PDF"}
-        onClick={() =>
-          void afterSave(() => {
-            // The response is an attachment, so the page stays where it is.
-            window.location.href = pdfUrl(quotation.ref, `${Date.now()}`, true);
-            toast({ tone: "info", title: "Downloading PDF", description: `${quotation.ref}.pdf`, key: "quote-pdf" });
-          })
-        }
-      >
-        PDF
-      </Button>
-      <Button
-        variant="secondary"
-        icon="send"
-        disabled={emailBlocked !== null || !mailConnected}
-        title={
-          !mailConnected
-            ? "No mailbox is connected for this business. An administrator connects one in Business Management."
-            : (emailBlocked ?? "Email the PDF to the customer")
-        }
-        onClick={() => void afterSave(() => setComposing(true))}
-      >
-        Email
-      </Button>
+  const emailBlocked = !quotation
+    ? "Save first"
+    : !mailConnected
+      ? "No mailbox is connected for this business. An administrator connects one in Business Management."
+      : quotation.jobOrderRef
+        ? `${quotation.ref} is already job order ${quotation.jobOrderRef}.`
+        : quotation.totals.unpricedCount > 0 || (dirty && unpricedCount > 0)
+          ? `${unpricedCount} ${unpricedCount === 1 ? "line has" : "lines have"} no price yet.`
+          : pricingCleared(quotation)
+            ? null
+            : NOT_APPROVED;
 
-      {previewing && (
-        <Modal title={`${quotation.ref} preview`} icon="file-text" width={880} onClose={() => setPreviewing(false)}>
-          {unpriced && <Notice tone="warning">{unpriced} Its price and amount are blank in this preview.</Notice>}
-          <iframe
-            title={`${quotation.ref} PDF`}
-            src={pdfUrl(quotation.ref, quotation.updatedAt)}
-            style={{
-              width: "100%",
-              height: "72vh",
-              border: "1px solid var(--border-default)",
-              borderRadius: "var(--radius-md)",
-              background: "var(--surface-inset)",
-            }}
-          />
-        </Modal>
-      )}
+  const hint =
+    primary?.blocked && !needsSave
+      ? { text: primary.blocked, warn: true }
+      : needsSave
+        ? { text: "Ctrl+S saves", warn: false }
+        : primary
+          ? { text: "Ctrl+Enter does the next step", warn: false }
+          : { text: "Nothing more to do on this quotation", warn: false };
 
-      {composing && (
+  // The listener is added once and reads the latest state through the ref.
+  const onKey = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    onKey.current = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (flow.dialogOpen || composing) return;
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        if (needsSave && !saving) void save();
+      } else if (key === "enter") {
+        event.preventDefault();
+        primary?.run?.();
+      }
+    };
+  });
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onKey.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  return {
+    primary,
+    needsSave,
+    hint,
+    hasQuotation: quotation !== null,
+    saving,
+    preview: () => void afterSave(flow.openPreview),
+    emailBlocked,
+    email: () => void afterSave(() => setComposing(true)),
+    dialogs:
+      composing && quotation && email ? (
         <ComposeModal
           quotation={quotation}
           defaults={email}
@@ -120,8 +247,86 @@ export function QuoteActions({
             toast({ tone: "success", title: `${quotation.ref} sent`, description: `Emailed to ${to} with the PDF attached.` });
           }}
         />
-      )}
+      ) : null,
+  };
+}
+
+/** The main button: Save, or whatever the next stage is. */
+export function NextStepButton({ actions, fullWidth }: { actions: QuoteActions; fullWidth?: boolean }) {
+  const { primary, needsSave } = actions;
+  if (!primary) {
+    return (
+      <Button variant="secondary" icon="x" disabled fullWidth={fullWidth}>
+        Declined
+      </Button>
+    );
+  }
+  return (
+    <Button
+      icon={primary.icon}
+      disabled={!primary.run}
+      fullWidth={fullWidth}
+      title={primary.blocked ?? (needsSave ? "Ctrl+S" : "Ctrl+Enter")}
+      onClick={() => primary.run?.()}
+    >
+      {primary.label}
+    </Button>
+  );
+}
+
+/**
+ * For a quotation that became a job order, whose form is locked: printing it
+ * again and opening the job order stay at the top of the page.
+ */
+export function QuoteLockedActions({ actions }: { actions: QuoteActions }) {
+  return (
+    <>
+      <Button variant="secondary" icon="eye" onClick={actions.preview}>
+        Preview / Print
+      </Button>
+      <NextStepButton actions={actions} />
     </>
+  );
+}
+
+/**
+ * Every action on the quotation, at the foot of the Totals panel where
+ * pricing ends: the main button, which is always the next thing to do,
+ * Preview / Print and Email under it, and what is in the way or the shortcut.
+ */
+export function QuoteTotalsAction({ actions }: { actions: QuoteActions }) {
+  return (
+    <div className="aegis-no-print flex flex-col gap-2" style={{ paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}>
+      <NextStepButton actions={actions} fullWidth />
+      {actions.hasQuotation && (
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="secondary" size="sm" icon="eye" fullWidth disabled={actions.saving} onClick={actions.preview}>
+            Preview / Print
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="send"
+            fullWidth
+            disabled={actions.emailBlocked !== null || actions.saving}
+            title={actions.emailBlocked ?? "Email the PDF to the customer"}
+            onClick={actions.email}
+          >
+            Email
+          </Button>
+        </div>
+      )}
+      <span
+        style={{
+          fontSize: "11px",
+          textAlign: "center",
+          color: actions.hint.warn ? "var(--status-warning)" : "var(--text-muted)",
+          textWrap: "pretty",
+        }}
+      >
+        {actions.hint.text}
+      </span>
+    </div>
   );
 }
 

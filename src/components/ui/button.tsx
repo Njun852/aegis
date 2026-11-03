@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode, Ref } from "react";
 import { Icon } from "./icon";
 
 export type ButtonVariant =
@@ -65,6 +65,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   iconRight?: string;
   fullWidth?: boolean;
   children?: ReactNode;
+  /** React 19 passes a ref as a prop; it reaches the button, e.g. to move focus to it. */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 export function Button({

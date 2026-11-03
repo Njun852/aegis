@@ -85,6 +85,12 @@ export async function logFinanceEvent(
   });
 }
 
+/** How many events of one kind were logged since `since`, for a daily limit. */
+export async function countEventsSince(action: string, since: Date): Promise<number> {
+  const collection = await financeEvents();
+  return collection.countDocuments({ action, at: { $gte: since } });
+}
+
 /**
  * Who made a record and who last changed it. Records from before the change
  * that started keeping `updatedBy` have only `updatedAt`; an `updatedAt` equal

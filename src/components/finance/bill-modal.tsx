@@ -10,14 +10,16 @@ import { EXPENSE_CATEGORIES, MIN_CORRECTION_REASON, billInputProblem, termsDays 
 import { addDaysToKey } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
 import { amountInput, formatQuoteDay, parseAmount } from "@/lib/quotations";
+import { sameName } from "./company-folders";
 import { DuplicateNotice } from "./duplicate-notice";
 import { useFee } from "./fee-fields";
+import { ScanBox, scanAmount, useAttachScan, type Scan } from "./scan-fill";
 import { locked } from "./locked";
 import type { BillSummary, DuplicateMatch, ExpenseCategory, FeeRule, MoneyAccountSummary, PayeeOption, UnbilledReceipt } from "@/types";
 
 /**
  * Enters a bill, corrects one (`bill`), or makes one from a supplier receipt
- * (`receipt`). A bill already paid in full when it is entered, such as a cash
+ * (`receipt`), or starts one for a supplier's folder (`company`). A bill already paid in full when it is entered, such as a cash
  * purchase, records the payment with it. A correction needs a reason; a new
  * bill that looks like one on record is held until the person says it is
  * different.
@@ -25,6 +27,7 @@ import type { BillSummary, DuplicateMatch, ExpenseCategory, FeeRule, MoneyAccoun
 export function BillModal({
   bill,
   receipt,
+  company = null,
   payees,
   accounts,
   feeRules,
@@ -35,6 +38,8 @@ export function BillModal({
 }: {
   bill: BillSummary | null;
   receipt: UnbilledReceipt | null;
+  /** The supplier whose folder the new bill was started from. */
+  company?: { name: string; ref: string | null } | null;
   payees: PayeeOption[];
   /** Active accounts, to pay from. */
   accounts: MoneyAccountSummary[];
@@ -46,11 +51,16 @@ export function BillModal({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [payee, setPayee] = useState(bill?.payee ?? receipt?.supplierName ?? "");
+  const [payee, setPayee] = useState(bill?.payee ?? receipt?.supplierName ?? company?.name ?? "");
   const [reference, setReference] = useState(bill?.reference ?? receipt?.receiptNo ?? "");
   const [category, setCategory] = useState<ExpenseCategory>(bill?.category ?? "parts");
   const [billDate, setBillDate] = useState(bill?.billDate ?? receipt?.receivedDate ?? today);
-  const [dueDate, setDueDate] = useState(bill?.dueDate ?? receipt?.suggestedDueDate ?? "");
+  const [dueDate, setDueDate] = useState(() => {
+    if (bill) return bill.dueDate;
+    if (receipt) return receipt.suggestedDueDate ?? "";
+    const credit = company ? termsDays(payees.find((entry) => sameName(entry.name, company.name))?.terms ?? "") : null;
+    return credit !== null ? addDaysToKey(today, credit) : "";
+  });
   const [dueTouched, setDueTouched] = useState(Boolean(bill || receipt?.suggestedDueDate));
   const [amount, setAmount] = useState(bill ? amountInput(bill.amountCents) : receipt ? amountInput(receipt.totalCents) : "");
   const [person, setPerson] = useState(bill?.responsiblePerson ?? defaultPerson);
@@ -61,11 +71,14 @@ export function BillModal({
   const [reason, setReason] = useState("");
   const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scan, setScan] = useState<Scan | null>(null);
+  const attachScan = useAttachScan();
   const [pending, startTransition] = useTransition();
   const fee = useFee(feeRules, parseAmount(amount) || 0, "out");
 
-  const supplier = payees.find((entry) => entry.name.trim().toLowerCase() === payee.trim().toLowerCase()) ?? null;
-  const supplierRef = receipt?.supplierRef ?? bill?.supplierRef ?? supplier?.ref ?? null;
+  const supplier = payees.find((entry) => sameName(entry.name, payee)) ?? null;
+  const supplierRef =
+    receipt?.supplierRef ?? bill?.supplierRef ?? supplier?.ref ?? (company && sameName(company.name, payee) ? company.ref : null);
   const terms = receipt?.terms ?? supplier?.terms ?? "";
   const days = termsDays(terms);
   const moneyLocked = Boolean(bill && bill.paidCents > 0);
@@ -74,6 +87,29 @@ export function BillModal({
   const followTerms = (nextDate: string, nextTerms: string) => {
     const credit = termsDays(nextTerms);
     if (!dueTouched && credit !== null && /^\d{4}-\d{2}-\d{2}$/.test(nextDate)) setDueDate(addDaysToKey(nextDate, credit));
+  };
+
+  /** Puts what a scan read into the fields; anything it did not find is left as it was. */
+  const fill = (next: Scan) => {
+    const { read } = next;
+    setScan(next);
+    setDuplicates(null);
+    if (read.party) setPayee(read.party);
+    if (read.reference) setReference(read.reference);
+    if (read.date) setBillDate(read.date);
+    if (read.dueDate) {
+      setDueDate(read.dueDate);
+      setDueTouched(true);
+    } else if (read.date) {
+      followTerms(read.date, payees.find((entry) => sameName(entry.name, read.party))?.terms ?? "");
+    }
+    if (read.amountCents !== null) setAmount(scanAmount(read.amountCents));
+    if (read.category) setCategory(read.category);
+    if (read.description) setRemarks(read.description);
+    if (read.paid) {
+      setPaidNow(true);
+      if (read.date) setPaidOn(read.date);
+    }
   };
 
   const save = (confirmedDuplicates: string[] = []) => {
@@ -114,14 +150,15 @@ export function BillModal({
         return;
       }
       setDuplicates(null);
+      const attached = bill ? "" : await attachScan(result.ref, scan?.file);
       toast({
         tone: "success",
         title: bill ? `${result.ref} corrected` : `Bill ${result.ref} added`,
         description: bill
           ? "The reason and the old and new values are in its history."
-          : input.paidFrom
-            ? `${formatMoney(amountCents)} to ${payee.trim()}, recorded as paid.`
-            : `${formatMoney(amountCents)} to ${payee.trim()}, due ${formatQuoteDay(dueDate)}.`,
+          : (input.paidFrom
+              ? `${formatMoney(amountCents)} to ${payee.trim()}, recorded as paid.`
+              : `${formatMoney(amountCents)} to ${payee.trim()}, due ${formatQuoteDay(dueDate)}.`) + attached,
         key: "finance-bill",
       });
       router.refresh();
@@ -131,7 +168,7 @@ export function BillModal({
 
   return (
     <Modal
-      title={bill ? `Correct ${bill.ref}` : receipt ? `Bill from ${receipt.ref}` : "New bill"}
+      title={bill ? `Correct ${bill.ref}` : receipt ? `Bill from ${receipt.ref}` : company ? `New bill for ${company.name}` : "New bill"}
       icon="file-text"
       width={620}
       onClose={onClose}
@@ -146,6 +183,7 @@ export function BillModal({
         </>
       }
     >
+      {!bill && !receipt && <ScanBox scan={scan} expect="out" onScan={fill} />}
       {error && <Notice tone="error">{error}</Notice>}
       {duplicates && (
         <DuplicateNotice

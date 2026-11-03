@@ -5,7 +5,7 @@ import { requireModule } from "@/lib/dal/businesses";
 import { DuplicateError, financeActor } from "@/lib/dal/finance";
 import { addAttachment } from "@/lib/dal/finance-attachments";
 import { createFeeRule, updateFeeRule } from "@/lib/dal/finance-fees";
-import { addIntake, discardIntake, postIntake, readIntake } from "@/lib/dal/finance-intake";
+import { addIntake, discardIntake, postIntake, readIntake, scanForEntry } from "@/lib/dal/finance-intake";
 import { recordMoney, type MoneyEntryResult } from "@/lib/dal/finance-money";
 import {
   createAccount,
@@ -44,6 +44,7 @@ import type {
   FeeKind,
   FeeRuleInput,
   FinanceReportKind,
+  IntakeExtraction,
   IntakePostInput,
   IntakeStatus,
   InvoiceInput,
@@ -534,6 +535,20 @@ export async function readIntakeAction(ref: string): Promise<Result<{ status: In
     const actor = await financeActor();
     const result = await readIntake(text(ref, 20), business.name, actor);
     refresh();
+    return { ok: true, ...result };
+  });
+}
+
+/**
+ * Reads a scanned photo or PDF to fill in a bill, invoice or money form. The
+ * same reader, cache and daily limit as the Review Queue; nothing is saved.
+ */
+export async function scanDocumentAction(name: string, dataUrl: string): Promise<Result<{ read: IntakeExtraction; cached: boolean }>> {
+  const business = await requireModule("finance");
+  return guard(async () => {
+    const actor = await financeActor();
+    if (typeof dataUrl !== "string") throw new InputError("Scan a photo or a PDF.");
+    const result = await scanForEntry({ name: text(name, 120), dataUrl }, business.name, actor);
     return { ok: true, ...result };
   });
 }

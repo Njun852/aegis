@@ -288,7 +288,30 @@ assert.equal(suggested.length, 7, "the same suggestion twice is folded");
 assert.ok(suggested.every((entry) => entry.origin === "suggested"), "every suggestion stays marked as one");
 assert.equal(suggested[0].unitPriceCents, 350_000, "a suggestion on the price list gets the shop's own price");
 
-console.log("✓ photo replies validated; prices from photo, then cost at markup, then price list; suggestions never priced by the model");
+const request = parseQuotePhotoRead({
+  kind: "service_request",
+  summary: "Maintenance service request for a clutch repair.",
+  customerName: "",
+  company: "Sumifru Philippines Corporation",
+  customerPhone: "",
+  plate: "lgu 881",
+  makeModel: "Isuzu 2007 MT",
+  odometerKm: null,
+  lines: [
+    { section: "parts", description: "Clutch lining", qty: 1, unit: "", unitPrice: null, cost: null },
+    { section: "labor", description: "Turbo cleaning", qty: 1, unit: "", unitPrice: null, cost: null },
+  ],
+  warnings: [],
+});
+assert.ok(request, "a repair request is a kind the reader knows");
+assert.equal(request.company, "Sumifru Philippines Corporation", "the requesting company is kept for Bill to");
+assert.equal(request.plate, "LGU 881");
+const requested = draftLinesFromRead(request, priceList, 50);
+assert.equal(requested.length, 2, "every repair asked for becomes a line");
+assert.equal(requested[1].unitPriceCents, 350_000, "an unpriced request line takes the price list's price");
+assert.equal(requested[0].unitPriceCents, null, "and one not on the list is left for a person to price");
+
+console.log("✓ photo replies validated; prices from photo, then cost at markup, then price list; suggestions never priced by the model; repair requests become lines");
 
 // ---- Part two, continued: costing from stock and suppliers ---------------------------
 

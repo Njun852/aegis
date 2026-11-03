@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { createQuotationFromPhotoAction } from "@/app/actions/quotations";
+import { ScanPanel } from "@/components/forms/scan-panel";
 import { useToast } from "@/components/layout/toast-provider";
-import { Button } from "@/components/ui";
 import { shrinkImage } from "@/lib/image-resize";
 
 /** Under the server's 1 MB limit for one action, with room for the request around it. */
@@ -30,18 +30,16 @@ async function prepare(file: File): Promise<string> {
 }
 
 /**
- * Takes or picks a photo and turns it into a draft quotation. On a phone,
- * `capture` opens the camera; on a computer it is an ordinary file picker.
+ * The box at the top of a new quotation: scan a written estimate, a supplier
+ * receipt or the car, and AI drafts the quotation, with its lines priced from
+ * the price list, and opens it beside the photo for checking.
  */
-export function PhotoButton({ aiConfigured }: { aiConfigured: boolean }) {
+export function QuoteScanBox({ aiConfigured, dirty }: { aiConfigured: boolean; dirty: boolean }) {
   const router = useRouter();
   const toast = useToast();
-  const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
-  const read = async (file: File | undefined) => {
-    if (input.current) input.current.value = "";
-    if (!file) return;
+  const read = async (file: File) => {
     setBusy(true);
     toast({
       tone: "info",
@@ -57,7 +55,7 @@ export function PhotoButton({ aiConfigured }: { aiConfigured: boolean }) {
         toast({ tone: "error", title: "No draft made", description: result.error, key: "quote-photo" });
         return;
       }
-      toast({ tone: "success", title: `${result.ref} drafted from the photo`, description: result.note, key: "quote-photo", durationMs: 9000 });
+      toast({ tone: "success", title: `${result.ref} filled in from the scan`, description: result.note, key: "quote-photo", durationMs: 9000 });
       router.push(`/quotations/${encodeURIComponent(result.ref)}`);
     } catch (cause) {
       toast({
@@ -72,28 +70,22 @@ export function PhotoButton({ aiConfigured }: { aiConfigured: boolean }) {
   };
 
   return (
-    <>
-      <input
-        ref={input}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        hidden
-        onChange={(event) => void read(event.target.files?.[0])}
-      />
-      <Button
-        variant="secondary"
-        icon="image"
-        disabled={busy || !aiConfigured}
-        title={
-          aiConfigured
-            ? "Photograph a written estimate, a supplier receipt or the car, and get a draft to check"
-            : "Reading photos needs AI, which is not switched on for this workspace."
-        }
-        onClick={() => input.current?.click()}
-      >
-        {busy ? "Reading photo…" : "From photo"}
-      </Button>
-    </>
+    <ScanPanel
+      title="Fill in from a photo"
+      hint={
+        aiConfigured
+          ? `Photograph a written estimate, a supplier receipt or the car. AI fills in the quotation for you to check.${
+              dirty ? " It starts a fresh draft, so what is typed here is not kept." : ""
+            }`
+          : "Reading photos needs AI, which is not switched on for this workspace."
+      }
+      busy={busy}
+      buttonLabel="Scan document"
+      primary
+      accept="image/*"
+      disabled={!aiConfigured}
+      disabledReason="Reading photos needs AI, which is not switched on for this workspace."
+      onFile={(file) => void read(file)}
+    />
   );
 }

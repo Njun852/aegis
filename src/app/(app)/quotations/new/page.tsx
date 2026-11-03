@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
+import { isAiConfigured } from "@/lib/ai/client";
 import { QuoteEditor, type QuoteEditorPrefill } from "@/components/quotations/quote-editor";
 import { getBooking } from "@/lib/dal/bookings";
 import { getActiveBusiness } from "@/lib/dal/businesses";
@@ -50,6 +51,7 @@ export default async function NewQuotationPage(props: PageProps<"/quotations/new
     <QuoteEditor
       quotation={null}
       photo={null}
+      aiConfigured={isAiConfigured()}
       revisions={[]}
       events={[]}
       {...data}

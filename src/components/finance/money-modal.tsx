@@ -12,6 +12,7 @@ import { formatMoney } from "@/lib/format";
 import { parseAmount } from "@/lib/quotations";
 import { DuplicateNotice } from "./duplicate-notice";
 import { useFee } from "./fee-fields";
+import { ScanBox, scanAmount, useAttachScan, type Scan } from "./scan-fill";
 import type { DuplicateMatch, ExpenseCategory, FeeRule, MoneyAccountSummary, MoneyNature } from "@/types";
 
 /**
@@ -48,6 +49,8 @@ export function MoneyModal({
   const [category, setCategory] = useState<ExpenseCategory>("other");
   const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scan, setScan] = useState<Scan | null>(null);
+  const attachScan = useAttachScan();
   const [pending, startTransition] = useTransition();
 
   const entry = MONEY_NATURES.find((item) => item.key === nature)!;
@@ -60,6 +63,20 @@ export function MoneyModal({
     setDirection(next);
     setNature(next === "in" ? "sale" : "expense");
     setDuplicates(null);
+  };
+
+  /** Puts what a scan read into the fields: a receipt the business paid is money out, one it issued is money in. */
+  const fill = (next: Scan) => {
+    const { read } = next;
+    setScan(next);
+    if (read.direction !== direction) turn(read.direction);
+    else setDuplicates(null);
+    if (read.party) setParty(read.party);
+    if (read.reference) setReference(read.reference);
+    if (read.date) setPaidOn(read.date);
+    if (read.amountCents !== null) setAmount(scanAmount(read.amountCents));
+    if (read.description) setDescription(read.description);
+    if (read.direction === "out" && read.category) setCategory(read.category);
   };
 
   const save = (confirmedDuplicates: string[] = []) => {
@@ -90,6 +107,7 @@ export function MoneyModal({
         toast({ tone: "error", title: `Money ${direction} not recorded`, description: result.error, key: "finance-money" });
         return;
       }
+      const attached = await attachScan(result.ref, scan?.file);
       const moved = direction === "in" ? amountCents - (fee.fee?.cents ?? 0) : amountCents + (fee.fee?.cents ?? 0);
       toast({
         tone: "success",
@@ -101,7 +119,7 @@ export function MoneyModal({
             : entry.effect === "expense"
               ? `Counted as a cost in ${month}.`
               : "Not income or expense: it moves the balance only.",
-        ].join(" "),
+        ].join(" ") + attached,
         key: "finance-money",
         durationMs: 9000,
       });
@@ -140,6 +158,7 @@ export function MoneyModal({
         </>
       }
     >
+      <ScanBox scan={scan} expect={null} onScan={fill} />
       {error && <Notice tone="error">{error}</Notice>}
       {duplicates && (
         <DuplicateNotice

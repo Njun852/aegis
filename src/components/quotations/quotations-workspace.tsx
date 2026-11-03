@@ -7,7 +7,6 @@ import { activateOnKey } from "@/lib/interaction";
 import { QUOTE_STATUSES, filterQuotations, formatPeso, manilaDateKey, quoteStatusTone } from "@/lib/quotations";
 import { ColumnLabel } from "@/components/forms/form-kit";
 import { JobOrdersPanel } from "./job-orders-panel";
-import { PhotoButton } from "./photo-button";
 import { PriceListPanel } from "./price-list-panel";
 import { QuoteSettingsModal } from "./settings-modal";
 import type { JobOrderSummary, QuotationSettings, QuotationSummary, QuotePriceItem, QuoteStatusFilter } from "@/types";
@@ -24,7 +23,6 @@ export interface QuotationsWorkspaceProps {
   settings: QuotationSettings;
   tab: QuotationsTab;
   businessName: string;
-  aiConfigured: boolean;
 }
 
 export function QuotationsWorkspace({
@@ -34,7 +32,6 @@ export function QuotationsWorkspace({
   settings,
   tab,
   businessName,
-  aiConfigured,
 }: QuotationsWorkspaceProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -100,7 +97,6 @@ export function QuotationsWorkspace({
             <Button variant="secondary" icon="settings" onClick={() => setEditingSettings(true)}>
               Settings
             </Button>
-            <PhotoButton aiConfigured={aiConfigured} />
             <Button icon="plus" onClick={() => router.push("/quotations/new")}>
               New quotation
             </Button>
