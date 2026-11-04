@@ -29,8 +29,17 @@ export interface Business {
   /** "Industry · Plan", rendered as the row subtitle. */
   meta: string;
   onboarded: string;
-  /** Optional modules this business is entitled to, as sold. */
+  /**
+   * Optional modules this business is entitled to and the signed-in person's
+   * role includes. For an administrator, exactly what was sold.
+   */
   modules: OptionalModuleKey[];
+  /**
+   * Modules the business has but the signed-in person's role leaves out, core
+   * ones included, so a screen can say why it is closed. Empty for an
+   * administrator and for a member with no role.
+   */
+  roleHidden: ModuleKey[];
 }
 
 /** Which optional modules each business currently has, keyed by business id. */

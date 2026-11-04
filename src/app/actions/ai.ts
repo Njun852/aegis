@@ -10,6 +10,7 @@ import {
 } from "@/lib/ai/reply";
 import { generateInsight } from "@/lib/ai/insight";
 import { triageInbox } from "@/lib/ai/mail-triage";
+import { runAutoReplies } from "@/lib/mail/auto-reply-run";
 import { syncMailbox } from "@/lib/mail/ingest";
 import { explainMailFailure } from "@/lib/mail/failures";
 import { isAiConfigured } from "@/lib/ai/client";
@@ -92,6 +93,9 @@ export interface SyncInboxState {
   drafted: number;
   /** Messages still waiting for one, when the per-run cap was reached. */
   draftsPending: number;
+  /** Automatic replies that went out on this run, and ones the mailbox refused. */
+  autoReplied: number;
+  autoReplyFailed: number;
   note: string | null;
   /** A mailbox failure, worded for a person. Null when there is nothing wrong. */
   mailNote: string | null;
@@ -103,6 +107,8 @@ const QUIET: SyncInboxState = {
   pending: 0,
   drafted: 0,
   draftsPending: 0,
+  autoReplied: 0,
+  autoReplyFailed: 0,
   note: null,
   mailNote: null,
 };
@@ -163,6 +169,8 @@ async function syncInbox(): Promise<SyncInboxState> {
       pending: 0,
       drafted: 0,
       draftsPending: 0,
+      autoReplied: 0,
+      autoReplyFailed: 0,
       note: null,
       mailNote,
     };
@@ -178,7 +186,17 @@ async function syncInbox(): Promise<SyncInboxState> {
     ? { pending: 0, drafted: 0, stoppedBecause: null }
     : await draftInboxReplies();
 
-  if (retrieval.added > 0 || report.analysed > 0 || replies.drafted > 0) {
+  // Last, because it only reads what triage and drafting stored: no model call,
+  // so it runs even when drafting stopped early. Off unless an admin switched
+  // it on for this business.
+  const auto = await runAutoReplies();
+
+  if (
+    retrieval.added > 0 ||
+    report.analysed > 0 ||
+    replies.drafted > 0 ||
+    auto.sent + auto.failed + auto.held > 0
+  ) {
     revalidatePath("/mail");
     revalidatePath("/dashboard");
   }
@@ -191,6 +209,8 @@ async function syncInbox(): Promise<SyncInboxState> {
     pending: report.pending,
     drafted: replies.drafted,
     draftsPending: Math.max(0, replies.pending - replies.drafted),
+    autoReplied: auto.sent,
+    autoReplyFailed: auto.failed,
     note: stopped ? explainFailure(stopped) : null,
     mailNote,
   };

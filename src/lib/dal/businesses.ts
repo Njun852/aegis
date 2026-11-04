@@ -1,12 +1,15 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { modulesHiddenByRole, roleAllowsModule, type RoleHolder } from "@/lib/business-roles";
 import { RESERVED_SLUGS } from "@/lib/data/booking-page";
 import { CORE_MODULES, OPTIONAL_MODULE_KEYS } from "@/lib/data/businesses";
 import { businessesCollection, getDb } from "./db";
 import { InputError, isDuplicateKey } from "./refs";
 import { allowedBusinessIds, requireAdmin, verifySession } from "./session";
+import { membershipRoles } from "./users";
 import type {
+  AegisSession,
   Business,
   BusinessDocument,
   ModuleKey,
@@ -16,17 +19,35 @@ import type {
 
 const CORE_MODULE_KEYS: ModuleKey[] = CORE_MODULES.map((module) => module.key);
 
-function toBusiness(doc: BusinessDocument): Business {
+/** An administrator sees a business exactly as it was sold. */
+const UNRESTRICTED: RoleHolder = { role: "aegis_admin", businessRole: null };
+
+/**
+ * The business as the signed-in person may use it. The role narrows what was
+ * sold here, once, so every page that asks `modules.includes(...)`, the
+ * sidebar and `requireModule` all honour it without checking roles themselves.
+ */
+function toBusiness(doc: BusinessDocument, holder: RoleHolder = UNRESTRICTED): Business {
+  // Only modules still sold per business. One that has since become core
+  // (Finance) can linger in a stored list; it is everyone's now, so it is
+  // dropped here and leaves the record the next time the grants are saved.
+  const sold = doc.modules.filter((key) => OPTIONAL_MODULE_KEYS.includes(key));
+  const hidden = modulesHiddenByRole(holder);
   return {
     id: doc.businessId,
     name: doc.name,
     meta: doc.meta,
     onboarded: doc.onboarded,
-    // Only modules still sold per business. One that has since become core
-    // (Finance) can linger in a stored list; it is everyone's now, so it is
-    // dropped here and leaves the record the next time the grants are saved.
-    modules: doc.modules.filter((key) => OPTIONAL_MODULE_KEYS.includes(key)),
+    modules: sold.filter((key) => roleAllowsModule(holder, key)),
+    roleHidden: hidden.filter((key) => CORE_MODULE_KEYS.includes(key) || sold.includes(key as OptionalModuleKey)),
   };
+}
+
+/** The role the session holds in each business it can reach. */
+async function holdersFor(session: AegisSession): Promise<(businessId: string) => RoleHolder> {
+  if (session.role === "aegis_admin") return () => UNRESTRICTED;
+  const roles = await membershipRoles(session.userId);
+  return (businessId) => ({ role: session.role, businessRole: roles.get(businessId) ?? null });
 }
 
 /**
@@ -35,8 +56,9 @@ function toBusiness(doc: BusinessDocument): Business {
  * list both read this, so a member can never see another tenant in the list.
  */
 export async function listBusinessesForUser(): Promise<Business[]> {
-  const { userId, role } = await verifySession();
-  const allowed = await allowedBusinessIds(userId, role);
+  const session = await verifySession();
+  const allowed = await allowedBusinessIds(session.userId, session.role);
+  const holder = await holdersFor(session);
 
   const businesses = await businessesCollection();
   const docs = await businesses
@@ -44,20 +66,20 @@ export async function listBusinessesForUser(): Promise<Business[]> {
     .sort({ businessId: 1 })
     .toArray();
 
-  return docs.map(toBusiness);
+  return docs.map((doc) => toBusiness(doc, holder(doc.businessId)));
 }
 
 /** One business, but only if the caller is allowed to see it. */
 export async function getBusinessForUser(
   businessId: string,
 ): Promise<Business | null> {
-  const { userId, role } = await verifySession();
-  const allowed = await allowedBusinessIds(userId, role);
+  const session = await verifySession();
+  const allowed = await allowedBusinessIds(session.userId, session.role);
   if (!allowed.includes(businessId)) return null;
 
   const businesses = await businessesCollection();
   const doc = await businesses.findOne({ businessId });
-  return doc ? toBusiness(doc) : null;
+  return doc ? toBusiness(doc, (await holdersFor(session))(businessId)) : null;
 }
 
 /** The id format every business gets: BIZ-1001, BIZ-1002, and so on. */
@@ -158,10 +180,10 @@ export async function setModuleGrants(
 
 /** The business the request is scoped to, straight from the session. */
 export async function getActiveBusiness(): Promise<Business | null> {
-  const { activeBusinessId } = await verifySession();
+  const session = await verifySession();
   const businesses = await businessesCollection();
-  const doc = await businesses.findOne({ businessId: activeBusinessId });
-  return doc ? toBusiness(doc) : null;
+  const doc = await businesses.findOne({ businessId: session.activeBusinessId });
+  return doc ? toBusiness(doc, session) : null;
 }
 
 /**
@@ -173,6 +195,12 @@ export async function requireModule(key: ModuleKey): Promise<Business> {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
 
+  // The business has it, but this person's role does not: refused the same
+  // way as a module that was never sold, so a hand-crafted POST cannot reach
+  // a screen the sidebar hides.
+  if (business.roleHidden.includes(key)) {
+    throw new Error(`Your role at ${business.name} does not include ${key}.`);
+  }
   const core = CORE_MODULE_KEYS.includes(key);
   if (!core && !business.modules.includes(key as OptionalModuleKey)) {
     throw new Error(`The ${key} module is not enabled for ${business.name}.`);

@@ -37,7 +37,7 @@ export function MessageDetail({
 }: MessageDetailProps) {
   const priority = getPriorityStyle(message.priority);
   const policy = replyPolicy(message.category);
-  const { user } = useBusiness();
+  const { user, activeBusiness } = useBusiness();
   const toast = useToast();
   const { connected: mailboxConnected } = useSync();
   const [drafting, startDrafting] = useTransition();
@@ -219,7 +219,7 @@ export function MessageDetail({
       setSent(true);
       setSentReplies((replies) => [
         ...replies,
-        { body, sentAt: new Date().toISOString() },
+        { body, sentAt: new Date().toISOString(), auto: false },
       ]);
       setDraft("");
       setReveal(null);
@@ -422,6 +422,48 @@ export function MessageDetail({
             </div>
           )}
 
+          {/* What automatic replies decided, when they looked at this one.
+              A sent reply shows below as part of the thread instead. */}
+          {message.autoReply && message.autoReply.status !== "sent" && (
+            <div
+              role={message.autoReply.status === "failed" ? "alert" : undefined}
+              className="flex items-start gap-2"
+              style={{
+                fontSize: "12px",
+                lineHeight: "17px",
+                color: "var(--text-secondary)",
+                overflowWrap: "anywhere",
+              }}
+            >
+              <span
+                style={{
+                  color:
+                    message.autoReply.status === "failed"
+                      ? "var(--status-negative)"
+                      : "var(--text-muted)",
+                  flex: "0 0 auto",
+                  marginTop: 1,
+                }}
+              >
+                <Icon
+                  name={message.autoReply.status === "failed" ? "alert-triangle" : "clock"}
+                  size={14}
+                />
+              </span>
+              <span>
+                <b style={{ color: "var(--text-primary)" }}>
+                  {message.autoReply.status === "failed"
+                    ? "Automatic reply failed"
+                    : "Not answered automatically"}
+                </b>{" "}
+                — {message.autoReply.reason}.{" "}
+                {message.autoReply.status === "failed"
+                  ? "It will not be retried; answer it yourself."
+                  : "It is waiting for a person."}
+              </span>
+            </div>
+          )}
+
           {message.actionItems.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {message.actionItems.map((item) => (
@@ -465,10 +507,12 @@ export function MessageDetail({
             }}
           >
             <div className="flex items-center gap-2.5">
-              <Avatar name={user.name} size={28} />
+              <Avatar name={reply.auto ? activeBusiness.name : user.name} size={28} />
               <span className="flex min-w-0 flex-col leading-[1.3]">
                 <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-primary)" }}>
-                  {user.name}
+                  {/* An automatic reply was nobody's: it is credited to the
+                      business, never to whoever happens to be signed in. */}
+                  {reply.auto ? `${activeBusiness.name} · automatic reply` : user.name}
                 </span>
                 {/*
                   The signed-in user and the mailbox it actually left from.
@@ -491,8 +535,8 @@ export function MessageDetail({
                   gap: "4px",
                 }}
               >
-                <Icon name="check" size={12} />
-                Sent
+                <Icon name={reply.auto ? "send" : "check"} size={12} />
+                {reply.auto ? "Sent automatically" : "Sent"}
               </span>
             </div>
             <p

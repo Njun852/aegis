@@ -8,7 +8,7 @@ import { listUnbilledReceipts } from "./finance-bills";
 import { accountNamesOf, firstMonthOf, incomeOf, readBooksFor, standingOf, type Books } from "./finance-books";
 import { findReport, listArchive } from "./finance-close";
 import { listUninvoicedJobs } from "./finance-invoices";
-import { requireAdmin } from "./session";
+import { requireCapability } from "./session";
 import type {
   ArchiveMonth,
   Business,
@@ -33,7 +33,7 @@ import type {
 
 /** The signed-in administrator's business, and its records. */
 async function readBooks(): Promise<{ businessId: string; books: Books }> {
-  const { activeBusinessId } = await requireAdmin();
+  const { activeBusinessId } = await requireCapability("financeReports");
   return { businessId: activeBusinessId, books: await readBooksFor(activeBusinessId) };
 }
 
@@ -202,13 +202,13 @@ export async function loadOverview(business: Business): Promise<FinanceOverview 
 
 /** The signed-in business's month-end archive, for the Reports tab. */
 export async function loadArchive(): Promise<ArchiveMonth[]> {
-  const { activeBusinessId } = await requireAdmin();
+  const { activeBusinessId } = await requireCapability("financeReports");
   return listArchive(activeBusinessId);
 }
 
 /** One frozen revision, to view on screen with its own drill-down. */
 export async function loadReport(kind: FinanceReportKind, period: string, revision: number): Promise<FinanceReportView | null> {
-  const { activeBusinessId } = await requireAdmin();
+  const { activeBusinessId } = await requireCapability("financeReports");
   const doc = await findReport(activeBusinessId, kind, period, revision);
   if (!doc) return null;
   const { businessId, generatedAt, ...rest } = doc;

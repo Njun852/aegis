@@ -38,6 +38,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       businesses={businesses}
       activeBusinessId={session.activeBusinessId}
       user={user}
+      businessRole={session.businessRole}
     >
       <AppShell unreadCount={unread} mailFreshness={mailFreshness} ask={ask}>
         {children}

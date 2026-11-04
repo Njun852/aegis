@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useMemo, useTransition } from "react";
 import type { ReactNode } from "react";
 import { switchBusinessAction } from "@/app/actions/business";
-import { getBusiness, isModuleEnabled } from "@/lib/businesses";
-import type { AegisUser, Business, ModuleKey } from "@/types";
+import { can, type Capability } from "@/lib/business-roles";
+import { getBusiness, homePath, isModuleEnabled } from "@/lib/businesses";
+import type { AegisUser, Business, BusinessRole, ModuleKey } from "@/types";
 
 interface BusinessContextValue {
   /** Only the businesses this user may reach — the server already filtered. */
@@ -14,8 +15,14 @@ interface BusinessContextValue {
   activeBusinessId: string;
   user: AegisUser;
   isAdmin: boolean;
-  /** Core modules are always true; optional ones follow the stored grant. */
+  /** The role in the active business; null for an administrator or a member without one. */
+  businessRole: BusinessRole | null;
+  /** Follows the stored grant, narrowed by the role in the active business. */
   hasModule: (key: ModuleKey) => boolean;
+  /** Powers beyond a screen; for showing controls only — the server decides. */
+  can: (capability: Capability) => boolean;
+  /** Where this person lands in the active business. */
+  home: string;
   switchBusiness: (id: string) => void;
   switching: boolean;
 }
@@ -27,6 +34,7 @@ export interface BusinessProviderProps {
   businesses: Business[];
   activeBusinessId: string;
   user: AegisUser;
+  businessRole: BusinessRole | null;
 }
 
 /**
@@ -39,6 +47,7 @@ export function BusinessProvider({
   businesses,
   activeBusinessId,
   user,
+  businessRole,
 }: BusinessProviderProps) {
   const router = useRouter();
   const [switching, startTransition] = useTransition();
@@ -53,17 +62,21 @@ export function BusinessProvider({
       activeBusinessId: activeBusiness?.id ?? activeBusinessId,
       user,
       isAdmin: user.role === "aegis_admin",
+      businessRole,
       hasModule: (key: ModuleKey) => isModuleEnabled(activeBusiness, key),
+      can: (capability: Capability) => can({ role: user.role, businessRole }, capability),
+      home: homePath(activeBusiness),
       switching,
       switchBusiness: (id: string) => {
         startTransition(async () => {
           await switchBusinessAction(id);
+          // The Dashboard sends anyone whose role there lacks it to their own home.
           router.push("/dashboard");
           router.refresh();
         });
       },
     };
-  }, [activeBusinessId, businesses, router, switching, user]);
+  }, [activeBusinessId, businesses, businessRole, router, switching, user]);
 
   return (
     <BusinessContext.Provider value={value}>

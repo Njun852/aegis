@@ -7,7 +7,9 @@ import { computeDue } from "@/lib/fleet";
 import { formatMoney, withoutEmoji } from "@/lib/format";
 import { getDb } from "./db";
 import { readBooksFor, standingOf } from "./finance-books";
-import { allowedBusinessIds, requireAdmin } from "./session";
+import { redirect } from "next/navigation";
+import { allowedBusinessIds, verifySession } from "./session";
+import { membershipRoles } from "./users";
 import type {
   AdRowDocument,
   BoardItem,
@@ -487,12 +489,20 @@ async function boardFor(business: BusinessDocument, now: Date, days: string[]) {
 }
 
 /**
- * Every business the administrator may reach, each read on its own; one that
- * fails is shown as unavailable rather than hiding the rest.
+ * Every business the person may oversee — all of them for an administrator,
+ * the ones they own for an owner — each read on its own; one that fails is
+ * shown as unavailable rather than hiding the rest. Anyone who owns nothing is
+ * sent to their dashboard.
  */
 export async function loadOwnerBoard(now = new Date()): Promise<OwnerBoard> {
-  const { userId, role } = await requireAdmin();
-  const allowed = await allowedBusinessIds(userId, role);
+  const { userId, role } = await verifySession();
+  const allowed =
+    role === "aegis_admin"
+      ? await allowedBusinessIds(userId, role)
+      : [...(await membershipRoles(userId)).entries()]
+          .filter(([, businessRole]) => businessRole === "owner")
+          .map(([businessId]) => businessId);
+  if (allowed.length === 0) redirect("/dashboard");
   const db = await getDb();
   const businesses = await db
     .collection<BusinessDocument>("businesses")

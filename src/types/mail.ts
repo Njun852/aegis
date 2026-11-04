@@ -71,6 +71,22 @@ export interface MailMessage {
   suggestedReply: string | null;
   /** Replies actually sent from AEGIS, oldest first. */
   sentReplies: SentReply[];
+  /**
+   * What automatic replies decided about this message, or null when they never
+   * looked at it (switched off, or it was not yet eligible to be judged).
+   */
+  autoReply: MailAutoReplyOutcome | null;
+}
+
+/** `sent` went out, `failed` was tried once and refused, `held` waits for a person. */
+export type MailAutoReplyStatus = "sent" | "failed" | "held";
+
+export interface MailAutoReplyOutcome {
+  status: MailAutoReplyStatus;
+  /** Why it was held or failed, worded for a person. Empty when sent. */
+  reason: string;
+  /** ISO 8601. */
+  at: string;
 }
 
 export interface MailPriorityStyle {
@@ -107,6 +123,66 @@ export interface SentReply {
   body: string;
   /** ISO 8601 on the wire, a Date in storage. */
   sentAt: string;
+  /** True when AEGIS sent it on its own under the automatic-reply rule. */
+  auto: boolean;
+}
+
+/**
+ * The headers that say whether a machine sent a message and which conversation
+ * it belongs to, read at retrieval by `readMailSignals`.
+ */
+export interface MailSignals {
+  autoSubmitted: string | null;
+  precedence: string | null;
+  /** List-Id, List-Unsubscribe or a similar mailing-list header is present. */
+  mailingList: boolean;
+  autoResponseSuppress: string | null;
+  /** X-Autoreply or one of its relatives is present. */
+  autoReplyHeader: boolean;
+  /** Return-Path is `<>`: a bounce or delivery notice. */
+  returnPathEmpty: boolean;
+  /** The Message-ID that started the conversation, or this message's own. */
+  threadId: string;
+  /** Message-IDs this one answers, for threading a reply. At most ten. */
+  references: string[];
+}
+
+/** Stored on the business. Absent means switched off. */
+export interface MailAutoReplyConfig {
+  enabled: boolean;
+  /** Automatic replies per Manila day, counted across every attempt. */
+  dailyLimit: number;
+  /** When it was last switched on; mail that arrived earlier is never answered. */
+  enabledAt: Date | null;
+}
+
+/**
+ * One automatic reply, written before it is sent. The unique index on
+ * `{ businessId, threadId }` is what makes "once per conversation" hold even
+ * when two syncs race.
+ */
+export interface MailAutoReplyDocument {
+  businessId: string;
+  messageId: string;
+  threadId: string;
+  to: string;
+  subject: string;
+  body: string;
+  /** `sending` stays only if the process died mid-send; it is never retried. */
+  status: "sending" | "sent" | "failed";
+  reason: string;
+  createdAt: Date;
+}
+
+/** What the admin panel shows. */
+export interface MailAutoReplyPanelData {
+  enabled: boolean;
+  dailyLimit: number;
+  /** ISO 8601, or null while it has never been switched on. */
+  enabledAt: string | null;
+  mailboxConnected: boolean;
+  sentToday: number;
+  recent: { to: string; subject: string; status: MailAutoReplyDocument["status"]; reason: string; at: string }[];
 }
 
 export interface MailMessageDocument {
@@ -139,7 +215,11 @@ export interface MailMessageDocument {
    */
   replyPromptVersion: number | null;
   /** Sent replies, stored so a reload still shows what was sent. */
-  sentReplies?: { body: string; sentAt: Date }[];
+  sentReplies?: { body: string; sentAt: Date; auto?: boolean }[];
+  /** Absent on mail retrieved before headers were recorded, and on seeded mail. */
+  signals?: MailSignals;
+  /** Set once automatic replies have judged this message; it is judged once. */
+  autoReply?: { status: MailAutoReplyStatus; reason: string; at: Date };
   /**
    * How the mail server names this message. Needed to set the \Seen flag,
    * which is addressed by UID rather than by Message-ID. Absent on anything

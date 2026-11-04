@@ -9,6 +9,7 @@ import {
   setModuleGrants,
   setOnlineBooking,
 } from "@/lib/dal/businesses";
+import { saveAutoReply } from "@/lib/dal/mail-auto-reply";
 import { saveOwnerAlerts, sendTestAlert } from "@/lib/dal/owner-alerts";
 import { InputError } from "@/lib/dal/refs";
 import {
@@ -151,4 +152,22 @@ export async function sendTestAlertAction(
     if (error instanceof InputError) return { ok: false, error: error.message };
     throw error;
   }
+}
+
+/**
+ * Switches automatic mail replies on or off and sets the daily limit.
+ * Admin-only; `saveAutoReply` asserts the role.
+ */
+export async function saveMailAutoReplyAction(
+  businessId: string,
+  config: { enabled: boolean; dailyLimit: number },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await saveAutoReply(businessId, config);
+  } catch (error) {
+    if (error instanceof InputError) return { ok: false, error: error.message };
+    throw error;
+  }
+  revalidatePath(`/admin/businesses/${businessId}`);
+  return { ok: true };
 }

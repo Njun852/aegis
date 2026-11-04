@@ -12,7 +12,7 @@ import { getActiveBusiness } from "@/lib/dal/businesses";
 import { findCustomer, listCustomers } from "@/lib/dal/customers";
 import { findVehicleOption } from "@/lib/dal/fleet";
 import { readQuotationSettings } from "@/lib/dal/quotations";
-import { verifySession } from "@/lib/dal/session";
+import { hasCapability, verifySession } from "@/lib/dal/session";
 import { addDays, emptyLine, manilaDateKey, manilaDateTimeInput } from "@/lib/quotations";
 import { setBookingStatusAction } from "./bookings";
 import {
@@ -36,7 +36,7 @@ type AskResult =
  * and every question is logged whatever its outcome.
  */
 export async function askAegisAction(question: string, history: AskTurn[]): Promise<AskResult> {
-  const { userId, role } = await verifySession();
+  const { userId } = await verifySession();
   const business = await getActiveBusiness();
   if (!business) return { ok: false, error: "Sign in again to use Ask AEGIS." };
 
@@ -59,7 +59,8 @@ export async function askAegisAction(question: string, history: AskTurn[]): Prom
   }
 
   const result = await askAegis(business, text, Array.isArray(history) ? history : [], {
-    isAdmin: role === "aegis_admin",
+    // Only proposals this person could carry out themselves are offered.
+    isAdmin: await hasCapability("approvePricing"),
   });
   await recordAsk({
     userId,

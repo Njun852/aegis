@@ -35,6 +35,9 @@ export function isModuleEnabled(
   business: Business | undefined,
   key: ModuleKey,
 ): boolean {
+  // The signed-in person's role can close a module the business has, core
+  // ones included; the DAL has already worked out which.
+  if (business?.roleHidden.includes(key)) return false;
   if (CORE_MODULES.some((module) => module.key === key)) return true;
   return business?.modules.includes(key as OptionalModuleKey) ?? false;
 }
@@ -72,4 +75,15 @@ export function findStubPage(key: string) {
   const account = ACCOUNT_PAGES[key];
   if (account) return { key, ...account, core: true };
   return undefined;
+}
+
+/**
+ * Where a person lands: the Dashboard, or the first screen their role opens
+ * when it does not include the Dashboard. Every role includes Mail, so there
+ * is always somewhere to go.
+ */
+export function homePath(business: Business | undefined): string {
+  const order = [...CORE_MODULES, ...OPTIONAL_MODULES];
+  const first = order.find((module) => module.href && isModuleEnabled(business, module.key));
+  return first?.href ?? "/account";
 }

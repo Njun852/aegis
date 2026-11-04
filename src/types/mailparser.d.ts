@@ -24,6 +24,10 @@ declare module "mailparser" {
     html?: string | false;
     /** Plain text derived from the HTML part by mailparser itself. */
     textAsHtml?: string;
+    /** Every header, keyed in lower case; values are strings or structures. */
+    headers: Map<string, unknown>;
+    inReplyTo?: string;
+    references?: string | string[];
   }
 
   export function simpleParser(

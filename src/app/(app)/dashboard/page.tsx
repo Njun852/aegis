@@ -11,6 +11,7 @@ import { RevenueCard } from "@/components/dashboard/revenue-card";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedInsight } from "@/lib/ai/insight";
 import { redirect } from "next/navigation";
+import { homePath, isModuleEnabled } from "@/lib/businesses";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { loadDashboard } from "@/lib/dal/dashboard";
 import { listMessages } from "@/lib/dal/mail";
@@ -26,6 +27,9 @@ export const metadata: Metadata = {
 export default async function DashboardPage() {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
+  // Everyone is sent here after signing in; a role without the Dashboard goes
+  // on to its own first screen instead.
+  if (!isModuleEnabled(business, "dashboard")) redirect(homePath(business));
 
   // Every figure on the page comes from the business's own records; the
   // ranges are month-aligned, so one set of monthly aggregations answers all three.

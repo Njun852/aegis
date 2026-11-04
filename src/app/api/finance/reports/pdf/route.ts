@@ -1,3 +1,4 @@
+import { can } from "@/lib/business-roles";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { findReportPdf } from "@/lib/dal/finance-close";
 import { verifySession } from "@/lib/dal/session";
@@ -8,14 +9,15 @@ import { isMonthKey, isYearKey } from "@/lib/finance-periods";
  * A frozen report's PDF, exactly as it was made when the revision was
  * written: `?kind=income|standing&period=2026-09&rev=1`, or
  * `kind=annual-income|year-end-standing&period=2026`; inline for viewing,
- * `&download=1` to save. Administrators only, and only within the signed-in
+ * `&download=1` to save. For roles that see Finance's reports, and only within the signed-in
  * business: the business comes from the session, never from the request.
  */
 export async function GET(request: Request) {
   const business = await getActiveBusiness();
   if (!business) return new Response("No business is selected.", { status: 403 });
-  const { role, activeBusinessId } = await verifySession();
-  if (role !== "aegis_admin") return new Response("Reports are for administrators.", { status: 403 });
+  const session = await verifySession();
+  const { activeBusinessId } = session;
+  if (!can(session, "financeReports")) return new Response("Your role does not include Finance reports.", { status: 403 });
 
   const params = new URL(request.url).searchParams;
   const kind = params.get("kind");

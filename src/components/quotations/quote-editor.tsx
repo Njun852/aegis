@@ -448,7 +448,7 @@ export function QuoteEditor({
     }
     if (discountCents && !draft.discountReason.trim()) return "Say why the discount is given.";
     const odometer = parseWholeNumber(draft.odometer);
-    if (odometer === undefined) return "The odometer reading must be a whole number of km.";
+    if (odometer === undefined) return "The odometer reading must be a whole number of km, or left blank.";
     return {
       quoteDate: draft.quoteDate,
       validUntil: draft.validUntil,
@@ -707,7 +707,6 @@ export function QuoteEditor({
                   <input
                     style={INPUT}
                     type="email"
-                    placeholder="Only needed to email the quotation"
                     value={draft.billTo.email}
                     maxLength={120}
                     onChange={(event) => updateBillTo({ email: event.target.value })}
@@ -833,7 +832,7 @@ export function QuoteEditor({
                 </Field>
               )}
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Odometer (km)">
+                <Field label="Odometer (km)" optional>
                   <input
                     style={INPUT}
                     inputMode="numeric"

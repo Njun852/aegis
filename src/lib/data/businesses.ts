@@ -16,6 +16,7 @@ export const BUSINESSES: Business[] = [
     meta: "Automotive services · Enterprise",
     onboarded: "Aug 01, 2026",
     modules: ["bookings", "inventory", "crm"],
+    roleHidden: [],
   },
 ];
 

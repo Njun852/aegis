@@ -10,7 +10,7 @@ import {
 import { upsertFetchedMessages } from "@/lib/dal/mail";
 import { createImapSource } from "./imap-source";
 import type { MailFailure } from "./failures";
-import type { MailAttachment } from "./source";
+import type { MailAttachment, SendOptions } from "./source";
 
 /**
  * Retrieval: the step that replaced the seeded sample inbox.
@@ -113,11 +113,12 @@ export async function sendMail(
   subject: string,
   body: string,
   attachments: MailAttachment[] = [],
+  options: SendOptions = {},
 ): Promise<MailFailure | null> {
   const credentials = await readMailboxCredentials();
   if (!credentials) return "not-configured";
 
-  const result = await createImapSource(credentials).send(to, subject, body, attachments);
+  const result = await createImapSource(credentials).send(to, subject, body, attachments, options);
   return result.ok ? null : result.reason;
 }
 

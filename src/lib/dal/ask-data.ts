@@ -3,6 +3,7 @@ import "server-only";
 import { periodRange, type AskCall, type AskPeriod, type AskTool } from "@/lib/ask";
 import { phoneKey } from "@/lib/crm";
 import { plateKey } from "@/lib/fleet";
+import { isModuleEnabled } from "@/lib/businesses";
 import { formatPeso } from "@/lib/quotations";
 import { loadCampaignFunnel } from "./ad-funnel";
 import { listBookings } from "./bookings";
@@ -13,7 +14,7 @@ import { listInventory } from "./inventory";
 import { listJobOrderSummaries } from "./job-orders";
 import { listMessages } from "./mail";
 import { listQuotationSummaries } from "./quotations";
-import type { AdRange, Business, OptionalModuleKey } from "@/types";
+import type { AdRange, Business, ModuleKey } from "@/types";
 
 /**
  * What Ask AEGIS may read. Each tool is a read through the same tenant-scoped
@@ -27,25 +28,29 @@ import type { AdRange, Business, OptionalModuleKey } from "@/types";
 
 const LIST_LIMIT = 20;
 
-/** Which module each tool reads. `null` is available to every business. */
-const TOOL_MODULE: Record<AskTool, OptionalModuleKey | null> = {
+/**
+ * Which module each tool reads. `null` needs none. Core modules are listed
+ * too, because a role can leave them out: Ask must not answer from a screen
+ * the person cannot open.
+ */
+const TOOL_MODULE: Record<AskTool, ModuleKey | null> = {
   bookings: "bookings",
   quotations: "quotes",
   job_orders: "quotes",
-  ads: null,
-  money: null,
+  ads: "ads",
+  money: "finance",
   inventory: "inventory",
   customers: null,
   service_due: "fleet",
-  mail: null,
+  mail: "mail",
   app_help: null,
 };
 
 export function toolsFor(business: Business): AskTool[] {
   return (Object.keys(TOOL_MODULE) as AskTool[]).filter((tool) => {
     const needed = TOOL_MODULE[tool];
-    if (tool === "customers") return business.modules.includes("crm") || business.modules.includes("fleet");
-    return needed === null || business.modules.includes(needed);
+    if (tool === "customers") return isModuleEnabled(business, "crm") || isModuleEnabled(business, "fleet");
+    return needed === null || isModuleEnabled(business, needed);
   });
 }
 

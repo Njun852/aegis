@@ -1,22 +1,31 @@
 "use client";
 
-import { Building2, Car, ShieldCheck } from "lucide-react";
+import { Alfa_Slab_One, Exo_2, Share_Tech_Mono } from "next/font/google";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { preload } from "react-dom";
 import styles from "./boot-screen.module.css";
 
 /**
+ * The console lettering: a heavy slab for the five letters, a squared sans for
+ * their words and the status, and a narrow mono for the small spaced text.
+ * Loaded here rather than in the root layout, because nothing else uses them.
+ */
+const slab = Alfa_Slab_One({ subsets: ["latin"], weight: "400", variable: "--boot-slab" });
+const squared = Exo_2({ subsets: ["latin"], variable: "--boot-squared" });
+const mono = Share_Tech_Mono({ subsets: ["latin"], weight: "400", variable: "--boot-mono" });
+
+/**
  * The boot screen shown before sign-in: the AEGIS mark above the Earth's
- * night side, the start-up bar and the three systems coming online.
+ * night side and the start-up bar.
  *
  * The scene is the reference picture, split into layers: the Earth and space
- * as a plate with its logo, text and cards painted out, the motto as a layer
+ * as a plate with its logo and text painted out, the motto as a layer
  * of its own, and the mark from the current AEGIS logo (the one the sidebar and
  * the sign-in form use) as a light layer placed where the picture had its mark,
  * with its shape as the mask for the light that runs across the chrome. Under
- * the mark the name runs down the screen, one letter a line, each meaning typed
- * out beside its letter. The bar, the status and the cards are live on top,
- * placed where the picture has them.
+ * the mark the name runs down the screen, one framed letter a line, each
+ * meaning typed out beside its letter. The bar and the status are live on
+ * top, placed where the picture has them.
  *
  * It is decoration, so it must never stand between someone and the form: it
  * plays once per browser session, lasts about six seconds, any click or key
@@ -31,13 +40,6 @@ const REDUCED_MS = 900;
 const LOAD_WAIT_MS = 800;
 
 const ASSET = "/brand";
-
-/** The three systems the picture brings online, in its order. */
-const SYSTEMS = [
-  { name: "AUTOBLITZ", Icon: Car, appear: 0.3, online: 0.56 },
-  { name: "PRIMEWORKX", Icon: Building2, appear: 0.38, online: 0.7 },
-  { name: "AEGIS", Icon: ShieldCheck, appear: 0.46, online: 0.86 },
-];
 
 /** The name, a letter a line, and what each letter stands for. */
 const ACRONYM = [
@@ -166,7 +168,7 @@ export function BootScreen() {
 
   return (
     <div
-      className={`${styles.screen} ${phase === "leaving" ? styles.leaving : ""}`}
+      className={`${styles.screen} ${slab.variable} ${squared.variable} ${mono.variable} ${phase === "leaving" ? styles.leaving : ""}`}
       role="status"
       aria-label="AEGIS is starting. Press any key or click to skip."
       onClick={finish}
@@ -258,22 +260,6 @@ export function BootScreen() {
             aria-valuenow={filled}
           >
             <div className={styles.barFill} style={{ width: `${filled}%` }} />
-          </div>
-          <div className={styles.systems}>
-            {SYSTEMS.map(({ name, Icon, appear, online }) => {
-              const isOnline = progress >= online;
-              return (
-                <div key={name} className={`${styles.system} ${at(appear)}`}>
-                  <span className={styles.systemIcon}>
-                    <Icon strokeWidth={1.4} aria-hidden="true" />
-                  </span>
-                  <span className={styles.systemText}>
-                    <span className={styles.systemName}>{name}</span>
-                    <span className={`${styles.systemState} ${isOnline ? styles.online : ""}`}>{isOnline ? "ONLINE" : "STANDBY"}</span>
-                  </span>
-                </div>
-              );
-            })}
           </div>
           <div className={`${styles.footer} ${at(0.6)}`}>A STRONGER TOMORROW FOR A SMARTER BUSINESS</div>
         </div>

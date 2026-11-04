@@ -40,6 +40,7 @@ export async function createUserAction(input: {
   password: string;
   role: UserRole;
   businessIds: string[];
+  businessRoles: Record<string, string | null>;
 }): Promise<UserActionState> {
   const name = input.name.trim();
   const username = input.username.trim().toLowerCase();
@@ -67,6 +68,7 @@ export async function createUserAction(input: {
     password: input.password,
     role: input.role,
     businessIds: Array.isArray(input.businessIds) ? input.businessIds : [],
+    businessRoles: rolesFrom(input.businessRoles),
   });
 
   if (!result.ok) return { error: result.error, user: null };
@@ -102,6 +104,7 @@ export async function updateUserAction(
     name: string;
     role: UserRole;
     businessIds: string[];
+    businessRoles: Record<string, string | null>;
   },
 ): Promise<UserActionState> {
   const name = input.name.trim();
@@ -117,6 +120,7 @@ export async function updateUserAction(
     name,
     role: input.role,
     businessIds: Array.isArray(input.businessIds) ? input.businessIds : [],
+    businessRoles: rolesFrom(input.businessRoles),
   });
   if (!result.ok) return { error: result.error, user: null };
 
@@ -124,4 +128,9 @@ export async function updateUserAction(
   // changes which navigation the account sees.
   revalidatePath("/", "layout");
   return { error: null, user: result.user };
+}
+
+/** The roles as sent, as a plain object; each value is checked by the DAL. */
+function rolesFrom(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
 }

@@ -13,7 +13,11 @@ import { StandingPanel } from "@/components/finance/standing-panel";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedFinanceSummary } from "@/lib/ai/finance-summary";
 import { manilaDateKey } from "@/lib/booking-slots";
+import { ModulePage } from "@/components/modules/module-page";
+import { can } from "@/lib/business-roles";
+import { isModuleEnabled } from "@/lib/businesses";
 import { getActiveBusiness } from "@/lib/dal/businesses";
+import { verifySession } from "@/lib/dal/session";
 import { financeActor, listEventsFor } from "@/lib/dal/finance";
 import { listAccountSummaries, listCounts } from "@/lib/dal/finance-accounts";
 import { listAttachmentsFor } from "@/lib/dal/finance-attachments";
@@ -47,14 +51,19 @@ async function loadTrail(record: { ref: string; payments: { ref: string }[] } | 
 export default async function FinancePage(props: PageProps<"/finance">) {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
+  if (!isModuleEnabled(business, "finance")) return <ModulePage moduleKey="finance" />;
 
   const params = await props.searchParams;
-  const actor = await financeActor();
-  const isAdmin = actor.role === "aegis_admin";
-  // The owner's tabs are for administrators; a member asking for one gets
-  // their own default rather than an error.
-  const allowed = FINANCE_TABS.filter((entry) => isAdmin || !entry.adminOnly).map((entry) => entry.id);
-  const tab: FinanceTab = allowed.find((entry) => entry === params.tab) ?? defaultFinanceTab(isAdmin);
+  const [session, actor] = await Promise.all([verifySession(), financeActor()]);
+  // Two powers, by role: the owner's report tabs (Overview, Income, Standing,
+  // Reports), and keeping the books — money accounts, voids, resolving counts.
+  // The panels still call the second one `isAdmin`; it is the same check.
+  const canSeeReports = can(session, "financeReports");
+  const isAdmin = can(session, "financeBooks");
+  // A person asking for a report tab they cannot see gets their own default
+  // rather than an error.
+  const allowed = FINANCE_TABS.filter((entry) => canSeeReports || !entry.adminOnly).map((entry) => entry.id);
+  const tab: FinanceTab = allowed.find((entry) => entry === params.tab) ?? defaultFinanceTab(canSeeReports);
   const now = new Date();
   const today = manilaDateKey(now);
   const currentMonth = monthKeyOf(now);
@@ -190,7 +199,7 @@ export default async function FinancePage(props: PageProps<"/finance">) {
   }
 
   return (
-    <FinanceWorkspace tab={tab} isAdmin={isAdmin} alerts={alerts}>
+    <FinanceWorkspace tab={tab} isAdmin={canSeeReports} alerts={alerts}>
       {panel}
     </FinanceWorkspace>
   );

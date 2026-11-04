@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireModule } from "@/lib/dal/businesses";
 import { DuplicateError, financeActor } from "@/lib/dal/finance";
+import { hasCapability } from "@/lib/dal/session";
 import { addAttachment } from "@/lib/dal/finance-attachments";
 import { createFeeRule, updateFeeRule } from "@/lib/dal/finance-fees";
 import { addIntake, discardIntake, postIntake, readIntake, scanForEntry } from "@/lib/dal/finance-intake";
@@ -109,8 +110,8 @@ function refs(raw: unknown): string[] {
  */
 async function adminActor() {
   const actor = await financeActor();
-  if (actor.role !== "aegis_admin") {
-    throw new InputError("Only an administrator can do this. Ask one to set it up.");
+  if (!(await hasCapability("financeBooks"))) {
+    throw new InputError("Only an owner, accounting or an administrator can do this. Ask one to set it up.");
   }
   return actor;
 }

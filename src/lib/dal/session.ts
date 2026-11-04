@@ -4,9 +4,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { auth } from "@/auth";
+import { can, type Capability } from "@/lib/business-roles";
 import { businessesCollection } from "./db";
-import { findUserById, membershipBusinessIds } from "./users";
-import type { AegisSession } from "@/types";
+import { findUserById, membershipBusinessIds, membershipRoles } from "./users";
+import type { AegisSession, BusinessRole } from "@/types";
 
 export const ACTIVE_BUSINESS_COOKIE = "aegis.active_business";
 
@@ -61,7 +62,12 @@ export const verifySession = cache(async (): Promise<AegisSession> => {
     redirect("/login");
   }
 
-  return { userId: user.userId, role: user.role, activeBusinessId };
+  return {
+    userId: user.userId,
+    role: user.role,
+    activeBusinessId,
+    businessRole: await businessRoleFor(user.userId, user.role, activeBusinessId),
+  };
 });
 
 /** Null instead of a redirect — for callers that must not bounce, like /login. */
@@ -76,8 +82,23 @@ export const optionalSession = cache(async (): Promise<AegisSession | null> => {
   );
   if (!activeBusinessId) return null;
 
-  return { userId: user.userId, role: user.role, activeBusinessId };
+  return {
+    userId: user.userId,
+    role: user.role,
+    activeBusinessId,
+    businessRole: await businessRoleFor(user.userId, user.role, activeBusinessId),
+  };
 });
+
+/** A member's role in one business. Administrators hold none; they need none. */
+async function businessRoleFor(
+  userId: string,
+  role: AegisSession["role"],
+  businessId: string,
+): Promise<BusinessRole | null> {
+  if (role === "aegis_admin") return null;
+  return (await membershipRoles(userId)).get(businessId) ?? null;
+}
 
 /**
  * The active business comes from a cookie, so it is attacker-controlled input.
@@ -117,6 +138,25 @@ export async function allowedBusinessIds(
     return docs.map((doc) => doc.businessId);
   }
   return membershipBusinessIds(userId);
+}
+
+/**
+ * Guards a power beyond opening a screen: Finance's reports and books,
+ * approving pricing, the Owner Board. Decided by the role in the active
+ * business, read back from the database on every request like the rest of
+ * the session.
+ */
+export async function requireCapability(capability: Capability): Promise<AegisSession> {
+  const session = await verifySession();
+  if (!can(session, capability)) {
+    redirect("/dashboard");
+  }
+  return session;
+}
+
+/** Whether the signed-in person holds a power, without redirecting. */
+export async function hasCapability(capability: Capability): Promise<boolean> {
+  return can(await verifySession(), capability);
 }
 
 /** Guards the AEGIS-internal screens. Members never reach /admin. */

@@ -1,3 +1,4 @@
+import { can } from "@/lib/business-roles";
 import "server-only";
 
 import { listBookings } from "@/lib/dal/bookings";
@@ -64,7 +65,8 @@ export async function loadEditorData(business: Business) {
     fleetEnabled,
     mailConnected,
     businessName: business.name,
-    isAdmin: session.role === "aegis_admin",
+    // Named for what it was; it now means "may approve pricing", which owners can too.
+    isAdmin: can(session, "approvePricing"),
     defaults: { quoteDate, validUntil: addDays(quoteDate, settings.validDays), notes: settings.notes },
   };
 }

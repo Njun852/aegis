@@ -94,7 +94,8 @@ export function SyncProvider({
     setSyncing(true);
     try {
       const response = await fetch("/api/sync/mail", { method: "POST" });
-      if (!response.ok) return null;
+      // 204: this role has no Mail, so there was nothing to sync.
+      if (!response.ok || response.status === 204) return null;
       const result = (await response.json()) as MailSyncResult;
       setState((current) => ({
         ...current,

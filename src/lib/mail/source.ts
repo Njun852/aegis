@@ -1,3 +1,4 @@
+import type { MailSignals } from "@/types";
 import type { MailFailure } from "./failures";
 
 /**
@@ -31,6 +32,8 @@ export interface FetchedMessage {
    */
   uid: number;
   uidValidity: string;
+  /** Whether a machine sent it, and which conversation it belongs to. */
+  signals: MailSignals;
 }
 
 /**
@@ -82,7 +85,21 @@ export interface MailSource {
     subject: string,
     body: string,
     attachments?: MailAttachment[],
+    options?: SendOptions,
   ): Promise<MailOutcome<true>>;
+}
+
+/** Threading and the marks an automatic reply carries. */
+export interface SendOptions {
+  /** The Message-ID being answered. */
+  inReplyTo?: string;
+  references?: string[];
+  /**
+   * Marks the message as sent by a machine (RFC 3834 `Auto-Submitted:
+   * auto-replied`) and asks other systems not to auto-reply to it, so two
+   * auto-responders cannot answer each other for ever.
+   */
+  automatic?: boolean;
 }
 
 /** A file sent with a message, built on the server: a quotation PDF. */

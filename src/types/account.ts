@@ -1,5 +1,6 @@
 import type { MetaAdsConfig } from "./ads";
 import type { OptionalModuleKey } from "./business";
+import type { MailAutoReplyConfig } from "./mail";
 import type { OwnerAlertConfig } from "./owner-alerts";
 import type { QuotationConfig } from "./quotations";
 import type { TextBlastConfig } from "./text-blast";
@@ -9,6 +10,12 @@ import type { TextBlastConfig } from "./text-blast";
  * businesses they hold a membership for.
  */
 export type UserRole = "aegis_admin" | "member";
+
+/**
+ * What a member does in one business; see `src/lib/business-roles.ts`. A
+ * membership without one keeps the access members had before roles existed.
+ */
+export type BusinessRole = "owner" | "service_advisor" | "accounting" | "marketing_admin";
 
 export interface AegisUser {
   id: string;
@@ -23,6 +30,8 @@ export interface AegisUser {
 export interface Membership {
   userId: string;
   businessId: string;
+  /** Absent until an administrator picks one. */
+  role?: BusinessRole;
 }
 
 /** An account as the Users screen sees it. Never carries a password or hash. */
@@ -33,6 +42,8 @@ export interface ManagedUser {
   role: UserRole;
   /** Businesses a member may reach. Empty for administrators, who reach all. */
   businessIds: string[];
+  /** The member's role in each of those businesses; null where none is set. */
+  businessRoles: Record<string, BusinessRole | null>;
   /** ISO 8601. */
   createdAt: string;
 }
@@ -43,6 +54,8 @@ export interface AegisSession {
   role: UserRole;
   /** Already validated against the user's memberships — safe to filter on. */
   activeBusinessId: string;
+  /** The member's role in the active business. Null for administrators, and for a member without one. */
+  businessRole: BusinessRole | null;
 }
 
 /** Stored shape of `businesses`. `modules` is the entitlement grant. */
@@ -80,6 +93,8 @@ export interface BusinessDocument {
   quotation?: QuotationConfig;
   /** Absent until an admin saves owner text alerts; treated as switched off. */
   ownerAlerts?: OwnerAlertConfig;
+  /** Absent until an admin switches automatic mail replies on; treated as off. */
+  mailAutoReply?: MailAutoReplyConfig;
 }
 
 /**

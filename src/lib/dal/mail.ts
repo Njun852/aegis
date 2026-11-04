@@ -54,7 +54,11 @@ function toMessage(doc: MailMessageDocument): MailMessage {
     sentReplies: (doc.sentReplies ?? []).map((reply) => ({
       body: reply.body,
       sentAt: reply.sentAt.toISOString(),
+      auto: reply.auto === true,
     })),
+    autoReply: doc.autoReply
+      ? { status: doc.autoReply.status, reason: doc.autoReply.reason, at: doc.autoReply.at.toISOString() }
+      : null,
   };
 }
 
@@ -122,6 +126,7 @@ export async function upsertFetchedMessages(
           unread: message.unread,
           uid: message.uid,
           uidValidity: message.uidValidity,
+          signals: message.signals,
           time: formatStamp(message.receivedAt),
           date: formatDay(message.receivedAt),
         },

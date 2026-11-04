@@ -24,6 +24,7 @@ import { FLEET_INDEXES } from "../src/lib/data/fleet.ts";
 import { TEXT_BLAST_INDEXES } from "../src/lib/data/text-blast.ts";
 import { QUOTATION_INDEXES } from "../src/lib/data/quotations.ts";
 import { OWNER_ALERT_INDEXES } from "../src/lib/data/owner-alerts.ts";
+import { MAIL_AUTO_REPLY_INDEXES } from "../src/lib/data/mail-auto-reply.ts";
 import { ASK_INDEXES } from "../src/lib/data/ask.ts";
 import { SUPPLIER_INDEXES } from "../src/lib/data/suppliers.ts";
 import { FINANCE_INDEXES } from "../src/lib/data/finance.ts";
@@ -462,6 +463,10 @@ async function seedMail(db: Db, businessId: string) {
   await db
     .collection("mailSync")
     .createIndex({ businessId: 1 }, { unique: true });
+  // Automatic replies: once per conversation, and the daily limit.
+  for (const index of MAIL_AUTO_REPLY_INDEXES) {
+    await db.collection(index.collection).createIndex(index.keys, index.options ?? {});
+  }
 
   /**
    * No sample inbox is seeded any more.

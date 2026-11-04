@@ -36,6 +36,7 @@ import {
   updateQuotation,
 } from "@/lib/dal/quotations";
 import { InputError } from "@/lib/dal/refs";
+import { hasCapability } from "@/lib/dal/session";
 import { explainMailFailure } from "@/lib/mail/failures";
 import { sendMail } from "@/lib/mail/ingest";
 import { quotePdfFilename, renderQuotePdf } from "@/lib/quote-pdf";
@@ -43,6 +44,7 @@ import { describeRead, draftLinesFromRead } from "@/lib/quote-photo";
 import { applyCostSources } from "@/lib/quote-costing";
 import { listCostSources } from "@/lib/dal/quote-costing";
 import {
+  JOB_ORDER_STATUSES,
   MAX_AMOUNT_CENTS,
   MAX_LINES,
   MAX_QTY,
@@ -62,7 +64,6 @@ import {
   specialPricingReason,
 } from "@/lib/quotations";
 import type {
-  JobOrderStatus,
   QuotationConfig,
   QuotationInput,
   QuoteBillTo,
@@ -182,7 +183,7 @@ async function readInput(
     odometer !== undefined &&
     (typeof odometer !== "number" || !Number.isInteger(odometer) || odometer < 0 || odometer > 9_999_999)
   ) {
-    throw new InputError("The odometer reading must be a whole number of km.");
+    throw new InputError("The odometer reading must be a whole number of km, or left blank.");
   }
 
   // A link to a record is kept only when the record is this business's and
@@ -291,13 +292,13 @@ export async function saveQuotationAction(
 }
 
 /**
- * A member saved a discount or a below-cost price: the owner is texted once
- * for exactly that pricing, so they can open it and approve. An administrator
- * saving it can approve it themselves and is not texted about their own work.
+ * Someone who cannot approve pricing saved a discount or a below-cost price:
+ * the owner is texted once for exactly that pricing, so they can open it and
+ * approve. Someone who can approve it is not texted about their own work.
  */
 async function alertIfApprovalNeeded(businessName: string, ref: string): Promise<void> {
+  if (await hasCapability("approvePricing")) return;
   const actor = await currentQuoteActor();
-  if (actor.role === "aegis_admin") return;
   const quotation = await findQuotation(ref);
   if (!quotation || pricingCleared(quotation)) return;
   await notifyOwner(
@@ -404,13 +405,12 @@ export async function markQuotationGivenAction(ref: string, how: string): Promis
 
 // ---- Approvals --------------------------------------------------------------------
 
-/** Administrators only. A member can type a discount but not agree to it. */
+/** Owners and administrators. Anyone else can type a discount but not agree to it. */
 export async function approveSpecialPricingAction(ref: string, key: string): Promise<Result> {
   await requireModule("quotes");
   return guard(async () => {
-    const actor = await currentQuoteActor();
-    if (actor.role !== "aegis_admin") {
-      throw new InputError("Only an administrator can approve a discount or a price below cost.");
+    if (!(await hasCapability("approvePricing"))) {
+      throw new InputError("Only an owner or an administrator can approve a discount or a price below cost.");
     }
     await approveSpecialPricing(ref, typeof key === "string" ? key : "");
     refresh(ref);
@@ -524,15 +524,13 @@ export async function convertToJobOrderAction(
   });
 }
 
-const JOB_STATUSES: JobOrderStatus[] = ["Open", "In progress", "Completed", "Cancelled"];
-
 export async function setJobOrderStatusAction(
   ref: string,
   status: string,
 ): Promise<Result<{ bookingNote: string | null }>> {
   const business = await requireModule("quotes");
   return guard(async () => {
-    const next = JOB_STATUSES.find((entry) => entry === status);
+    const next = JOB_ORDER_STATUSES.find((entry) => entry === status);
     if (!next) throw new InputError("Unknown job order status.");
     const { bookingNote } = await setJobOrderStatus(ref, next, {
       bookingsEnabled: business.modules.includes("bookings"),

@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { Badge, Icon } from "@/components/ui";
 import { ColumnLabel } from "@/components/forms/form-kit";
 import { activateOnKey } from "@/lib/interaction";
-import { formatPeso } from "@/lib/quotations";
+import { JOB_ORDER_STATUSES, filterJobOrders, formatPeso } from "@/lib/quotations";
 import type { JobOrderStatus, JobOrderSummary } from "@/types";
 
 const GRID =
@@ -23,9 +24,14 @@ export function jobStatusTone(status: JobOrderStatus): "positive" | "warning" | 
   }
 }
 
-/** Every job order, newest activity first. They are made from approved quotations, never typed in. */
-export function JobOrdersPanel({ jobOrders }: { jobOrders: JobOrderSummary[] }) {
+/**
+ * Every job order, newest activity first, narrowed by status and by the search
+ * box above the tabs. They are made from approved quotations, never typed in.
+ */
+export function JobOrdersPanel({ jobOrders, search }: { jobOrders: JobOrderSummary[]; search: string }) {
   const router = useRouter();
+  const [status, setStatus] = useState<JobOrderStatus | "All">("All");
+  const visible = useMemo(() => filterJobOrders(jobOrders, { status, search }), [jobOrders, status, search]);
   return (
     <section
       style={{
@@ -40,6 +46,44 @@ export function JobOrdersPanel({ jobOrders }: { jobOrders: JobOrderSummary[] }) 
         minWidth: 0,
       }}
     >
+      <div className="flex flex-wrap items-center gap-2">
+        {(["All", ...JOB_ORDER_STATUSES] as const).map((filter) => {
+          const active = status === filter;
+          const count = filter === "All" ? jobOrders.length : jobOrders.filter((job) => job.status === filter).length;
+          // Like the quotation chips: a status with nothing in it is not offered.
+          if (filter !== "All" && count === 0 && !active) return null;
+          return (
+            <button
+              key={filter}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setStatus(filter)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "7px",
+                height: 30,
+                padding: "0 12px",
+                borderRadius: "var(--radius-pill)",
+                border: `1px solid ${active ? "var(--blue-200)" : "var(--border-default)"}`,
+                cursor: "pointer",
+                fontFamily: "var(--font-body)",
+                fontSize: "12px",
+                fontWeight: active ? 700 : 500,
+                color: active ? "var(--blue-600)" : "var(--text-primary)",
+                background: active ? "var(--accent-soft)" : "var(--surface-card)",
+              }}
+            >
+              {filter}
+              <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>{count}</span>
+            </button>
+          );
+        })}
+        <span className="ml-auto" style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+          {visible.length} of {jobOrders.length} shown · latest first
+        </span>
+      </div>
+
       <div className={GRID} style={{ padding: "0 10px 8px", borderBottom: "1px solid var(--border-subtle)" }}>
         <ColumnLabel>Job no</ColumnLabel>
         <ColumnLabel>Customer</ColumnLabel>
@@ -50,7 +94,7 @@ export function JobOrdersPanel({ jobOrders }: { jobOrders: JobOrderSummary[] }) 
         <span />
       </div>
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {jobOrders.map((job) => {
+        {visible.map((job) => {
           const open = () => router.push(`/quotations/jobs/${encodeURIComponent(job.ref)}`);
           return (
             <div
@@ -92,9 +136,11 @@ export function JobOrdersPanel({ jobOrders }: { jobOrders: JobOrderSummary[] }) 
             </div>
           );
         })}
-        {jobOrders.length === 0 && (
+        {visible.length === 0 && (
           <div style={{ padding: "30px 10px", textAlign: "center", fontSize: "12.5px", color: "var(--text-muted)", textWrap: "pretty" }}>
-            No job orders yet. Record a customer&apos;s approval on a quotation, then use “Make job order”.
+            {jobOrders.length === 0
+              ? "No job orders yet. Record a customer’s approval on a quotation, then use “Make job order”."
+              : "No job orders match this search."}
           </div>
         )}
       </div>

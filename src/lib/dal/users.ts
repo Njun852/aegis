@@ -3,7 +3,8 @@ import "server-only";
 import { ObjectId } from "mongodb";
 import { verifyPassword } from "@/lib/auth/password";
 import { membershipsCollection, usersCollection } from "./db";
-import type { AegisUser } from "@/types";
+import { isBusinessRole } from "@/lib/business-roles";
+import type { AegisUser, BusinessRole } from "@/types";
 
 /**
  * Used by the Credentials provider during sign-in, so it deliberately does NOT
@@ -48,7 +49,16 @@ export async function findUserById(userId: string): Promise<AegisUser | null> {
 
 /** The business ids a member may switch to. Admins are not limited by this. */
 export async function membershipBusinessIds(userId: string): Promise<string[]> {
+  return [...(await membershipRoles(userId)).keys()];
+}
+
+/**
+ * Each business a member belongs to, with their role there. A stored value
+ * that is not a known role reads as none, which is the narrower reading: no
+ * owner powers, rather than a typo granting them.
+ */
+export async function membershipRoles(userId: string): Promise<Map<string, BusinessRole | null>> {
   const memberships = await membershipsCollection();
   const docs = await memberships.find({ userId }).toArray();
-  return docs.map((doc) => doc.businessId);
+  return new Map(docs.map((doc) => [doc.businessId, isBusinessRole(doc.role) ? doc.role : null]));
 }

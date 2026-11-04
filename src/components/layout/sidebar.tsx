@@ -7,8 +7,9 @@ import { BusinessSwitcher } from "@/components/business/business-switcher";
 import { Avatar, Button, IconButton, NavItem, UserChip } from "@/components/ui";
 import { OPTIONAL_MODULES } from "@/lib/data/businesses";
 import { INTERNAL_NAV, WORKSPACE_NAV } from "@/lib/data/workspace";
+import { businessRoleLabel } from "@/lib/business-roles";
 import { roleLabel } from "@/lib/roles";
-import type { OptionalModuleKey } from "@/types";
+import type { ModuleKey, OptionalModuleKey } from "@/types";
 
 export interface SidebarProps {
   collapsed: boolean;
@@ -29,7 +30,16 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { activeBusiness, hasModule, isAdmin, user } = useBusiness();
+  const { activeBusiness, businessRole, can, hasModule, isAdmin, user } = useBusiness();
+  // Screens the role leaves out are not shown at all; a module the business
+  // never bought stays visible, dimmed, as it always has.
+  const workspaceNav = WORKSPACE_NAV.filter((item) => {
+    const key = item.href.slice(1) as ModuleKey;
+    return !activeBusiness.roleHidden.includes(key);
+  });
+  const optionalModules = OPTIONAL_MODULES.filter((module) => !activeBusiness.roleHidden.includes(module.key));
+  // Owners see the Owner Board; the rest of the internal screens are AEGIS staff only.
+  const internalNav = INTERNAL_NAV.filter((item) => (item.href === "/owner" ? can("ownerBoard") : isAdmin));
 
   const go = (href: string) => {
     onNavigate();
@@ -79,7 +89,7 @@ export function Sidebar({
               alignItems: "center",
             }}
           >
-            {WORKSPACE_NAV.map((item) => (
+            {workspaceNav.map((item) => (
               <IconButton
                 key={item.href}
                 icon={item.icon}
@@ -92,7 +102,7 @@ export function Sidebar({
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            {WORKSPACE_NAV.map((item) => (
+            {workspaceNav.map((item) => (
               <NavItem
                 key={item.href}
                 href={item.href}
@@ -120,7 +130,7 @@ export function Sidebar({
             alignItems: collapsed ? "center" : "stretch",
           }}
         >
-          {OPTIONAL_MODULES.map((module) => {
+          {optionalModules.map((module) => {
             const key = module.key as OptionalModuleKey;
             const enabled = hasModule(key);
             // Entitled modules go to their own route. The rest land on the
@@ -168,7 +178,7 @@ export function Sidebar({
           })}
         </div>
 
-        {isAdmin && (
+        {internalNav.length > 0 && (
           <>
             {collapsed ? (
               <Divider />
@@ -186,7 +196,7 @@ export function Sidebar({
                 alignItems: collapsed ? "center" : "stretch",
               }}
             >
-              {INTERNAL_NAV.map((item) =>
+              {internalNav.map((item) =>
                 collapsed ? (
                   <IconButton
                     key={item.href}
@@ -201,7 +211,7 @@ export function Sidebar({
                       href={item.href}
                       icon={item.icon}
                       label={item.label}
-                      badge="Admin"
+                      badge={isAdmin ? "Admin" : "Owner"}
                       active={pathname.startsWith(item.href)}
                       onClick={onNavigate}
                     />
@@ -302,7 +312,7 @@ export function Sidebar({
              whoever was actually signed in. */
           <UserChip
             name={user.name}
-            plan={roleLabel(user.role)}
+            plan={isAdmin ? roleLabel(user.role) : businessRoleLabel(businessRole)}
             onMenu={onToggleUserMenu}
           />
         )}

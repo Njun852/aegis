@@ -36,6 +36,8 @@ export function QuotationsWorkspace({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<QuoteStatusFilter>("All");
+  // Kept apart from the quotation search, so switching tabs does not carry a filter across.
+  const [jobSearch, setJobSearch] = useState("");
   const [editingSettings, setEditingSettings] = useState(false);
 
   const visible = useMemo(() => filterQuotations(quotations, { status, search }), [quotations, status, search]);
@@ -93,6 +95,9 @@ export function QuotationsWorkspace({
           <div className="flex flex-wrap items-center gap-2.5">
             {tab === "quotations" && (
               <SearchInput placeholder="Search ref, customer, plate..." value={search} onChange={setSearch} width={240} />
+            )}
+            {tab === "jobs" && (
+              <SearchInput placeholder="Search job no, customer, plate..." value={jobSearch} onChange={setJobSearch} width={240} />
             )}
             <Button variant="secondary" icon="settings" onClick={() => setEditingSettings(true)}>
               Settings
@@ -195,7 +200,7 @@ export function QuotationsWorkspace({
         {tab === "prices" ? (
           <PriceListPanel items={priceItems} markupPercent={settings.markupPercent} />
         ) : tab === "jobs" ? (
-          <JobOrdersPanel jobOrders={jobOrders} />
+          <JobOrdersPanel jobOrders={jobOrders} search={jobSearch} />
         ) : (
           <section
             style={{

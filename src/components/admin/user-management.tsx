@@ -11,9 +11,13 @@ import {
   setUserPasswordAction,
   updateUserAction,
 } from "@/app/actions/users";
+import { BUSINESS_ROLES, DEFAULT_BUSINESS_ROLE, businessRoleLabel, isBusinessRole } from "@/lib/business-roles";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password-policy";
 import { roleLabel } from "@/lib/roles";
-import type { Business, ManagedUser, UserRole } from "@/types";
+import type { Business, BusinessRole, ManagedUser, UserRole } from "@/types";
+
+/** A member's role in each business they reach; null is a membership from before roles. */
+type BusinessRoles = Record<string, BusinessRole | null>;
 
 export interface UserManagementProps {
   users: ManagedUser[];
@@ -24,6 +28,7 @@ interface EditDraft {
   name: string;
   role: UserRole;
   businessIds: string[];
+  businessRoles: BusinessRoles;
 }
 
 /**
@@ -47,6 +52,7 @@ export function UserManagement({ users }: UserManagementProps) {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("aegis_admin");
   const [businessIds, setBusinessIds] = useState<string[]>([]);
+  const [businessRoles, setBusinessRoles] = useState<BusinessRoles>({});
   const [formError, setFormError] = useState<string | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,6 +74,7 @@ export function UserManagement({ users }: UserManagementProps) {
     setPassword("");
     setRole("aegis_admin");
     setBusinessIds([]);
+    setBusinessRoles({});
     setFormError(null);
   };
 
@@ -80,6 +87,7 @@ export function UserManagement({ users }: UserManagementProps) {
         password,
         role,
         businessIds,
+        businessRoles,
       });
 
       if (result.error || !result.user) {
@@ -107,6 +115,7 @@ export function UserManagement({ users }: UserManagementProps) {
       name: account.name,
       role: account.role,
       businessIds: account.businessIds,
+      businessRoles: account.businessRoles,
     });
   };
 
@@ -266,7 +275,9 @@ export function UserManagement({ users }: UserManagementProps) {
             <BusinessPicker
               businesses={businesses}
               selected={businessIds}
+              roles={businessRoles}
               onToggle={(id) => setBusinessIds((current) => toggleId(current, id))}
+              onRole={(id, next) => setBusinessRoles((current) => ({ ...current, [id]: next }))}
             />
           )}
 
@@ -326,7 +337,9 @@ export function UserManagement({ users }: UserManagementProps) {
                     </Badge>{" "}
                     {account.role === "aegis_admin"
                       ? "All businesses"
-                      : account.businessIds.map(businessName).join(", ") || "No businesses"}
+                      : account.businessIds
+                          .map((id) => `${businessName(id)} (${account.businessRoles[id] ? businessRoleLabel(account.businessRoles[id]) : "no role yet"})`)
+                          .join(", ") || "No businesses"}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -384,17 +397,19 @@ export function UserManagement({ users }: UserManagementProps) {
                       <BusinessPicker
                         businesses={businesses}
                         selected={editDraft.businessIds}
+                        roles={editDraft.businessRoles}
                         onToggle={(id) =>
                           setEditDraft((draft) =>
                             draft && { ...draft, businessIds: toggleId(draft.businessIds, id) },
                           )
                         }
+                        onRole={(id, next) =>
+                          setEditDraft((draft) =>
+                            draft && { ...draft, businessRoles: { ...draft.businessRoles, [id]: next } },
+                          )
+                        }
                       />
                     )}
-
-                    <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-                      The username ({account.username}) cannot be changed — it is what they sign in with.
-                    </span>
 
                     {editError && <ErrorLine message={editError} />}
 
@@ -494,7 +509,7 @@ function RolePicker({
           ? "You cannot change your own role. Another administrator can."
           : role === "aegis_admin"
             ? "Reaches every business, Business Management, Users and System Status."
-            : "Reaches only the businesses ticked below, and no internal screens."}
+            : "Reaches only the businesses ticked below, with the role chosen for each, and no internal screens."}
       </span>
     </div>
   );
@@ -514,11 +529,15 @@ function toggleId(ids: string[], id: string): string[] {
 function BusinessPicker({
   businesses,
   selected,
+  roles,
   onToggle,
+  onRole,
 }: {
   businesses: Business[];
   selected: string[];
+  roles: BusinessRoles;
   onToggle: (id: string) => void;
+  onRole: (id: string, role: BusinessRole) => void;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -549,6 +568,40 @@ function BusinessPicker({
           A member needs at least one business.
         </span>
       )}
+
+      {/* The role in each ticked business. A membership from before roles shows
+          "No role yet" until one is picked, and keeps its old access meanwhile. */}
+      {selected.map((id) => {
+        const business = businesses.find((entry) => entry.id === id);
+        const stored = id in roles ? roles[id] : DEFAULT_BUSINESS_ROLE;
+        const current = stored ?? "";
+        const summary = isBusinessRole(current) ? BUSINESS_ROLES.find((entry) => entry.key === current)?.summary : null;
+        return (
+          <div key={id} className="flex flex-col gap-1" style={{ paddingTop: 4 }}>
+            <label className="flex flex-wrap items-center gap-2" style={{ fontSize: "12.5px" }}>
+              <span style={{ fontWeight: 600, minWidth: 120 }}>{business?.name ?? id}</span>
+              <select
+                value={current}
+                onChange={(event) => {
+                  if (isBusinessRole(event.target.value)) onRole(id, event.target.value);
+                }}
+                style={{ ...FIELD, width: "auto", minWidth: 180, padding: "6px 10px" }}
+                aria-label={`Role at ${business?.name ?? id}`}
+              >
+                {current === "" && <option value="">No role yet (keeps old access)</option>}
+                {BUSINESS_ROLES.map((entry) => (
+                  <option key={entry.key} value={entry.key}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span style={{ fontSize: "11.5px", color: "var(--text-muted)", textWrap: "pretty" }}>
+              {summary ?? "Every module this business has, without the owner's powers, until a role is picked."}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

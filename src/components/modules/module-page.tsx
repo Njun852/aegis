@@ -24,7 +24,7 @@ export interface ModulePageProps {
  */
 export function ModulePage({ moduleKey }: ModulePageProps) {
   const router = useRouter();
-  const { activeBusiness, hasModule } = useBusiness();
+  const { activeBusiness, hasModule, home } = useBusiness();
 
   const page = findStubPage(moduleKey);
   if (!page) {
@@ -38,6 +38,25 @@ export function ModulePage({ moduleKey }: ModulePageProps) {
         badgeIcon="circle-alert"
         onBack={() => router.push("/dashboard")}
         onConfigure={() => router.push("/admin/businesses")}
+      />
+    );
+  }
+
+  // The business has it; this person's role does not. Nothing to configure
+  // here: the role is changed by an administrator on the Users screen.
+  if (activeBusiness.roleHidden.includes(page.key as ModuleKey)) {
+    return (
+      <Shell
+        icon={page.icon}
+        enabled={false}
+        title={page.name}
+        body={sentence(
+          `${page.name} is not part of your role at ${activeBusiness.name}. An administrator can change your role on the Users screen.`,
+        )}
+        badge="Not in your role"
+        badgeIcon="lock"
+        backLabel="Back"
+        onBack={() => router.push(home)}
       />
     );
   }
@@ -75,8 +94,10 @@ interface ShellProps {
   body: string;
   badge: string;
   badgeIcon: string;
+  backLabel?: string;
   onBack: () => void;
-  onConfigure: () => void;
+  /** Absent where there is nothing to configure. */
+  onConfigure?: () => void;
 }
 
 function Shell({
@@ -86,6 +107,7 @@ function Shell({
   body,
   badge,
   badgeIcon,
+  backLabel = "Back to Dashboard",
   onBack,
   onConfigure,
 }: ShellProps) {
@@ -157,11 +179,13 @@ function Shell({
         }}
       >
         <Button variant="outline" icon="arrow-left" onClick={onBack}>
-          Back to Dashboard
+          {backLabel}
         </Button>
-        <Button icon="sliders-horizontal" onClick={onConfigure}>
-          Configure modules
-        </Button>
+        {onConfigure && (
+          <Button icon="sliders-horizontal" onClick={onConfigure}>
+            Configure modules
+          </Button>
+        )}
       </div>
     </div>
   );

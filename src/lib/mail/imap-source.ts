@@ -3,6 +3,7 @@ import "server-only";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
+import { readMailSignals } from "./auto-reply";
 import { classifyMailError } from "./failures";
 import type {
   FetchResult,
@@ -12,6 +13,7 @@ import type {
   MailOutcome,
   MailSource,
   MailboxCredentials,
+  SendOptions,
 } from "./source";
 
 /**
@@ -204,11 +206,13 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
               parsed.text ??
               (typeof parsed.html === "string" ? htmlToText(parsed.html) : "");
 
+            // Message-ID is stable across re-fetches; a UID is not stable
+            // across a uidValidity change, so it is only the fallback.
+            const messageId =
+              parsed.messageId?.trim() || `${uidValidity}:${item.uid}`;
+
             messages.push({
-              // Message-ID is stable across re-fetches; a UID is not stable
-              // across a uidValidity change, so it is only the fallback.
-              messageId:
-                parsed.messageId?.trim() || `${uidValidity}:${item.uid}`,
+              messageId,
               from: address?.name?.trim() || email || "Unknown sender",
               email,
               subject: parsed.subject?.trim() || "(no subject)",
@@ -217,6 +221,11 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
               unread: !item.flags?.has("\\Seen"),
               uid: item.uid,
               uidValidity,
+              signals: readMailSignals(parsed.headers, {
+                messageId,
+                inReplyTo: parsed.inReplyTo,
+                references: parsed.references,
+              }),
             });
 
             if (item.uid > highest) highest = item.uid;
@@ -267,7 +276,13 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
       return result.ok ? { ok: true as const, data: true as const } : result;
     },
 
-    async send(to: string, subject: string, body: string, attachments: MailAttachment[] = []) {
+    async send(
+      to: string,
+      subject: string,
+      body: string,
+      attachments: MailAttachment[] = [],
+      options: SendOptions = {},
+    ) {
       try {
         const transport = nodemailer.createTransport({
           host: SMTP_HOST,
@@ -293,6 +308,11 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
             content: file.content,
             contentType: file.contentType,
           })),
+          ...(options.inReplyTo ? { inReplyTo: options.inReplyTo } : {}),
+          ...(options.references?.length ? { references: options.references } : {}),
+          ...(options.automatic
+            ? { headers: { "Auto-Submitted": "auto-replied", "X-Auto-Response-Suppress": "All" } }
+            : {}),
         });
 
         return { ok: true, data: true as const };

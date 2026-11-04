@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AdsWorkspace } from "@/components/ads/ads-workspace";
+import { ModulePage } from "@/components/modules/module-page";
+import { isModuleEnabled } from "@/lib/businesses";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedAdsInsight } from "@/lib/ai/ads-insight";
 import { readActiveMetaAdsStatus } from "@/lib/dal/ad-account";
@@ -25,6 +27,7 @@ function parseRange(value: string | string[] | undefined): AdRange {
 export default async function AdsPage(props: PageProps<"/ads">) {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
+  if (!isModuleEnabled(business, "ads")) return <ModulePage moduleKey="ads" />;
 
   const range = parseRange((await props.searchParams).range);
 

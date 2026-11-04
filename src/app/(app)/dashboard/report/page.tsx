@@ -4,6 +4,8 @@ import { ReportView } from "@/components/dashboard/report/report-view";
 import { isAiConfigured } from "@/lib/ai/client";
 import { cachedInsight } from "@/lib/ai/insight";
 import { cachedReportSummary } from "@/lib/ai/report";
+import { homePath, isModuleEnabled } from "@/lib/businesses";
+import { getActiveBusiness } from "@/lib/dal/businesses";
 import { buildReport } from "@/lib/dal/report";
 import { rangeFromSlug } from "@/lib/report";
 
@@ -14,6 +16,9 @@ export const metadata: Metadata = {
 
 export default async function ReportPage(props: PageProps<"/dashboard/report">) {
   const range = rangeFromSlug((await props.searchParams).range);
+  const business = await getActiveBusiness();
+  if (!business) redirect("/login");
+  if (!isModuleEnabled(business, "dashboard")) redirect(homePath(business));
 
   const report = await buildReport(range);
   if (!report) redirect("/login");

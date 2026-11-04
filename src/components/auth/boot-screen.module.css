@@ -1,6 +1,6 @@
 /* The pre-sign-in boot screen. The scene is the reference picture (the AEGIS
    mark over the Earth's night side) at its own proportions, scaled to fill the
-   window; the light effects play over it, and the status, bar and cards are
+   window; the light effects play over it, and the status and bar are
    live in a layer of the same size and position on top.
 
    Positions are percentages of the picture, measured from it, and sizes are
@@ -13,7 +13,8 @@
   z-index: 100;
   overflow: hidden;
   color: #d6deec;
-  font-family: var(--font-display, var(--font-body));
+  /* The small console text; the letters, words and status set their own. */
+  font-family: var(--boot-mono), var(--font-mono, monospace);
   background: #020308;
   transition: opacity 650ms ease, visibility 650ms ease;
   cursor: pointer;
@@ -27,18 +28,19 @@
 
 /* ---- The picture's frame ------------------------------------------------------ */
 
-/* Fills the window like a cover image, but never crops more than 5% off the
-   top and bottom, where the mark and the footer sit; on a wider window it
-   stops growing and its sides fade into the black instead. */
+/* Fills the window like a cover image, but hangs from the top with a little
+   air above the mark, so anything the window cannot fit comes off the bottom,
+   where there is only the night side of the Earth. On a wider window it stops
+   growing and its sides fade into the black instead. */
 .stage,
 .hud {
   --stage-width: min(max(100vw, 149.71vh), 166.3vh);
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 0;
   width: var(--stage-width);
   aspect-ratio: 1533 / 1024;
-  translate: -50% -50%;
+  translate: -50% calc(var(--stage-width) * 0.012);
 }
 
 .stage {
@@ -194,12 +196,13 @@
 }
 
 /* The blue light at the heart of the A, where the arc crosses it. */
+/* Where the heart of the A is, now the mark is drawn 15% smaller. */
 .core {
   position: absolute;
-  left: 50.4%;
-  top: 22.3%;
-  width: 14%;
-  height: 5.5%;
+  left: 50.28%;
+  top: 20.07%;
+  width: 11.9%;
+  height: 4.68%;
   translate: -50% -50%;
   opacity: 0;
   pointer-events: none;
@@ -263,10 +266,17 @@
   opacity: 0;
 }
 
-/* The mark, above the cut between it and the name, rising out of a blur. */
+/* The mark, above the cut between it and the name, rising out of a blur.
+   Drawn 15% smaller than the picture, held at the apex of the A, so the
+   arc ends clear of the name instead of touching its first line. */
+.logoMark,
+.shine {
+  transform: scale(0.85);
+  transform-origin: 50% 8.6%;
+}
+
 .logoMark {
   clip-path: inset(0 0 34.5% 0);
-  transform-origin: 50% 30%;
   scale: 0.9;
   filter: blur(12px) brightness(1.8);
   transition:
@@ -281,13 +291,15 @@
   filter: none;
 }
 
-/* The name, a letter a line, in the space the logo's own wordmark had. Each
-   letter settles up out of a blur, and its meaning is typed beside it. */
+/* The name, a framed letter a line, in the space the logo's own wordmark had:
+   the letter and its word over a rule, like a console's start-up panel. Each
+   row settles up out of a blur and its word is typed. It runs a little below
+   the logo's box, into the room the motto makes by sitting lower. */
 .acronym {
   position: absolute;
   left: 50%;
-  top: 62.5%;
-  bottom: 2.5%;
+  top: 60%;
+  bottom: -2.5%;
   translate: -50% 0;
   display: flex;
   flex-direction: column;
@@ -295,9 +307,10 @@
 }
 
 .acronymRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: 8.4cqw 46cqw;
   align-items: center;
-  gap: 3.4cqw;
+  column-gap: 3cqw;
   opacity: 0;
   translate: 0 1.5cqw;
   filter: blur(6px);
@@ -313,28 +326,51 @@
   filter: none;
 }
 
+/* The letter in its own frame, lit from inside. */
 .acronymLetter {
-  width: 6.4cqw;
-  text-align: center;
-  font-family: var(--font-display, var(--font-body));
-  font-size: 5.8cqw;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 7.8cqw;
+  padding-top: 0.4cqw;
+  border: 1px solid rgba(90, 160, 255, 0.75);
+  border-radius: 0.9cqw;
+  background: linear-gradient(180deg, rgba(20, 44, 86, 0.55), rgba(6, 14, 30, 0.75));
+  box-shadow:
+    inset 0 0 1.2cqw rgba(60, 150, 255, 0.35),
+    0 0 1cqw rgba(60, 150, 255, 0.35);
+  font-family: var(--boot-slab), serif;
+  font-size: 6.4cqw;
   line-height: 1;
-  background: linear-gradient(180deg, #ffffff 0%, #dbe3f0 50%, #9fb0cc 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 0.8cqw rgba(110, 180, 255, 0.55));
+  color: #eef5ff;
+  text-shadow:
+    0 0 0.6cqw rgba(120, 190, 255, 0.95),
+    0 0 1.6cqw rgba(60, 150, 255, 0.6);
 }
 
+/* The word over a rule that ends in a few hatch marks. */
 .acronymWord {
   position: relative;
   white-space: nowrap;
-  font-size: 3.3cqw;
+  padding-bottom: 0.9cqw;
+  font-family: var(--boot-squared), var(--font-display, sans-serif);
+  font-size: 5.4cqw;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: rgba(214, 226, 244, 0.92);
+  letter-spacing: 0.02em;
+  color: #f4f7fc;
+  text-shadow: 0 0 0.8cqw rgba(120, 180, 255, 0.35);
+  border-bottom: 1px solid rgba(90, 160, 255, 0.7);
+}
+
+.acronymWord::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0.45cqw;
+  width: 3.6cqw;
+  height: 0.7cqw;
+  background: repeating-linear-gradient(115deg, rgba(90, 160, 255, 0.75) 0 0.25cqw, transparent 0.25cqw 0.6cqw);
 }
 
 .untyped {
@@ -344,9 +380,9 @@
 .caret {
   display: inline-block;
   width: 0.45cqw;
-  height: 1.15em;
-  margin: 0 0.1em 0 -0.12em;
-  vertical-align: -0.2em;
+  height: 1.05em;
+  margin: 0 0.1em 0 0.02em;
+  vertical-align: -0.12em;
   background: #4c9dff;
   box-shadow: 0 0 0.8cqw rgba(76, 157, 255, 0.9);
   animation: caret 900ms steps(1) infinite;
@@ -427,7 +463,8 @@
 .motto {
   position: absolute;
   left: 26.614%;
-  top: 46.484%;
+  /* A little below where the picture had it, to give the name room above. */
+  top: 47.9%;
   width: 46.967%;
   height: 3.516%;
   pointer-events: none;
@@ -451,19 +488,18 @@
   pointer-events: none;
 }
 
-/* How much of the frame the window crops off its right and top edges, so the
-   corner text can stay inside the window. */
+/* How much of the frame the window crops off its right edge and its bottom,
+   so the corner text and the footer can stay inside the window. */
 .hud {
   --crop-x: max(0px, (var(--stage-width) - 100vw) / 2);
-  --crop-y: max(0px, (var(--stage-width) * 1024 / 1533 - 100vh) / 2);
+  /* What falls below the window, the air above the mark included. */
+  --crop-bottom: max(0px, var(--stage-width) * 1024 / 1533 + var(--stage-width) * 0.012 - 100vh);
 }
 
 .version,
 .pillars,
 .status,
-.footer,
-.systemName,
-.systemState {
+.footer {
   white-space: nowrap;
 }
 
@@ -476,7 +512,7 @@
 
 .version {
   right: calc(3.5% + var(--crop-x));
-  top: calc(4.2% + var(--crop-y));
+  top: 4.2%;
   translate: 0 -50%;
   font-size: 0.86cqw;
   letter-spacing: 0.14em;
@@ -485,7 +521,7 @@
 
 .pillars {
   right: calc(4.5% + var(--crop-x));
-  top: calc(8.9% + var(--crop-y));
+  top: 8.9%;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -524,10 +560,13 @@
 
 .status {
   top: 61.9%;
-  padding-left: 0.42em;
-  font-size: 1.04cqw;
-  letter-spacing: 0.42em;
-  color: rgba(214, 222, 236, 0.92);
+  padding-left: 0.18em;
+  font-family: var(--boot-squared), var(--font-display, sans-serif);
+  font-size: 1.5cqw;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: #eef4ff;
+  text-shadow: 0 0 0.8cqw rgba(76, 157, 255, 0.7);
 }
 
 .bar {
@@ -567,92 +606,9 @@
   opacity: 1;
 }
 
-.systems {
-  position: absolute;
-  left: 12.26%;
-  top: 74.3%;
-  width: 75.64%;
-  height: 10.74%;
-  display: grid;
-  grid-template-columns: 23.9fr 24.9fr 23.9fr;
-  column-gap: 1.47cqw;
-}
-
-.system {
-  display: flex;
-  align-items: center;
-  padding-left: 2.6cqw;
-  border: 1px solid rgba(150, 170, 210, 0.16);
-  border-radius: 0.75cqw;
-  background: linear-gradient(180deg, rgba(10, 16, 30, 0.72), rgba(4, 8, 18, 0.82));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 0 2.4cqw rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
-  opacity: 0;
-  translate: 0 1.2cqw;
-  transition:
-    opacity 700ms ease,
-    translate 800ms cubic-bezier(0.16, 0.7, 0.2, 1);
-}
-
-.system.shown {
-  opacity: 1;
-  translate: 0 0;
-}
-
-.systemIcon {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 7.3cqw;
-  height: 50%;
-  margin-right: 1.25cqw;
-  border-right: 1px solid rgba(150, 170, 210, 0.22);
-  color: #4c9dff;
-}
-
-.systemIcon svg {
-  width: 3.3cqw;
-  height: 3.3cqw;
-  margin-right: 0.8cqw;
-  filter: drop-shadow(0 0 0.45cqw rgba(60, 150, 255, 0.55));
-}
-
-.systemText {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75cqw;
-}
-
-.systemName {
-  font-size: 1.22cqw;
-  letter-spacing: 0.16em;
-  color: rgba(226, 232, 244, 0.95);
-}
-
-.systemState {
-  font-size: 1.22cqw;
-  letter-spacing: 0.2em;
-  color: rgba(150, 165, 195, 0.5);
-  transition: color 400ms ease, text-shadow 400ms ease;
-}
-
-.online {
-  color: #43d17f;
-  text-shadow: 0 0 0.6cqw rgba(67, 209, 127, 0.45);
-  animation: connect 900ms ease-out;
-}
-
-@keyframes connect {
-  0% {
-    text-shadow: 0 0 1.4cqw rgba(120, 255, 170, 0.95);
-  }
-}
-
 .footer {
-  top: 91.75%;
+  /* Raised by whatever the window cuts off the bottom, never up to the bar. */
+  top: max(74%, calc(91.75% - var(--crop-bottom)));
   display: flex;
   align-items: center;
   gap: 1.85cqw;
@@ -681,7 +637,7 @@
 
 /* The picture is wider than a phone, so the frame is sized to the mark instead,
    with the horizon a little below the middle, and the live layer becomes the
-   window, with the status and the cards stacked at the bottom. */
+   window, with the status and the bar stacked at the bottom. */
 @media (max-aspect-ratio: 23 / 20) {
   .stage {
     --stage-width: min(235vw, 184vh);
@@ -724,14 +680,13 @@
 
   .status,
   .bar,
-  .footer,
-  .systems {
+  .footer {
     position: static;
     translate: none;
   }
 
   .status {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .bar {
@@ -747,52 +702,6 @@
     right: -4px;
     width: 10px;
     height: 10px;
-  }
-
-  .systems {
-    width: 100%;
-    max-width: 520px;
-    height: auto;
-    margin-top: 6px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    column-gap: 8px;
-  }
-
-  .system {
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px 6px 12px;
-    border-radius: 10px;
-    translate: 0 10px;
-  }
-
-  .systemIcon {
-    width: auto;
-    height: auto;
-    margin: 0;
-    border: none;
-  }
-
-  .systemIcon svg {
-    width: 26px;
-    height: 26px;
-    margin: 0;
-    filter: drop-shadow(0 0 5px rgba(60, 150, 255, 0.55));
-  }
-
-  .systemText {
-    align-items: center;
-    gap: 6px;
-  }
-
-  .systemName,
-  .systemState {
-    font-size: 10px;
-    letter-spacing: 0.12em;
-  }
-
-  .online {
-    text-shadow: 0 0 8px rgba(67, 209, 127, 0.45);
   }
 
   .footer {

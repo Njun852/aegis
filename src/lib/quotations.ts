@@ -1,4 +1,6 @@
 import type {
+  JobOrderStatus,
+  JobOrderSummary,
   QuoteLine,
   QuoteLineOrigin,
   QuotePriceItem,
@@ -26,6 +28,9 @@ export const QUOTE_STATUSES: QuoteStatus[] = [
   "Declined",
   "Expired",
 ];
+
+/** A job order's statuses, in the order the work moves through them. */
+export const JOB_ORDER_STATUSES: JobOrderStatus[] = ["Open", "In progress", "Completed", "Cancelled"];
 
 export const QUOTE_RESPONSE_METHODS: QuoteResponseMethod[] = [
   "In person",
@@ -476,6 +481,27 @@ export function filterQuotations(
       quote.company.toLowerCase().includes(term) ||
       quote.makeModel.toLowerCase().includes(term) ||
       (plateTerm !== "" && quote.plate.toLowerCase().replace(/[^a-z0-9]/g, "").includes(plateTerm))
+    );
+  });
+}
+
+/** The same search as quotations, over job orders, plus the quotation and booking they came from. */
+export function filterJobOrders(
+  jobs: JobOrderSummary[],
+  options: { status: JobOrderStatus | "All"; search: string },
+): JobOrderSummary[] {
+  const term = options.search.trim().toLowerCase();
+  const plateTerm = term.replace(/[^a-z0-9]/g, "");
+  return jobs.filter((job) => {
+    if (options.status !== "All" && job.status !== options.status) return false;
+    if (!term) return true;
+    return (
+      job.ref.toLowerCase().includes(term) ||
+      job.customer.toLowerCase().includes(term) ||
+      job.makeModel.toLowerCase().includes(term) ||
+      job.quotationRef.toLowerCase().includes(term) ||
+      (job.bookingRef ?? "").toLowerCase().includes(term) ||
+      (plateTerm !== "" && job.plate.toLowerCase().replace(/[^a-z0-9]/g, "").includes(plateTerm))
     );
   });
 }

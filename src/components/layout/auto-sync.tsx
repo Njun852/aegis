@@ -56,7 +56,29 @@ export function AutoSync() {
       });
     }
 
-    if (result.retrieved > 0 || result.analysed > 0 || result.drafted > 0) {
+    // Mail that left without anyone pressing Send is always announced, and so
+    // is a failure, since that message now needs a person to answer it.
+    if (result.autoReplied > 0 || result.autoReplyFailed > 0) {
+      const sent = `${result.autoReplied} automatic ${result.autoReplied === 1 ? "reply" : "replies"} sent`;
+      const failed = `${result.autoReplyFailed} could not be sent and ${result.autoReplyFailed === 1 ? "needs" : "need"} answering by hand`;
+      toast({
+        tone: result.autoReplyFailed > 0 ? "error" : "success",
+        title: result.autoReplied > 0 ? sent : "Automatic reply not sent",
+        description:
+          result.autoReplyFailed > 0
+            ? `${failed}. Open Mail to see which.`
+            : "Routine messages answered with their Suggested Reply. Open Mail to read what was sent.",
+        key: "mail-auto-reply",
+      });
+    }
+
+    if (
+      result.retrieved > 0 ||
+      result.analysed > 0 ||
+      result.drafted > 0 ||
+      result.autoReplied > 0 ||
+      result.autoReplyFailed > 0
+    ) {
       router.refresh();
     }
   }, MAIL_SYNC_EVERY_MS);
@@ -65,7 +87,8 @@ export function AutoSync() {
     let result: SyncAdsState;
     try {
       const response = await fetch("/api/sync/ads", { method: "POST" });
-      if (!response.ok) return;
+      // 204: this role has no Ads, so there was nothing to sync.
+      if (!response.ok || response.status === 204) return;
       result = (await response.json()) as SyncAdsState;
     } catch {
       return;

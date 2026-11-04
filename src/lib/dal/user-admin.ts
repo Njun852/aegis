@@ -2,13 +2,14 @@ import "server-only";
 
 import { ObjectId } from "mongodb";
 import { hashPassword } from "@/lib/auth/password";
+import { DEFAULT_BUSINESS_ROLE, isBusinessRole } from "@/lib/business-roles";
 import {
   businessesCollection,
   membershipsCollection,
   usersCollection,
 } from "./db";
 import { requireAdmin } from "./session";
-import type { ManagedUser, UserRole } from "@/types";
+import type { BusinessRole, ManagedUser, UserRole } from "@/types";
 
 /**
  * Creating, listing and removing accounts.
@@ -47,6 +48,11 @@ export async function listUsers(): Promise<ManagedUser[]> {
       businessIds: memberships
         .filter((membership) => membership.userId === id)
         .map((membership) => membership.businessId),
+      businessRoles: Object.fromEntries(
+        memberships
+          .filter((membership) => membership.userId === id)
+          .map((membership) => [membership.businessId, isBusinessRole(membership.role) ? membership.role : null]),
+      ),
       createdAt: doc.createdAt.toISOString(),
     };
   });
@@ -60,6 +66,8 @@ export interface NewUser {
   role: UserRole;
   /** Businesses a member may reach. Ignored for administrators. */
   businessIds: string[];
+  /** The role in each of those businesses. A business left out gets the default role. */
+  businessRoles: Record<string, unknown>;
 }
 
 export type CreateUserResult =
@@ -129,10 +137,17 @@ export async function createUser(input: NewUser): Promise<CreateUserResult> {
   }
 
   const id = insertedId.toString();
+  // A new membership always gets a role: the one chosen, or the narrowest.
+  const roles = Object.fromEntries(
+    businessIds.map((businessId) => {
+      const chosen = input.businessRoles?.[businessId];
+      return [businessId, isBusinessRole(chosen) ? chosen : DEFAULT_BUSINESS_ROLE];
+    }),
+  ) as Record<string, BusinessRole>;
   if (businessIds.length > 0) {
     const memberships = await membershipsCollection();
     await memberships.insertMany(
-      businessIds.map((businessId) => ({ userId: id, businessId })),
+      businessIds.map((businessId) => ({ userId: id, businessId, role: roles[businessId] })),
     );
   }
 
@@ -144,6 +159,7 @@ export async function createUser(input: NewUser): Promise<CreateUserResult> {
       name: input.name.trim(),
       role: input.role,
       businessIds,
+      businessRoles: roles,
       createdAt: createdAt.toISOString(),
     },
   };
@@ -154,6 +170,12 @@ export interface UserChanges {
   role: UserRole;
   /** Businesses a member may reach. Ignored for administrators. */
   businessIds: string[];
+  /**
+   * The role in each of those businesses. `null` keeps a membership with no
+   * role as it is; a business left out keeps its stored role, or gets the
+   * default if it is new.
+   */
+  businessRoles: Record<string, unknown>;
 }
 
 export type UpdateUserResult =
@@ -223,6 +245,24 @@ export async function updateUser(
   const name = changes.name.trim();
   const memberships = await membershipsCollection();
 
+  // What each kept business will hold. A role from the browser is checked; an
+  // unknown value keeps what is stored rather than widening anything.
+  const stored = new Map(
+    (await memberships.find({ userId }).toArray()).map((doc) => [
+      doc.businessId,
+      isBusinessRole(doc.role) ? doc.role : null,
+    ]),
+  );
+  const roles: Record<string, BusinessRole | null> = {};
+  for (const businessId of businessIds) {
+    const chosen = changes.businessRoles?.[businessId];
+    roles[businessId] = isBusinessRole(chosen)
+      ? chosen
+      : stored.has(businessId)
+        ? (stored.get(businessId) ?? null)
+        : DEFAULT_BUSINESS_ROLE;
+  }
+
   if (changes.role === "member") {
     /**
      * Grant before revoking, and both before the role changes. The standalone
@@ -231,9 +271,10 @@ export async function updateUser(
      * business to reach. Each step is safe to repeat.
      */
     for (const businessId of businessIds) {
+      const role = roles[businessId];
       await memberships.updateOne(
         { userId, businessId },
-        { $set: { userId, businessId } },
+        role ? { $set: { userId, businessId, role } } : { $set: { userId, businessId }, $unset: { role: "" } },
         { upsert: true },
       );
     }
@@ -261,6 +302,7 @@ export async function updateUser(
       name,
       role: changes.role,
       businessIds,
+      businessRoles: changes.role === "member" ? roles : {},
       createdAt: target.createdAt.toISOString(),
     },
   };

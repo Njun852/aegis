@@ -219,6 +219,16 @@ export function MessageList({
                   <Badge tone="neutral" pill={false}>
                     {message.category}
                   </Badge>
+                  {message.autoReply?.status === "sent" && (
+                    <Badge tone="info" pill={false} icon="send">
+                      Auto-replied
+                    </Badge>
+                  )}
+                  {message.autoReply?.status === "failed" && (
+                    <Badge tone="negative" pill={false} icon="alert-triangle">
+                      Auto-reply failed
+                    </Badge>
+                  )}
                 </span>
               </div>
             </div>
