@@ -9,6 +9,7 @@ import { EmailSummaryCard } from "@/components/dashboard/email-summary-card";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
 import { RevenueCard } from "@/components/dashboard/revenue-card";
 import { isAiConfigured } from "@/lib/ai/client";
+import { cachedDailyReport } from "@/lib/ai/daily-report";
 import { cachedInsight } from "@/lib/ai/insight";
 import { redirect } from "next/navigation";
 import { homePath, isModuleEnabled } from "@/lib/businesses";
@@ -52,16 +53,16 @@ export default async function DashboardPage() {
         <KpiGrid />
 
         {/* minmax(0,…) keeps long card content from stretching its own track. */}
-        <div className="grid items-stretch gap-4 wide:grid-cols-[minmax(0,1.72fr)_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 items-stretch gap-4 wide:grid-cols-[minmax(0,1.72fr)_minmax(0,1fr)]">
           <RevenueCard />
           <BookingsCard />
         </div>
 
-        <div className="grid items-stretch gap-4 wide:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.95fr)_minmax(0,0.95fr)]">
+        <div className="grid grid-cols-1 items-stretch gap-4 wide:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.95fr)_minmax(0,0.95fr)]">
           <EmailSummaryCard messages={messages} />
           <AlertsCard />
           <AdsSummaryCard />
-          <AiInsightsCard cached={cachedInsights} aiEnabled={isAiConfigured()} />
+          <AiInsightsCard cached={cachedInsights} cachedDaily={await cachedDailyReport()} aiEnabled={isAiConfigured()} />
         </div>
       </div>
     </DashboardRangeProvider>

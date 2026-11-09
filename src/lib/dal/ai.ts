@@ -58,6 +58,33 @@ export async function writeCachedOutput(
   );
 }
 
+/**
+ * The newest stored output of a kind whose key starts with `prefix`, with when
+ * it was written. For reports filed under their day ("2026-11-08:..."), this
+ * is the latest one written that day, whatever its figures were.
+ */
+export async function readLatestOutput<T>(
+  kind: AiKind,
+  prefix: string,
+  promptVersion: number,
+): Promise<{ payload: T; cacheKey: string; createdAt: Date } | null> {
+  const collection = await outputs();
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const [doc] = await collection
+    .find({ kind, promptVersion, cacheKey: { $regex: `^${escaped}` } })
+    .sort({ createdAt: -1 })
+    .limit(1)
+    .toArray();
+  return doc ? { payload: doc.payload as T, cacheKey: doc.cacheKey, createdAt: doc.createdAt } : null;
+}
+
+/** Removes a kind's outputs filed under any other prefix: earlier days' reports nobody will read again. */
+export async function pruneOutputsOutside(kind: AiKind, prefix: string): Promise<void> {
+  const collection = await outputs();
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await collection.deleteMany({ kind, cacheKey: { $not: new RegExp(`^${escaped}`) } });
+}
+
 /** Total tokens this business has spent in the current calendar month. */
 export async function tokensUsedThisMonth(now = new Date()): Promise<number> {
   const collection = await usage();

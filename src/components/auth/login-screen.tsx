@@ -68,8 +68,8 @@ export function LoginScreen() {
               className="flex items-start gap-2.5"
               style={{
                 padding: "11px 13px",
-                border: "1px solid #F5C6C1",
-                background: "#FEF3F2",
+                border: "1px solid var(--status-negative-border)",
+                background: "var(--status-negative-soft)",
                 borderRadius: "var(--radius-md)",
               }}
             >
@@ -79,7 +79,7 @@ export function LoginScreen() {
               <span
                 style={{
                   fontSize: "12px",
-                  color: "#912018",
+                  color: "var(--status-negative-ink)",
                   textWrap: "pretty",
                   overflowWrap: "anywhere",
                 }}

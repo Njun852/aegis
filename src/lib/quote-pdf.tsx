@@ -159,7 +159,6 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
     ["Street Address", billTo.address],
     ["Contact Number", billTo.phone],
     ["Email Address", billTo.email],
-    ["Service Advisor", quotation.serviceAdvisor],
   ];
   const right = [
     ["ODOMETER", vehicle.odometerKm === null ? "" : `${vehicle.odometerKm.toLocaleString("en-US")} km`],
@@ -167,8 +166,13 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
     ["MODEL/MAKE", vehicle.makeModel.toUpperCase()],
     ["Technician", quotation.technician],
     ["Valid Until", formatQuoteDay(quotation.validUntil)],
-    ["", ""],
   ];
+
+  // Who signs each box. The service advisor's name prints in theirs, under the
+  // space left for the signature; the other boxes are signed by hand.
+  const signedBy: Record<string, string> = {
+    "Service Advisor:": quotation.serviceAdvisor,
+  };
 
   const totalRows: [string, string, boolean?][] = [
     ["TOTAL PARTS", formatAmount(totals.partsCents)],
@@ -344,6 +348,9 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
                   ]}
                 >
                   <Text style={styles.bold}>{label}</Text>
+                  {signedBy[label] ? (
+                    <Text style={{ marginTop: "auto", textAlign: "center" }}>{signedBy[label]}</Text>
+                  ) : null}
                 </View>
               ))}
             </View>

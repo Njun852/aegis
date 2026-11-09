@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import {
   BUSINESS_ROLES,
+  DEFAULT_BUSINESS_ROLE,
   can,
   modulesHiddenByRole,
   roleAllowsModule,
@@ -65,16 +66,25 @@ for (const role of BUSINESS_ROLES) {
   console.log(`  ok    ${role.label}: ${WANTED[role.key].join(", ")}${POWERS[role.key].length ? ` · ${POWERS[role.key].join(", ")}` : ""}`);
 }
 
-// An administrator: everything. A member from before roles: every screen, no owner powers.
+// An administrator: everything. A member whose stored role is missing: read as the
+// default role, never as more access.
 for (const key of ALL) {
   assert.equal(roleAllowsModule(admin, key), true);
-  assert.equal(roleAllowsModule(member(null), key), true, "a member without a role keeps every screen");
+  assert.equal(
+    roleAllowsModule(member(null), key),
+    roleAllowsModule(member(DEFAULT_BUSINESS_ROLE), key),
+    "a member without a stored role reads as the default role",
+  );
 }
 for (const capability of ["financeReports", "financeBooks", "approvePricing", "ownerBoard"] as Capability[]) {
   assert.equal(can(admin, capability), true);
-  assert.equal(can(member(null), capability), false, "a member without a role gets no owner powers");
+  assert.equal(
+    can(member(null), capability),
+    can(member(DEFAULT_BUSINESS_ROLE), capability),
+    "a member without a stored role gets the default role's powers",
+  );
 }
-console.log("  ok    Administrator: everything · member with no role yet: every screen, no owner powers");
+console.log("  ok    Administrator: everything · member with no stored role: read as the default role");
 
 // ---- A role narrows what was bought; it never adds to it ----------------------------
 

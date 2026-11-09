@@ -4,7 +4,7 @@ import { AdsWorkspace } from "@/components/ads/ads-workspace";
 import { ModulePage } from "@/components/modules/module-page";
 import { isModuleEnabled } from "@/lib/businesses";
 import { isAiConfigured } from "@/lib/ai/client";
-import { cachedAdsInsight } from "@/lib/ai/ads-insight";
+import { cachedAdsDailyReport, cachedAdsInsight } from "@/lib/ai/ads-insight";
 import { readActiveMetaAdsStatus } from "@/lib/dal/ad-account";
 import { loadCampaignFunnel } from "@/lib/dal/ad-funnel";
 import { listAdRows } from "@/lib/dal/ads";
@@ -34,11 +34,12 @@ export default async function AdsPage(props: PageProps<"/ads">) {
   // Ads is a core module, so there is no entitlement gate here — every AEGIS
   // business has it. Whether the rows are live Meta data or the labelled
   // samples is decided by the connection, not by this page.
-  const [rows, meta, cached] = await Promise.all([
+  const [rows, meta, cached, cachedDaily] = await Promise.all([
     listAdRows(range),
     readActiveMetaAdsStatus(),
-    // Cache read only; this cannot start a billable request.
+    // Cache reads only; neither can start a billable request.
     cachedAdsInsight(),
+    cachedAdsDailyReport(),
   ]);
 
   // Spend to confirmed bookings over Meta's own window; null for sample rows
@@ -57,6 +58,7 @@ export default async function AdsPage(props: PageProps<"/ads">) {
       funnel={funnel}
       rows={rows}
       cachedInsight={cached}
+      cachedDaily={cachedDaily}
       fallbackInsight={AD_FALLBACK_INSIGHT}
       aiEnabled={isAiConfigured()}
       source={meta.connected ? "meta" : "sample"}

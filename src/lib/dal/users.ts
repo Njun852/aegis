@@ -3,7 +3,7 @@ import "server-only";
 import { ObjectId } from "mongodb";
 import { verifyPassword } from "@/lib/auth/password";
 import { membershipsCollection, usersCollection } from "./db";
-import { isBusinessRole } from "@/lib/business-roles";
+import { DEFAULT_BUSINESS_ROLE, isBusinessRole } from "@/lib/business-roles";
 import type { AegisUser, BusinessRole } from "@/types";
 
 /**
@@ -54,11 +54,11 @@ export async function membershipBusinessIds(userId: string): Promise<string[]> {
 
 /**
  * Each business a member belongs to, with their role there. A stored value
- * that is not a known role reads as none, which is the narrower reading: no
- * owner powers, rather than a typo granting them.
+ * that is not a known role reads as the default role, the narrowest one, so a
+ * typo or a legacy row never grants more than intended.
  */
-export async function membershipRoles(userId: string): Promise<Map<string, BusinessRole | null>> {
+export async function membershipRoles(userId: string): Promise<Map<string, BusinessRole>> {
   const memberships = await membershipsCollection();
   const docs = await memberships.find({ userId }).toArray();
-  return new Map(docs.map((doc) => [doc.businessId, isBusinessRole(doc.role) ? doc.role : null]));
+  return new Map(docs.map((doc) => [doc.businessId, isBusinessRole(doc.role) ? doc.role : DEFAULT_BUSINESS_ROLE]));
 }

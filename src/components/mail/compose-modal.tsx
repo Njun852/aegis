@@ -259,7 +259,7 @@ export function ComposeModal({
             style={{
               padding: "13px 15px",
               border: "1px solid var(--blue-200)",
-              background: "#F5F9FF",
+              background: "var(--surface-active)",
               borderRadius: "var(--radius-lg)",
             }}
           >

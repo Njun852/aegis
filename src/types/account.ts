@@ -11,10 +11,7 @@ import type { TextBlastConfig } from "./text-blast";
  */
 export type UserRole = "aegis_admin" | "member";
 
-/**
- * What a member does in one business; see `src/lib/business-roles.ts`. A
- * membership without one keeps the access members had before roles existed.
- */
+/** What a member does in one business; see `src/lib/business-roles.ts`. */
 export type BusinessRole = "owner" | "service_advisor" | "accounting" | "marketing_admin";
 
 export interface AegisUser {
@@ -30,8 +27,8 @@ export interface AegisUser {
 export interface Membership {
   userId: string;
   businessId: string;
-  /** Absent until an administrator picks one. */
-  role?: BusinessRole;
+  /** Always set. A stored value that is not a known role reads as the default. */
+  role: BusinessRole;
 }
 
 /** An account as the Users screen sees it. Never carries a password or hash. */
@@ -42,8 +39,8 @@ export interface ManagedUser {
   role: UserRole;
   /** Businesses a member may reach. Empty for administrators, who reach all. */
   businessIds: string[];
-  /** The member's role in each of those businesses; null where none is set. */
-  businessRoles: Record<string, BusinessRole | null>;
+  /** The member's role in each of those businesses. */
+  businessRoles: Record<string, BusinessRole>;
   /** ISO 8601. */
   createdAt: string;
 }
@@ -54,7 +51,7 @@ export interface AegisSession {
   role: UserRole;
   /** Already validated against the user's memberships — safe to filter on. */
   activeBusinessId: string;
-  /** The member's role in the active business. Null for administrators, and for a member without one. */
+  /** The member's role in the active business. Null for administrators only. */
   businessRole: BusinessRole | null;
 }
 

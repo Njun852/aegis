@@ -83,7 +83,7 @@ export function Notice({
   children: ReactNode;
 }) {
   const palette = {
-    error: { border: "#F5C6C1", bg: "#FEF3F2", fg: "#912018", icon: "#D92D20", glyph: "circle-alert" },
+    error: { border: "var(--status-negative-border)", bg: "var(--status-negative-soft)", fg: "var(--status-negative-ink)", icon: "#D92D20", glyph: "circle-alert" },
     warning: {
       border: "var(--amber-200, #FDE3A7)",
       bg: "var(--status-warning-soft)",

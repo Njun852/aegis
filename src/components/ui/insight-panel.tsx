@@ -16,6 +16,13 @@ export interface InsightPanelProps {
   loading?: boolean;
   action?: string;
   onAction?: () => void;
+  /**
+   * Two or more views of the commentary, such as the period and the daily
+   * report, offered as a small switch beside the title.
+   */
+  views?: { options: { id: string; label: string }[]; value: string; onChange: (id: string) => void };
+  /** A small line under the text, such as when it was written. */
+  footnote?: string;
   className?: string;
   style?: CSSProperties;
 }
@@ -26,6 +33,8 @@ export function InsightPanel({
   loading = false,
   action,
   onAction,
+  views,
+  footnote,
   className,
   style,
 }: InsightPanelProps) {
@@ -44,18 +53,65 @@ export function InsightPanel({
         ...style,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <Icon name="sparkles" size={16} color="var(--accent-primary)" />
-        <h3
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: "var(--text-h3-size)",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-          }}
-        >
-          {title}
-        </h3>
+      {/* Wraps rather than squeezes: in a narrow card the view switch moves
+          under the title instead of breaking the title or running past the edge. */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" }}>
+          <Icon name="sparkles" size={16} color="var(--accent-primary)" />
+          <h3
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: "var(--text-h3-size)",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+            }}
+          >
+            {title}
+          </h3>
+        </span>
+        {views && (
+          <div
+            role="tablist"
+            aria-label={`${title} view`}
+            style={{
+              marginLeft: "auto",
+              maxWidth: "100%",
+              display: "inline-flex",
+              padding: "2px",
+              gap: "2px",
+              borderRadius: "var(--radius-pill)",
+              background: "var(--surface-inset)",
+            }}
+          >
+            {views.options.map((option) => {
+              const active = option.id === views.value;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => views.onChange(option.id)}
+                  style={{
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "4px 10px",
+                    borderRadius: "var(--radius-pill)",
+                    fontFamily: "var(--font-body)",
+                    fontSize: "11.5px",
+                    fontWeight: active ? 700 : 500,
+                    whiteSpace: "nowrap",
+                    color: active ? "var(--text-accent)" : "var(--text-secondary)",
+                    background: active ? "var(--surface-card)" : "transparent",
+                    boxShadow: active ? "var(--shadow-card)" : "none",
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
       {loading ? (
         <div style={{ padding: "2px 0" }}>
@@ -77,6 +133,9 @@ export function InsightPanel({
         >
           {body}
         </p>
+      )}
+      {footnote && !loading && (
+        <span style={{ marginTop: "-6px", fontSize: "11px", color: "var(--text-muted)" }}>{footnote}</span>
       )}
       <div
         style={{

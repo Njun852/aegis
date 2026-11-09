@@ -6,6 +6,7 @@
 @import "./tokens/elevation.css";
 @import "./tokens/motion.css";
 @import "./tokens/base.css";
+@import "./tokens/themes.css";
 
 /* Expose the AEGIS tokens Tailwind needs as utilities. `wide` is the 1240px
    breakpoint the dashboard bands and the mail three-pane switch on. */

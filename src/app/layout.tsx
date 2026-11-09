@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { PREFERENCES_BOOT_SCRIPT } from "@/lib/preferences";
 import "@/styles/globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -30,7 +31,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${plusJakartaSans.variable} ${inter.variable} ${jetBrainsMono.variable} h-full antialiased`}
+      // The boot script sets data-theme and data-text-size before React
+      // hydrates, so the server's <html> never matches them exactly.
+      suppressHydrationWarning
     >
+      <head>
+        {/* Theme and text size, applied before first paint: see src/lib/preferences.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: PREFERENCES_BOOT_SCRIPT }} />
+      </head>
       <body className="h-full">{children}</body>
     </html>
   );

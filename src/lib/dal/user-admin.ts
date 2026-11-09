@@ -51,7 +51,10 @@ export async function listUsers(): Promise<ManagedUser[]> {
       businessRoles: Object.fromEntries(
         memberships
           .filter((membership) => membership.userId === id)
-          .map((membership) => [membership.businessId, isBusinessRole(membership.role) ? membership.role : null]),
+          .map((membership) => [
+            membership.businessId,
+            isBusinessRole(membership.role) ? membership.role : DEFAULT_BUSINESS_ROLE,
+          ]),
       ),
       createdAt: doc.createdAt.toISOString(),
     };
@@ -171,9 +174,8 @@ export interface UserChanges {
   /** Businesses a member may reach. Ignored for administrators. */
   businessIds: string[];
   /**
-   * The role in each of those businesses. `null` keeps a membership with no
-   * role as it is; a business left out keeps its stored role, or gets the
-   * default if it is new.
+   * The role in each of those businesses. A business left out, or sent with
+   * an unknown value, keeps its stored role, or gets the default if it is new.
    */
   businessRoles: Record<string, unknown>;
 }
@@ -250,17 +252,13 @@ export async function updateUser(
   const stored = new Map(
     (await memberships.find({ userId }).toArray()).map((doc) => [
       doc.businessId,
-      isBusinessRole(doc.role) ? doc.role : null,
+      isBusinessRole(doc.role) ? doc.role : DEFAULT_BUSINESS_ROLE,
     ]),
   );
-  const roles: Record<string, BusinessRole | null> = {};
+  const roles: Record<string, BusinessRole> = {};
   for (const businessId of businessIds) {
     const chosen = changes.businessRoles?.[businessId];
-    roles[businessId] = isBusinessRole(chosen)
-      ? chosen
-      : stored.has(businessId)
-        ? (stored.get(businessId) ?? null)
-        : DEFAULT_BUSINESS_ROLE;
+    roles[businessId] = isBusinessRole(chosen) ? chosen : (stored.get(businessId) ?? DEFAULT_BUSINESS_ROLE);
   }
 
   if (changes.role === "member") {
@@ -271,10 +269,9 @@ export async function updateUser(
      * business to reach. Each step is safe to repeat.
      */
     for (const businessId of businessIds) {
-      const role = roles[businessId];
       await memberships.updateOne(
         { userId, businessId },
-        role ? { $set: { userId, businessId, role } } : { $set: { userId, businessId }, $unset: { role: "" } },
+        { $set: { userId, businessId, role: roles[businessId] } },
         { upsert: true },
       );
     }

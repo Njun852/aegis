@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
-import { generateAdsInsightAction } from "@/app/actions/ai";
+import { generateAdsDailyReportAction, generateAdsInsightAction } from "@/app/actions/ai";
 import { setAdEnabledAction } from "@/app/actions/ads";
+import { dailyReportFootnote, type DailyReportView } from "@/lib/daily-report";
 import {
   Badge,
   Button,
@@ -63,6 +64,8 @@ export interface AdsWorkspaceProps {
   rows: AdRow[];
   /** Cached commentary for these figures. Present means no request is needed. */
   cachedInsight: string | null;
+  /** The latest daily report written today, if anyone has opened it today. */
+  cachedDaily: DailyReportView | null;
   /** Sample copy shown when AI is off, or while the first one is generating. */
   fallbackInsight: string;
   aiEnabled: boolean;
@@ -85,6 +88,7 @@ export interface AdsWorkspaceProps {
 export function AdsWorkspace({
   rows,
   cachedInsight,
+  cachedDaily,
   fallbackInsight,
   aiEnabled,
   source,
@@ -215,6 +219,17 @@ export function AdsWorkspace({
           : "ONLINE";
 
   // ---- AI commentary ------------------------------------------------------
+  // The account's period commentary, or the daily report on today so far. The
+  // latest daily one shows at once; the server is asked once per visit whether
+  // it is due a refresh, which happens at most hourly and only when the
+  // figures have moved.
+  // The daily report opens first when there is a live account to report on;
+  // the 30-day commentary is only requested once someone opens it.
+  const [insightView, setInsightView] = useState<"period" | "daily">(live ? "daily" : "period");
+  const [daily, setDaily] = useState<DailyReportView | null>(cachedDaily);
+  const [dailyNote, setDailyNote] = useState<string | null>(null);
+  const [dailyChecked, setDailyChecked] = useState(false);
+  const dailyRequest = useRef<ReturnType<typeof generateAdsDailyReportAction> | null>(null);
   const [insight, setInsight] = useState<string | null>(cachedInsight);
   const [insightNote, setInsightNote] = useState<string | null>(null);
   // The one request for this page, kept across effect runs. React runs an
@@ -223,7 +238,7 @@ export function AdsWorkspace({
   const request = useRef<ReturnType<typeof generateAdsInsightAction> | null>(null);
 
   useEffect(() => {
-    if (!aiEnabled || insight) return;
+    if (insightView !== "period" || !aiEnabled || insight) return;
 
     let live = true;
     request.current ??= generateAdsInsightAction();
@@ -243,15 +258,40 @@ export function AdsWorkspace({
     return () => {
       live = false;
     };
-  }, [aiEnabled, insight]);
+  }, [aiEnabled, insight, insightView]);
+
+  useEffect(() => {
+    if (insightView !== "daily" || !aiEnabled || dailyChecked) return;
+
+    let live = true;
+    dailyRequest.current ??= generateAdsDailyReportAction();
+    dailyRequest.current
+      .then((result) => {
+        if (!live) return;
+        setDailyChecked(true);
+        if (result.text && result.at) setDaily({ text: result.text, at: result.at });
+        else setDailyNote(result.note ?? "No daily report was written.");
+      })
+      .catch(() => {
+        if (!live) return;
+        setDailyChecked(true);
+        setDailyNote("The daily report could not be written just now.");
+      });
+
+    return () => {
+      live = false;
+    };
+  }, [aiEnabled, dailyChecked, insightView]);
 
   // Waiting on the request: AI is on and neither an answer nor a reason has come back.
-  const generating = aiEnabled && !insight && !insightNote;
+  const generating =
+    aiEnabled && (insightView === "period" ? !insight && !insightNote : !daily && !dailyNote);
 
   // Reveal a freshly generated insight; show a cached one whole, since it was
   // never "being written" in front of anyone.
-  const { shown } = useTypewriter(insight, {
-    animate: insight !== null && insight !== cachedInsight,
+  const shownText = insightView === "period" ? insight : (daily?.text ?? null);
+  const { shown } = useTypewriter(shownText, {
+    animate: shownText !== null && shownText !== (insightView === "period" ? cachedInsight : cachedDaily?.text),
   });
 
   const stats = [
@@ -603,15 +643,31 @@ export function AdsWorkspace({
         )}
 
         <InsightPanel
+          // The daily report is about a real day, so it is offered only for a connected account.
+          views={
+            live
+              ? {
+                  options: [
+                    { id: "period", label: "Last 30 days" },
+                    { id: "daily", label: "Daily report" },
+                  ],
+                  value: insightView,
+                  onChange: (next) => setInsightView(next === "daily" ? "daily" : "period"),
+                }
+              : undefined
+          }
           body={
             shown ||
             (!live
               ? fallbackInsight
               : !aiEnabled
                 ? "AI commentary is switched off on this server."
-                : (insightNote ?? (generating ? "Writing commentary on these figures…" : "Commentary appears once the account has campaign figures to analyse.")))
+                : insightView === "daily"
+                  ? (dailyNote ?? "Writing today's report…")
+                  : (insightNote ?? (generating ? "Writing commentary on these figures…" : "Commentary appears once the account has campaign figures to analyse.")))
           }
           loading={generating}
+          footnote={insightView === "daily" && daily && shown ? dailyReportFootnote(daily.at) : undefined}
           action={live ? undefined : "Rebalance budgets"}
         />
 

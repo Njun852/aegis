@@ -168,11 +168,11 @@ function Notice({ tone, children }: { tone: "error" | "warning"; children: React
       className="flex items-start gap-2.5"
       style={{
         padding: "11px 13px",
-        border: `1px solid ${error ? "#F5C6C1" : "var(--amber-200, #FDE3A7)"}`,
-        background: error ? "#FEF3F2" : "var(--status-warning-soft)",
+        border: `1px solid ${error ? "var(--status-negative-border)" : "var(--amber-200, #FDE3A7)"}`,
+        background: error ? "var(--status-negative-soft)" : "var(--status-warning-soft)",
         borderRadius: "var(--radius-md)",
         fontSize: "12px",
-        color: error ? "#912018" : "var(--text-primary)",
+        color: error ? "var(--status-negative-ink)" : "var(--text-primary)",
         overflowWrap: "anywhere",
         textWrap: "pretty",
       }}

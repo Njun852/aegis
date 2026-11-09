@@ -217,7 +217,9 @@ export async function readSystemStatus(): Promise<SystemStatus> {
 
 const SURFACE_LABELS: Record<string, string> = {
   "dashboard-insight": "Dashboard commentary",
+  "dashboard-daily": "Dashboard daily report",
   "ads-insight": "Ads commentary",
+  "ads-daily": "Ads daily report",
   "mail-triage": "Mail triage",
   "compose-draft": "New email drafting",
   "mail-reply": "Reply drafting",

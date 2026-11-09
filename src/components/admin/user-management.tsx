@@ -16,8 +16,8 @@ import { PASSWORD_MIN_LENGTH } from "@/lib/password-policy";
 import { roleLabel } from "@/lib/roles";
 import type { Business, BusinessRole, ManagedUser, UserRole } from "@/types";
 
-/** A member's role in each business they reach; null is a membership from before roles. */
-type BusinessRoles = Record<string, BusinessRole | null>;
+/** A member's role in each business they reach. */
+type BusinessRoles = Record<string, BusinessRole>;
 
 export interface UserManagementProps {
   users: ManagedUser[];
@@ -338,7 +338,7 @@ export function UserManagement({ users }: UserManagementProps) {
                     {account.role === "aegis_admin"
                       ? "All businesses"
                       : account.businessIds
-                          .map((id) => `${businessName(id)} (${account.businessRoles[id] ? businessRoleLabel(account.businessRoles[id]) : "no role yet"})`)
+                          .map((id) => `${businessName(id)} (${businessRoleLabel(account.businessRoles[id] ?? DEFAULT_BUSINESS_ROLE)})`)
                           .join(", ") || "No businesses"}
                   </div>
 
@@ -569,13 +569,11 @@ function BusinessPicker({
         </span>
       )}
 
-      {/* The role in each ticked business. A membership from before roles shows
-          "No role yet" until one is picked, and keeps its old access meanwhile. */}
+      {/* The role in each ticked business. A newly ticked one starts on the default. */}
       {selected.map((id) => {
         const business = businesses.find((entry) => entry.id === id);
-        const stored = id in roles ? roles[id] : DEFAULT_BUSINESS_ROLE;
-        const current = stored ?? "";
-        const summary = isBusinessRole(current) ? BUSINESS_ROLES.find((entry) => entry.key === current)?.summary : null;
+        const current = roles[id] ?? DEFAULT_BUSINESS_ROLE;
+        const summary = BUSINESS_ROLES.find((entry) => entry.key === current)?.summary;
         return (
           <div key={id} className="flex flex-col gap-1" style={{ paddingTop: 4 }}>
             <label className="flex flex-wrap items-center gap-2" style={{ fontSize: "12.5px" }}>
@@ -588,7 +586,6 @@ function BusinessPicker({
                 style={{ ...FIELD, width: "auto", minWidth: 180, padding: "6px 10px" }}
                 aria-label={`Role at ${business?.name ?? id}`}
               >
-                {current === "" && <option value="">No role yet (keeps old access)</option>}
                 {BUSINESS_ROLES.map((entry) => (
                   <option key={entry.key} value={entry.key}>
                     {entry.label}
@@ -597,7 +594,7 @@ function BusinessPicker({
               </select>
             </label>
             <span style={{ fontSize: "11.5px", color: "var(--text-muted)", textWrap: "pretty" }}>
-              {summary ?? "Every module this business has, without the owner's powers, until a role is picked."}
+              {summary}
             </span>
           </div>
         );

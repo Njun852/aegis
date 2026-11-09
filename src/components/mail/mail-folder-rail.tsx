@@ -79,7 +79,7 @@ export function MailFolderRail({
               fontSize: "12.5px",
               cursor: "pointer",
               textAlign: "left",
-              background: active ? "#EAF1FE" : "transparent",
+              background: active ? "var(--accent-soft)" : "transparent",
               color: active ? "var(--text-accent)" : "var(--text-primary)",
               fontWeight: active ? 700 : 500,
               fontFamily: "var(--font-body)",

@@ -146,7 +146,7 @@ export function MessageList({
             <div
               key={message.id}
               style={{
-                background: active ? "#F5F9FF" : "var(--surface-card)",
+                background: active ? "var(--surface-active)" : "var(--surface-card)",
                 borderLeft: `3px solid ${active ? "var(--accent-primary)" : priority.accent}`,
                 borderBottom: "1px solid var(--border-subtle)",
                 padding: "4px 10px 10px",

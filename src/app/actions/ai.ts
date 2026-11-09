@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { generateAdsInsight } from "@/lib/ai/ads-insight";
+import { generateAdsDailyReport, generateAdsInsight } from "@/lib/ai/ads-insight";
+import { generateDailyReport } from "@/lib/ai/daily-report";
 import { draftEmail } from "@/lib/ai/compose";
 import {
   draftInboxReplies,
@@ -245,6 +246,42 @@ export async function draftEmailAction(
   return result.ok
     ? { subject: result.data.subject, body: result.data.body, note: null }
     : { subject: null, body: null, note: explainFailure(result.reason) };
+}
+
+export interface DailyReportState {
+  text: string | null;
+  /** ISO 8601: when the report shown was written. */
+  at: string | null;
+  note: string | null;
+}
+
+/**
+ * Today's report for the dashboard. Only on request — opening the dashboard
+ * reads the stored one and nothing else — and rewritten at most once an hour,
+ * only when the figures have moved; see `hourly-report.ts`.
+ */
+export async function generateDailyReportAction(): Promise<DailyReportState> {
+  await requireModule("dashboard");
+  if (!isAiConfigured()) return { text: null, at: null, note: explainFailure("not-configured") };
+
+  const result = await generateDailyReport();
+  return result.ok
+    ? { text: result.data.text, at: result.data.at, note: null }
+    : { text: null, at: null, note: explainFailure(result.reason) };
+}
+
+/** Today's report for the Ads screen; the same hourly rule. */
+export async function generateAdsDailyReportAction(): Promise<DailyReportState> {
+  await requireModule("ads");
+  if (!isAiConfigured()) return { text: null, at: null, note: explainFailure("not-configured") };
+
+  const result = await generateAdsDailyReport();
+  if (!result) {
+    return { text: null, at: null, note: "No daily report: connect a Meta ad account, or no campaigns have figures today." };
+  }
+  return result.ok
+    ? { text: result.data.text, at: result.data.at, note: null }
+    : { text: null, at: null, note: explainFailure(result.reason) };
 }
 
 export async function generateAdsInsightAction(): Promise<InsightState> {

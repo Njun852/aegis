@@ -47,6 +47,7 @@
 --status-positive-soft:var(--green-50);
 --status-negative:var(--red-500);
 --status-negative-soft:var(--red-50);
+--status-negative-border:#F5C6C1;--status-negative-ink:#912018;
 --status-warning:var(--amber-500);
 --status-warning-soft:var(--amber-50);
 --status-info:var(--sky-500);

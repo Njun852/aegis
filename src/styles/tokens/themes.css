@@ -1,0 +1,85 @@
+/*
+ * Display preferences, applied as attributes on <html> by
+ * src/lib/preferences.ts before first paint.
+ *
+ * Dark mode re-points the base ramps rather than each component: the gray ramp
+ * is inverted (gray-0 is still "the card", just a dark one) and the pale tints
+ * become deep ones, so every semantic alias in colors.css, and the components
+ * that use a ramp step directly, follow without being touched.
+ */
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --gray-0: #161b24;
+  --gray-25: #181e28;
+  --gray-50: #0f131a;
+  --gray-100: #1e2530;
+  --gray-150: #242c38;
+  --gray-200: #2b3441;
+  --gray-300: #3a4453;
+  --gray-400: #556072;
+  --gray-500: #8590a3;
+  --gray-600: #a3adbd;
+  --gray-700: #c5ccd8;
+  --gray-800: #dde2ea;
+  --gray-900: #eef1f6;
+
+  --blue-50: #16264a;
+  --blue-100: #1b3060;
+  --blue-200: #24407a;
+
+  --green-50: #0f2e21;
+  --red-50: #3a1715;
+  --amber-50: #3a2a0c;
+  --sky-50: #0c2a3a;
+
+  --surface-hover: var(--gray-150);
+  --text-accent: #8fb4ff;
+  --text-positive: var(--green-400);
+  --text-negative: var(--red-400);
+  --status-negative: var(--red-400);
+  --status-positive: var(--green-400);
+
+  --status-negative-border: #6b2a25;
+  --status-negative-ink: #f4b3ad;
+
+  --grad-upsell: linear-gradient(135deg, #16264a 0%, #161b24 70%);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-raised: 0 4px 14px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-device: 0 30px 70px rgba(0, 0, 0, 0.55);
+  --inner-hairline: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] a:hover {
+  color: var(--blue-300);
+}
+
+/*
+ * Text size scales the whole interface, not just the font: most screens size
+ * their text in px beside px padding, so growing text alone would crowd every
+ * row. `zoom` keeps proportions, and the shell's height compensates for it
+ * (see .aegis-shell in app-shell.tsx).
+ */
+html {
+  --ui-zoom: 1;
+}
+html[data-text-size="small"] {
+  --ui-zoom: 0.9;
+}
+html[data-text-size="large"] {
+  --ui-zoom: 1.125;
+}
+html[data-text-size="xlarge"] {
+  --ui-zoom: 1.25;
+}
+body {
+  zoom: var(--ui-zoom);
+}
+
+@media print {
+  body {
+    zoom: 1;
+  }
+}

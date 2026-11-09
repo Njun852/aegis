@@ -140,7 +140,7 @@ async function main() {
       if (member?._id) {
         await db.collection("memberships").updateOne(
           { userId: member._id.toString(), businessId: memberBusinessId },
-          { $set: { userId: member._id.toString(), businessId: memberBusinessId } },
+          { $set: { userId: member._id.toString(), businessId: memberBusinessId, role: "service_advisor" } },
           { upsert: true },
         );
       }
