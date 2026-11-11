@@ -82,6 +82,7 @@ function toReceipt(doc: ReceiptDocument, names: Map<string, string>): Receipt {
     supplierName: names.get(doc.supplierRef) ?? doc.supplierRef,
     purchaseOrderRef: doc.purchaseOrderRef,
     receiptNo: doc.receiptNo,
+    poNumber: doc.poNumber ?? "",
     receivedDate: doc.receivedDate,
     receivedDay: formatQuoteDay(doc.receivedDate),
     lines: doc.lines,
@@ -263,6 +264,10 @@ export async function receiveGoods(input: ReceiptInput, stocked: boolean): Promi
   const supplier = await findSupplier(input.supplierRef);
   if (!supplier) throw new InputError("That supplier is no longer on file.");
 
+  if (stocked && !input.poNumber.trim()) {
+    throw new InputError("Enter the PO No. these goods were bought on.");
+  }
+
   if (input.purchaseOrderRef) {
     const orderCollection = await orders();
     const order = await orderCollection.findOne({ ref: input.purchaseOrderRef });
@@ -290,6 +295,7 @@ export async function receiveGoods(input: ReceiptInput, stocked: boolean): Promi
       supplierRef: input.supplierRef,
       purchaseOrderRef: input.purchaseOrderRef,
       receiptNo: input.receiptNo,
+      ...(input.poNumber ? { poNumber: input.poNumber } : {}),
       receivedDate: input.receivedDate,
       lines: input.lines.map((line) => ({ ...line, moveRef: null, batchRef: null })),
       status: "Posting",
@@ -347,6 +353,7 @@ export async function postReceipt(ref: string): Promise<void> {
           quantity: line.qty,
           reason: "Goods received",
           documentRef,
+          poNumber: doc.poNumber ?? "",
           party: supplier.name,
           unitAmountCents: line.unitCostCents,
         });

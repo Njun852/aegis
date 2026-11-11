@@ -35,6 +35,7 @@ export const INVENTORY_STATUS_STYLES: Record<
 };
 
 export const INVENTORY_PERIODS: InventoryPeriod[] = [
+  "Today",
   "Last 7 days",
   "This month",
   "Last 90 days",

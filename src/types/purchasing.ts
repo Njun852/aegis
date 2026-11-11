@@ -105,6 +105,8 @@ export interface ReceiptDocument {
   purchaseOrderRef: string | null;
   /** The supplier's own invoice or delivery receipt number. */
   receiptNo: string;
+  /** The shop's PO No. from the PO booklet. Absent on receipts recorded before it was asked for. */
+  poNumber?: string;
   /** "2026-10-04" */
   receivedDate: string;
   lines: ReceiptLine[];
@@ -126,6 +128,8 @@ export interface Receipt {
   supplierName: string;
   purchaseOrderRef: string | null;
   receiptNo: string;
+  /** Empty on receipts recorded before it was asked for. */
+  poNumber: string;
   receivedDate: string;
   receivedDay: string;
   lines: ReceiptLine[];
@@ -141,6 +145,8 @@ export interface ReceiptInput {
   supplierRef: string;
   purchaseOrderRef: string | null;
   receiptNo: string;
+  /** The PO booklet number. Required when the goods go into Inventory. */
+  poNumber: string;
   receivedDate: string;
   notes: string;
   lines: Omit<ReceiptLine, "moveRef" | "batchRef">[];

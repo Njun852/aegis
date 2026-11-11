@@ -7,6 +7,8 @@ import type {
   InventoryPeriod,
   InventoryStatus,
   InventoryStatusFilter,
+  PoStock,
+  StockBatch,
   StockMove,
   StockMoveReason,
 } from "@/types";
@@ -32,6 +34,70 @@ export function statusFor(level: {
 
 export function getStatusStyle(status: InventoryStatus) {
   return INVENTORY_STATUS_STYLES[status];
+}
+
+/** Longest PO No. accepted. Booklet numbers are short ("37345", "37339-40"). */
+export const PO_NUMBER_MAX = 30;
+
+/**
+ * Goods bought from a supplier must name the PO they were bought on, so every
+ * batch in stock can be traced back to the PO booklet. Returns, transfers and
+ * count corrections were never bought, so they carry none.
+ */
+export function requiresPoNumber(reason: StockMoveReason): boolean {
+  return reason === "Goods received";
+}
+
+/** The PO No. as stored: trimmed, inner spaces folded. */
+export function cleanPoNumber(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
+
+/** Why a PO No. cannot be accepted, or null when it can. */
+export function poNumberProblem(text: string): string | null {
+  const value = cleanPoNumber(text);
+  if (!value) return "Enter the PO No. these goods were bought on.";
+  if (value.length > PO_NUMBER_MAX) return `The PO No. can be at most ${PO_NUMBER_MAX} characters.`;
+  return null;
+}
+
+/**
+ * Folds open batches, oldest first, into units left per PO No. Two deliveries
+ * on the same PO become one entry, kept where the older one stood, so the
+ * first entry is always the PO the next unit used comes from.
+ */
+export function groupPoStock(lots: PoStock[]): PoStock[] {
+  const grouped: PoStock[] = [];
+  for (const lot of lots) {
+    if (lot.remaining <= 0) continue;
+    const poNumber = cleanPoNumber(lot.poNumber ?? "");
+    const entry = grouped.find((existing) => existing.poNumber === poNumber);
+    if (entry) entry.remaining += lot.remaining;
+    else grouped.push({ poNumber, remaining: lot.remaining });
+  }
+  return grouped;
+}
+
+/**
+ * What the PO No. column says. `label` is the PO used next; `more` counts
+ * the other POs (and stock with none) still on the shelf; `detail` lists them
+ * all with what is left of each, for the tooltip.
+ */
+export function poColumn(item: Pick<InventoryItem, "poStock" | "unit">): {
+  label: string;
+  more: number;
+  missing: boolean;
+  detail: string;
+} {
+  const [first, ...rest] = item.poStock;
+  if (!first) return { label: "—", more: 0, missing: false, detail: "Nothing on hand" };
+  const name = (entry: PoStock) => (entry.poNumber ? `PO ${entry.poNumber}` : "No PO");
+  return {
+    label: first.poNumber || "No PO",
+    more: rest.length,
+    missing: !first.poNumber,
+    detail: item.poStock.map((entry) => `${name(entry)} · ${entry.remaining} ${item.unit} left`).join("\n"),
+  };
 }
 
 export function moveReasonMeta(reason: StockMoveReason) {
@@ -62,9 +128,110 @@ export function filterInventory(
       item.sku.toLowerCase().includes(term) ||
       item.supplier.toLowerCase().includes(term) ||
       item.category.toLowerCase().includes(term) ||
-      item.location.toLowerCase().includes(term)
+      item.location.toLowerCase().includes(term) ||
+      // "37345" finds every item still holding stock bought on that PO.
+      item.poStock.some((entry) => entry.poNumber.toLowerCase().includes(term))
     );
   });
+}
+
+/**
+ * One row of the list by PO: what is left of one delivery of one item, or,
+ * for an item with nothing on hand, the item alone so it stays in sight for
+ * reordering.
+ */
+export interface PoLine {
+  key: string;
+  /** A lot bought on a PO, a lot with no PO (opening or older stock), or an item with nothing on hand. */
+  kind: "po" | "no-po" | "empty";
+  poNumber: string;
+  item: InventoryItem;
+  batchRef: string | null;
+  /** "Oct 15, 2026"; empty for an item with nothing on hand. */
+  receivedDay: string;
+  receivedAt: string;
+  supplier: string;
+  /** The supplier's invoice or delivery No., as typed. */
+  documentRef: string;
+  quantityReceived: number;
+  remaining: number;
+  unitCostCents: number;
+  valueCents: number;
+}
+
+/** PO numbers in booklet order, newest first: "37479" before "37415", "37339-40" beside "37339". */
+function comparePoDescending(a: string, b: string): number {
+  return b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" });
+}
+
+const KIND_ORDER: Record<PoLine["kind"], number> = { po: 0, "no-po": 1, empty: 2 };
+
+/**
+ * The stock on hand split by PO: one row per delivery still on the shelf,
+ * grouped by PO No. (newest PO first, items A to Z within it), then stock with
+ * no PO, then items with nothing on hand.
+ */
+export function poLines(items: InventoryItem[], batches: StockBatch[]): PoLine[] {
+  const open = new Map<string, StockBatch[]>();
+  for (const batch of batches) {
+    if (batch.remaining <= 0) continue;
+    const list = open.get(batch.sku) ?? [];
+    list.push(batch);
+    open.set(batch.sku, list);
+  }
+
+  const lines: PoLine[] = [];
+  for (const item of items) {
+    const lots = open.get(item.sku) ?? [];
+    if (lots.length === 0) {
+      lines.push({
+        key: `empty-${item.sku}`, kind: "empty", poNumber: "", item, batchRef: null, receivedDay: "", receivedAt: "",
+        supplier: item.supplier, documentRef: "", quantityReceived: 0, remaining: 0,
+        unitCostCents: item.unitCostCents, valueCents: 0,
+      });
+      continue;
+    }
+    for (const batch of lots) {
+      const poNumber = cleanPoNumber(batch.poNumber ?? "");
+      lines.push({
+        key: batch.ref, kind: poNumber ? "po" : "no-po", poNumber, item, batchRef: batch.ref,
+        receivedDay: batch.receivedDay, receivedAt: batch.receivedAt, supplier: batch.supplier,
+        documentRef: batch.documentRef, quantityReceived: batch.quantityReceived, remaining: batch.remaining,
+        unitCostCents: batch.unitCostCents, valueCents: batch.remaining * batch.unitCostCents,
+      });
+    }
+  }
+
+  return lines.sort(
+    (a, b) =>
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+      comparePoDescending(a.poNumber, b.poNumber) ||
+      a.item.name.localeCompare(b.item.name) ||
+      a.receivedAt.localeCompare(b.receivedAt),
+  );
+}
+
+/** The by-PO rows a status chip and the search box leave. A PO No., invoice or supplier finds its own rows only. */
+export function filterPoLines(lines: PoLine[], { status = "All", search = "" }: InventoryFilter): PoLine[] {
+  const term = search.trim().toLowerCase();
+  return lines.filter((line) => {
+    if (status !== "All" && line.item.status !== status) return false;
+    if (!term) return true;
+    return [
+      line.poNumber,
+      line.documentRef,
+      line.supplier,
+      line.item.name,
+      line.item.sku,
+      line.item.category,
+      line.item.location,
+    ].some((value) => value.toLowerCase().includes(term));
+  });
+}
+
+/** How many rows of the list by PO each status chip covers. */
+export function countPoLinesByStatus(lines: PoLine[], status: InventoryStatusFilter): number {
+  return status === "All" ? lines.length : lines.filter((line) => line.item.status === status).length;
 }
 
 export function countByStatus(
@@ -154,7 +321,9 @@ export function periodBounds(period: InventoryPeriod, today: Date) {
   to.setDate(to.getDate() + 1);
 
   const from = new Date(start);
-  if (period === "This month") {
+  if (period === "Today") {
+    // From midnight: `from` is already the start of today.
+  } else if (period === "This month") {
     from.setDate(1);
   } else if (period === "Last 90 days") {
     from.setDate(from.getDate() - 89);
@@ -175,6 +344,27 @@ export function movesInPeriod(
     const at = new Date(move.occurredAt);
     return at >= from && at < to;
   });
+}
+
+/** Whether an ISO time falls on the same day as `today`. */
+export function isSameDay(iso: string, today: Date): boolean {
+  if (!iso) return false;
+  const { from, to } = periodBounds("Today", today);
+  const at = new Date(iso);
+  return at >= from && at < to;
+}
+
+/**
+ * The list's Today filter. By PO keeps the deliveries received today; by
+ * item keeps the items that moved in or out today.
+ */
+export function receivedToday(lines: PoLine[], today: Date): PoLine[] {
+  return lines.filter((line) => line.kind !== "empty" && isSameDay(line.receivedAt, today));
+}
+
+export function movedToday(items: InventoryItem[], moves: StockMove[], today: Date): InventoryItem[] {
+  const moved = new Set(moves.filter((move) => isSameDay(move.occurredAt, today)).map((move) => move.sku));
+  return items.filter((item) => moved.has(item.sku));
 }
 
 /** The parties this business has actually dealt with, most recent first. */

@@ -8,7 +8,7 @@ export type InventoryStatus = "In stock" | "Low stock" | "Out of stock";
 export type InventoryStatusFilter = "All" | InventoryStatus;
 
 /** The movement window the toolbar's period picker offers, in display order. */
-export type InventoryPeriod = "Last 7 days" | "This month" | "Last 90 days";
+export type InventoryPeriod = "Today" | "Last 7 days" | "This month" | "Last 90 days";
 
 /** Which way stock moved. Everything else about a move follows from this. */
 export type StockMoveKind = "in" | "out";
@@ -82,11 +82,19 @@ export interface InventoryItem {
   openBatches: number;
   /** Unit cost of the oldest open batch: what the next unit used will cost. Null when none is on hand. */
   nextCostCents: number | null;
+  /** Where the stock on hand was bought: units left per PO No., oldest (used next) first. */
+  poStock: PoStock[];
   status: InventoryStatus;
   /** "Aug 28 · 07:15" */
   updated: string;
   /** ISO 8601, so the client can re-derive without re-formatting. */
   updatedAt: string;
+}
+
+/** Units on hand from one PO. An empty `poNumber` is stock bought without one (opening stock, older batches). */
+export interface PoStock {
+  poNumber: string;
+  remaining: number;
 }
 
 /** Stored shape. `businessId` is stamped on by `tenantScope`. */
@@ -116,6 +124,8 @@ export interface StockMove {
   reason: StockMoveReason;
   /** Delivery note or booking reference, as typed. May be empty. */
   documentRef: string;
+  /** The shop's purchase order No., from the PO booklet. Required on goods received; empty otherwise. */
+  poNumber: string;
   /** Supplier or customer. Empty on internal moves. */
   party: string;
   unitAmountCents: number;
@@ -139,6 +149,8 @@ export interface StockMoveDocument {
   quantity: number;
   reason: StockMoveReason;
   documentRef: string;
+  /** Absent on movements recorded before PO numbers were asked for. */
+  poNumber?: string;
   party: string;
   unitAmountCents: number;
   amountCents: number;
@@ -158,6 +170,8 @@ export interface StockMoveInput {
   quantity: number;
   reason: StockMoveReason;
   documentRef: string;
+  /** The PO booklet number. Required when the reason is goods received. */
+  poNumber: string;
   party: string;
   unitAmountCents: number;
 }
@@ -198,6 +212,8 @@ export interface StockBatchDocument {
   supplier: string;
   /** Delivery note or receipt number, as typed. */
   documentRef: string;
+  /** The PO No. the goods were bought on. Absent on opening stock, internal moves and older batches. */
+  poNumber?: string;
   /** The movement that opened it. Null for opening stock. */
   moveRef: string | null;
   createdAt: Date;
@@ -215,4 +231,6 @@ export interface StockBatch {
   unitCostCents: number;
   supplier: string;
   documentRef: string;
+  /** Empty when the batch has none. */
+  poNumber: string;
 }

@@ -353,7 +353,7 @@ function PriceRow({
             <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
               <span style={{ fontSize: "12.5px", fontWeight: 600, overflowWrap: "anywhere" }}>{item.description}</span>
               <span style={{ fontSize: "11px", color: "var(--text-muted)", overflowWrap: "anywhere" }}>
-                {item.sku ? `${item.itemName ?? item.sku} · ${item.sku}` : inventoryEnabled ? "Not linked to Inventory" : ""}
+                {item.sku ? `Inventory: ${item.itemName ?? "linked item"}` : inventoryEnabled ? "Not linked to Inventory" : ""}
               </span>
             </span>
             <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3 }}>
@@ -449,7 +449,7 @@ function PartFields({
             <option value="">Not a stock item</option>
             {inventory.map((option) => (
               <option key={option.sku} value={option.sku}>
-                {option.name} · {option.sku}
+                {option.name}
               </option>
             ))}
           </select>

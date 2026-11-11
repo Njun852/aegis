@@ -7,6 +7,7 @@ import { receiveGoodsAction } from "@/app/actions/purchasing";
 import { CELL, ColumnLabel, Field, INPUT, NUMBER_CELL, Notice, Panel, SELECT } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button, Icon } from "@/components/ui";
+import { PO_NUMBER_MAX } from "@/lib/inventory";
 import { outstanding, variancePercent } from "@/lib/purchasing";
 import { amountInput, descriptionKey, formatAmount, formatPeso, newLineId, parseAmount } from "@/lib/quotations";
 import type { InventoryOption, PurchaseOrder, Supplier, SupplierItem } from "@/types";
@@ -51,6 +52,7 @@ export function ReceiveForm({ order, suppliers, supplierItems, inventory, invent
   const toast = useToast();
   const [supplierRef, setSupplierRef] = useState(order?.supplierRef ?? "");
   const [receiptNo, setReceiptNo] = useState("");
+  const [poNumber, setPoNumber] = useState("");
   const [receivedDate, setReceivedDate] = useState(todayKey);
   const [notes, setNotes] = useState("");
   const [rows, setRows] = useState<Row[]>(() =>
@@ -128,6 +130,7 @@ export function ReceiveForm({ order, suppliers, supplierItems, inventory, invent
         supplierRef,
         purchaseOrderRef: order?.ref ?? null,
         receiptNo,
+        poNumber,
         receivedDate,
         notes,
         lines,
@@ -165,7 +168,7 @@ export function ReceiveForm({ order, suppliers, supplierItems, inventory, invent
           {order ? `Receive ${order.ref}` : "Receive goods"}
         </h2>
         <div className="ml-auto">
-          <Button icon="check" onClick={() => submit()} disabled={pending || !supplierRef}>
+          <Button icon="check" onClick={() => submit()} disabled={pending || !supplierRef || (inventoryEnabled && !poNumber.trim())}>
             {pending ? "Receiving…" : inventoryEnabled ? "Receive into stock" : "Record receipt"}
           </Button>
         </div>
@@ -264,6 +267,13 @@ export function ReceiveForm({ order, suppliers, supplierItems, inventory, invent
                   </option>
                 ))}
               </select>
+            </Field>
+            <Field
+              label="PO No."
+              required={inventoryEnabled}
+              hint={inventoryEnabled ? "From the PO booklet. Every batch these goods open carries it." : "From the PO booklet."}
+            >
+              <input style={INPUT} value={poNumber} maxLength={PO_NUMBER_MAX} placeholder="37345" onChange={(event) => setPoNumber(event.target.value)} />
             </Field>
             <Field label="Their receipt or invoice No." hint="Used to warn if the same receipt is entered twice.">
               <input style={INPUT} value={receiptNo} maxLength={40} onChange={(event) => setReceiptNo(event.target.value)} />

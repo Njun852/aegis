@@ -59,6 +59,7 @@ export function ReceiptView({ receipt }: { receipt: Receipt }) {
       <Panel title={receipt.supplierName} icon="truck">
         <div className="flex flex-wrap gap-x-6 gap-y-1" style={{ fontSize: "12.5px" }}>
           <span>Received {receipt.receivedDay}</span>
+          {receipt.poNumber && <span>PO No. {receipt.poNumber}</span>}
           {receipt.receiptNo && <span>Their No. {receipt.receiptNo}</span>}
           {receipt.purchaseOrderRef && (
             <Link href={`/suppliers/orders/${receipt.purchaseOrderRef}`} style={{ color: "var(--text-accent)" }}>

@@ -67,11 +67,7 @@ export function PriceComparison({
               <div key={group.id} style={{ border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
                 <div className="flex flex-wrap items-baseline gap-2" style={{ padding: "9px 12px", background: "var(--gray-25)", borderBottom: "1px solid var(--border-subtle)" }}>
                   <span style={{ fontSize: "12.5px", fontWeight: 700 }}>{group.label}</span>
-                  {group.sku ? (
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>{group.sku}</span>
-                  ) : (
-                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>not linked to Inventory</span>
-                  )}
+                  {!group.sku && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>not linked to Inventory</span>}
                   {spread > 0 && (
                     <span className="ml-auto" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
                       {formatPeso(spread)} between cheapest and dearest

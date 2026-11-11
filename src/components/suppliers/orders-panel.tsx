@@ -199,7 +199,7 @@ export function ReceiptsPanel({ receipts }: { receipts: Receipt[] }) {
         <ColumnLabel>Receipt</ColumnLabel>
         <ColumnLabel>Supplier</ColumnLabel>
         <ColumnLabel className="hidden wide:block">Their No.</ColumnLabel>
-        <ColumnLabel className="hidden wide:block">Order</ColumnLabel>
+        <ColumnLabel className="hidden wide:block">PO No.</ColumnLabel>
         <ColumnLabel>Received</ColumnLabel>
         <ColumnLabel align="right" className="hidden wide:block">
           Total
@@ -232,8 +232,13 @@ export function ReceiptsPanel({ receipts }: { receipts: Receipt[] }) {
               <span className="hidden wide:block" style={{ fontSize: "12.5px" }}>
                 {receipt.receiptNo || "—"}
               </span>
-              <span className="hidden wide:block" style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
-                {receipt.purchaseOrderRef ?? "—"}
+              <span className="hidden min-w-0 flex-col leading-tight wide:flex">
+                <span style={{ fontSize: "12.5px" }}>{receipt.poNumber || "—"}</span>
+                {receipt.purchaseOrderRef && (
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-muted)" }}>
+                    {receipt.purchaseOrderRef}
+                  </span>
+                )}
               </span>
               <span style={{ fontSize: "12.5px" }}>{receipt.receivedDay}</span>
               <span className="hidden wide:block" style={{ fontSize: "12.5px", fontWeight: 600, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>

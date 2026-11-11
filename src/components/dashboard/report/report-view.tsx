@@ -256,7 +256,7 @@ export function ReportView({ report, insight, summary, aiEnabled }: ReportViewPr
               {inventory.belowReorder.map((item) => (
                 <tr key={item.sku}>
                   <td style={TD}>
-                    {item.name} <span style={{ color: "var(--text-muted)" }}>· {item.sku}</span>
+                    {item.name}
                   </td>
                   <td style={{ ...TD, textAlign: "right" }}>
                     {item.onHand} {item.unit}

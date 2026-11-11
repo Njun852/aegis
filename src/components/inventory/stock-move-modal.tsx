@@ -14,7 +14,10 @@ import {
 import {
   findItem,
   nearMatches,
+  PO_NUMBER_MAX,
+  poNumberProblem,
   recentParties,
+  requiresPoNumber,
   suggestedUnitAmountCents,
 } from "@/lib/inventory";
 import type {
@@ -61,6 +64,7 @@ export function StockMoveModal({
   const [name, setName] = useState(startItem?.name ?? "");
   const [quantity, setQuantity] = useState("");
   const [documentRef, setDocumentRef] = useState("");
+  const [poNumber, setPoNumber] = useState("");
   const [party, setParty] = useState("");
   const [reason, setReason] = useState<StockMoveReason>(
     DEFAULT_MOVE_REASON[kind],
@@ -73,6 +77,8 @@ export function StockMoveModal({
   const [amountDraft, setAmountDraft] = useState<string | null>(null);
 
   const meta = MOVE_REASONS[reason];
+  const needsPo = requiresPoNumber(reason);
+  const poProblem = needsPo ? poNumberProblem(poNumber) : null;
   const typed = name.trim();
   const match = findItem(items, name);
   const isNew = !match && typed.length > 0;
@@ -111,6 +117,7 @@ export function StockMoveModal({
     quantityNumber < 1 ||
     after < 0 ||
     (isNew && kind === "out") ||
+    poProblem !== null ||
     (meta.transaction && (unitAmountCents <= 0 || !party.trim()));
 
   const partyOptions = [
@@ -130,7 +137,7 @@ export function StockMoveModal({
     ? {
         icon: "check-circle-2",
         fg: "var(--status-positive)",
-        text: `Matched ${match.sku} · ${match.onHand} ${match.unit} on hand · reorder at ${match.reorder}`,
+        text: `Matched ${match.name} · ${match.onHand} ${match.unit} on hand · reorder at ${match.reorder}`,
       }
     : isNew
       ? {
@@ -144,7 +151,7 @@ export function StockMoveModal({
       : {
           icon: "search",
           fg: "var(--text-muted)",
-          text: "Type a name or SKU. Existing items are matched as you type.",
+          text: "Type the item name. Existing items are matched as you type.",
         };
 
   const warning =
@@ -286,7 +293,7 @@ export function StockMoveModal({
               name="name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Type an item name or SKU"
+              placeholder="Type the item name"
               autoComplete="off"
               style={{
                 ...INPUT,
@@ -372,7 +379,7 @@ export function StockMoveModal({
                           color: "var(--text-muted)",
                         }}
                       >
-                        {item.sku} · {item.category}
+                        {item.category}
                       </span>
                     </span>
                     <span
@@ -403,7 +410,7 @@ export function StockMoveModal({
             </span>
           </label>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className={`grid items-end gap-2.5 ${needsPo ? "grid-cols-3" : "grid-cols-2"}`}>
             <label className="flex min-w-0 flex-col gap-1.5">
               <FieldLabel>Quantity</FieldLabel>
               <input
@@ -416,9 +423,33 @@ export function StockMoveModal({
                 style={{ ...INPUT, fontVariantNumeric: "tabular-nums" }}
               />
             </label>
+            {needsPo && (
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <FieldLabel>
+                  PO No.{" "}
+                  <span style={{ fontWeight: 400, color: "var(--status-negative)" }}>
+                    *
+                  </span>
+                </FieldLabel>
+                <input
+                  name="poNumber"
+                  value={poNumber}
+                  maxLength={PO_NUMBER_MAX}
+                  required
+                  aria-required="true"
+                  onChange={(event) => setPoNumber(event.target.value)}
+                  placeholder="37345"
+                  style={{
+                    ...INPUT,
+                    borderColor:
+                      poNumber.trim() ? "var(--border-default)" : "var(--amber-400)",
+                  }}
+                />
+              </label>
+            )}
             <label className="flex min-w-0 flex-col gap-1.5">
               <FieldLabel>
-                {kind === "out" ? "Booking / job ref" : "Delivery note"}{" "}
+                {kind === "out" ? "Booking / job ref" : needsPo ? "Invoice / DR No." : "Delivery note"}{" "}
                 <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
                   (optional)
                 </span>
@@ -427,11 +458,20 @@ export function StockMoveModal({
                 name="documentRef"
                 value={documentRef}
                 onChange={(event) => setDocumentRef(event.target.value)}
-                placeholder={kind === "out" ? "BK-8245" : "DN-20418"}
+                placeholder={kind === "out" ? "BK-8245" : needsPo ? "4842" : "DN-20418"}
                 style={INPUT}
               />
             </label>
           </div>
+          {needsPo && !poNumber.trim() && (
+            <span
+              className="flex items-center gap-2"
+              style={{ fontSize: "11.5px", color: "var(--status-warning)", textWrap: "pretty" }}
+            >
+              <Icon name="file-text" size={13} />
+              Goods bought from a supplier need the PO No. from the PO booklet.
+            </span>
+          )}
 
           <div className="flex items-center gap-2">
             {MOVE_REASON_CHIPS[kind].map((chip) => {

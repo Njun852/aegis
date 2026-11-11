@@ -151,12 +151,11 @@ export function ItemDrawer({
             >
               <span
                 style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "10.5px",
+                  fontSize: "11.5px",
                   color: "var(--text-muted)",
                 }}
               >
-                {item.sku}
+                {item.category}
               </span>
               <Badge tone={status.tone}>{item.status}</Badge>
             </div>
@@ -363,6 +362,7 @@ export function ItemDrawer({
                     >
                       {entry.createdItem ? "Item created · " : ""}
                       {entry.reason}
+                      {entry.poNumber ? ` · PO ${entry.poNumber}` : ""}
                       {entry.documentRef ? ` · ${entry.documentRef}` : ""}
                     </span>
                     <span
@@ -447,7 +447,9 @@ export function ItemDrawer({
 /** One batch: where it came from, what is left of it, what each unit cost. */
 function BatchRow({ batch, unit, next }: { batch: StockBatch; unit: string; next?: boolean }) {
   const usedUp = batch.remaining === 0;
-  const origin = [batch.receivedDay, batch.supplier, batch.documentRef].filter(Boolean).join(" · ");
+  const origin = [batch.receivedDay, batch.supplier, batch.poNumber && `PO ${batch.poNumber}`, batch.documentRef]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <div
       style={{

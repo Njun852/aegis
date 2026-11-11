@@ -436,6 +436,58 @@ quotation costing and low stock to draft POs.
   deletes the seeded items' batches so they are rebuilt at the seeded levels.
 - **Stock value changes** when this lands: it was on hand times a cost that
   never moved; it is now the batches' own costs.
+- **PO No. on goods bought (10 Nov 2026):** a Goods received stock in must
+  carry the shop's PO No. from the paper PO booklet (`poNumber`, free text,
+  30 characters, e.g. "37345" or "37339-40", as in the owner's COSTING
+  RECORDS sheet). It is stored on the movement and on the batch it opens, and
+  shown in the item drawer. The Inventory dialog will not submit without it;
+  the Suppliers receive form asks for it too, required when the goods go into
+  stock and optional on a cost-only receipt, and passes it to every batch
+  the receipt opens. Transfers, returns and count corrections carry none.
+  The rule is `requiresPoNumber` / `poNumberProblem` in `src/lib/inventory.ts`,
+  checked in the actions and again in `receiveGoods`. Older movements,
+  batches and receipts simply have none. It is not linked to AEGIS purchase
+  orders (PO-…), which stay record-only.
+- **PO No. column on the Inventory list:** each item shows where its stock
+  on hand was bought (`poStock`, units left per PO, oldest first, built in
+  `batchStats` from the open batches; `groupPoStock` and `poColumn` in
+  `src/lib/inventory.ts`). The column shows the PO the next unit comes from,
+  "+N" for other POs still on the shelf, and the full list with units left on
+  hover. Stock with no PO reads "No PO" rather than being hidden. On a phone
+  the PO goes on the line under the item name. Search matches PO numbers.
+  That is now the **By item** view; the list opens **By PO**.
+- **By PO (the default list):** one row per delivery still on the shelf, PO
+  No. first, then item (SKU · supplier · invoice), received, left of
+  received, the lot's own unit cost and value, and the item's status. Rows
+  are grouped by PO, newest PO first and items A to Z within it; a PO's
+  number is bold on its first row and greyed on the rows under it. Then
+  stock with no PO, then items with nothing on hand (PO "—"), so an empty
+  item stays in sight for reordering. Search finds rows by PO No., invoice,
+  supplier or item, so a PO shows only its own lines. Status chips count
+  rows. Built in the browser from the batches the page already loads
+  (`poLines`, `filterPoLines` in `src/lib/inventory.ts`;
+  `src/components/inventory/po-lines-list.tsx`). On a phone a row is PO,
+  item (left/received and value first) and status; tapping it opens the item.
+- **No SKU on screen (10 Nov 2026):** the shop does not use SKUs, so none is
+  shown: not in either Inventory list, the item panel, the stock dialog, the
+  Suppliers drawer and comparison, or the dashboard report. The SKU stays as
+  the internal key every link uses, and typing one in search still works.
+- **Today filter:** a Today chip beside the status chips. By PO it keeps the
+  deliveries received today; by item, the items that moved in or out today
+  (`receivedToday`, `movedToday`). The period picker also offers Today, for
+  the movements tile. "Today" is the local day of the page's server time.
+- **Sample stock from the costing sheet:** `npm run inventory:sample --
+  --confirm --backup=<file.json> [--business=BIZ-1001]` clears a business's
+  inventory items, moves, batches, inventory ledger entries, receipts,
+  purchase orders and price book (writing them all to the backup first), then
+  loads 14 parts from the owner's October 2026 COSTING RECORDS: real
+  suppliers, PO booklet and invoice numbers, jobs by DR No. drawing oldest
+  batch first and priced at the 50% markup. Oil filter C-110 holds stock from
+  three POs and Gasket all has opening stock with no PO, to show the column.
+  Local databases only. Supplier records and finance bills are kept; a bill
+  made from a deleted receipt keeps its `receiptRef`. Run on the dev database
+  10 Nov 2026 for AUTOBLITZ. Re-running `scripts/seed.ts` brings back its own
+  fixture items (SKU-44xx to 48xx) beside these.
 
 Check: `npm run supplier:check` (oldest-first maths, value, incoming cost,
 indexes, a repeated conversion, a batch that cannot be over-drawn, and a

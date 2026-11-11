@@ -22,6 +22,19 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import { STOCK_BATCH_INDEXES } from "@/lib/data/inventory";
+import {
+  PO_NUMBER_MAX,
+  cleanPoNumber,
+  filterPoLines,
+  groupPoStock,
+  isSameDay,
+  movedToday,
+  poColumn,
+  poLines,
+  receivedToday,
+  poNumberProblem,
+  requiresPoNumber,
+} from "@/lib/inventory";
 import { SUPPLIER_INDEXES } from "@/lib/data/suppliers";
 import {
   addDaysToKey,
@@ -32,7 +45,7 @@ import {
   variancePercent,
 } from "@/lib/purchasing";
 import { changePercent, compareParts, describeAge, planningCost, supplierNameKey } from "@/lib/suppliers";
-import type { SupplierItem } from "@/types";
+import type { InventoryItem, StockBatch, StockMove, SupplierItem } from "@/types";
 import {
   batchSourceFor,
   batchValue,
@@ -86,7 +99,93 @@ assert.equal(incomingUnitCost("Transfer in", 0, 50_000), 50_000, "an internal mo
 assert.equal(batchSourceFor("Goods received"), "goods-received");
 assert.equal(batchSourceFor("Cycle count correction"), "count-correction");
 
-console.log("✓ oldest batch first; costs per batch; value batch by batch; incoming cost by reason");
+assert.equal(requiresPoNumber("Goods received"), true, "goods bought need their PO No.");
+assert.equal(requiresPoNumber("Transfer in"), false, "an internal move was never bought");
+assert.equal(requiresPoNumber("Customer return"), false);
+assert.notEqual(poNumberProblem("   "), null, "a blank PO No. is refused");
+assert.notEqual(poNumberProblem("9".repeat(PO_NUMBER_MAX + 1)), null, "an overlong PO No. is refused");
+assert.equal(poNumberProblem("37339-40"), null, "a booklet range is accepted as written");
+assert.equal(cleanPoNumber("  37345   A "), "37345 A");
+
+const poStock = groupPoStock([
+  { poNumber: "", remaining: 2 },
+  { poNumber: "37321", remaining: 3 },
+  { poNumber: "37415", remaining: 0 },
+  { poNumber: " 37321 ", remaining: 1 },
+  { poNumber: "37415", remaining: 5 },
+]);
+assert.deepEqual(
+  poStock,
+  [
+    { poNumber: "", remaining: 2 },
+    { poNumber: "37321", remaining: 4 },
+    { poNumber: "37415", remaining: 5 },
+  ],
+  "units left per PO, oldest first, used-up batches left out",
+);
+const column = poColumn({ poStock, unit: "pcs" });
+assert.equal(column.label, "No PO", "stock bought without a PO is named as such, not hidden");
+assert.equal(column.missing, true);
+assert.equal(column.more, 2);
+assert.equal(column.detail, "No PO · 2 pcs left\nPO 37321 · 4 pcs left\nPO 37415 · 5 pcs left");
+assert.equal(poColumn({ poStock: poStock.slice(1), unit: "pcs" }).label, "37321", "the PO used next comes first");
+assert.equal(poColumn({ poStock: [], unit: "pcs" }).label, "—", "nothing on hand, no PO");
+
+{
+  const item = (sku: string, name: string, status: InventoryItem["status"]): InventoryItem => ({
+    sku, businessId: "B", name, category: "Filters", icon: "layers", onHand: 0, target: 0, reorder: 0, unit: "pcs",
+    location: "", supplier: "Sanden", unitCostCents: 15_500, valueCents: 0, openBatches: 0, nextCostCents: null,
+    poStock: [], status, updated: "", updatedAt: "",
+  });
+  const lot = (ref: string, sku: string, poNumber: string, remaining: number, day: string): StockBatch => ({
+    ref, sku, source: poNumber ? "goods-received" : "opening", receivedDay: day, receivedAt: `2026-10-${day}T02:00:00Z`,
+    quantityReceived: 5, remaining, unitCostCents: 15_500, supplier: "Sanden", documentRef: `Inv. ${ref}`, poNumber,
+  });
+  const lines = poLines(
+    [item("A", "Oil filter C-415", "In stock"), item("B", "Oil filter C-110", "In stock"), item("C", "ATF T-IV", "Out of stock")],
+    [
+      lot("BT-1", "B", "37332", 0, "03"),
+      lot("BT-2", "B", "37415", 3, "15"),
+      lot("BT-3", "A", "37415", 4, "15"),
+      lot("BT-4", "B", "37479", 5, "22"),
+      lot("OPEN-A", "A", "", 2, "01"),
+      lot("BT-5", "A", "37339-40", 1, "05"),
+    ],
+  );
+  assert.deepEqual(
+    lines.map((line) => `${line.kind}:${line.poNumber}:${line.item.sku}`),
+    ["po:37479:B", "po:37415:B", "po:37415:A", "po:37339-40:A", "no-po::A", "empty::C"],
+    "newest PO first, items A to Z within a PO, then stock with no PO, then items with nothing on hand; used-up lots left out",
+  );
+  assert.equal(lines[0].valueCents, 5 * 15_500, "a line is valued at its own lot's cost");
+  assert.deepEqual(
+    filterPoLines(lines, { search: "37415" }).map((line) => line.key),
+    ["BT-2", "BT-3"],
+    "a PO No. finds that PO's lines only, not the other lots of the same items",
+  );
+  assert.equal(filterPoLines(lines, { status: "Out of stock" }).length, 1, "an item with nothing on hand stays listed");
+
+  // Today: the deliveries received on the day, never the empty rows.
+  const day = new Date("2026-10-15T12:00:00");
+  const sameDay = (iso: string) => new Date(iso).toDateString() === day.toDateString();
+  assert.deepEqual(
+    receivedToday(lines, day).map((line) => line.key),
+    lines.filter((line) => line.kind !== "empty" && sameDay(line.receivedAt)).map((line) => line.key),
+  );
+  assert.equal(receivedToday(lines, day).every((line) => line.kind !== "empty"), true);
+  const moved = movedToday(
+    [item("A", "Oil filter C-415", "In stock"), item("B", "Oil filter C-110", "In stock")],
+    [
+      { sku: "A", occurredAt: new Date("2026-10-15T09:00:00").toISOString() },
+      { sku: "B", occurredAt: new Date("2026-10-14T23:59:00").toISOString() },
+    ] as StockMove[],
+    day,
+  );
+  assert.deepEqual(moved.map((entry) => entry.sku), ["A"], "only items that moved on the day itself");
+  assert.equal(isSameDay(new Date("2026-10-16T00:00:00").toISOString(), day), false, "midnight starts the next day");
+}
+
+console.log("✓ oldest batch first; costs per batch; value batch by batch; incoming cost by reason; PO No. on goods bought");
 
 // ---- Part one, continued: supplier costs ------------------------------------------
 

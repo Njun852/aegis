@@ -14,6 +14,7 @@ import {
   updateOrder,
 } from "@/lib/dal/purchasing";
 import { InputError } from "@/lib/dal/refs";
+import { cleanPoNumber, poNumberProblem } from "@/lib/inventory";
 import { MAX_ORDER_LINES, MAX_UNITS, ORDER_CHANNELS } from "@/lib/purchasing";
 import { MAX_AMOUNT_CENTS, isDateKey, manilaDateKey, newLineId } from "@/lib/quotations";
 import type { OrderChannel, PurchaseOrderInput, ReceiptInput } from "@/types";
@@ -142,6 +143,10 @@ export async function receiveGoodsAction(
   try {
     const supplierRef = text(raw.supplierRef, 20);
     if (!supplierRef) throw new InputError("Pick the supplier the goods came from.");
+    // Goods going into stock must name their PO, like a stock in typed on Inventory.
+    const poNumber = cleanPoNumber(typeof raw.poNumber === "string" ? raw.poNumber : "");
+    const poProblem = poNumberProblem(poNumber);
+    if (poProblem && (inventory || poNumber)) throw new InputError(poProblem);
     const receivedDate = text(raw.receivedDate, 10);
     if (!isDateKey(receivedDate)) throw new InputError("The date received is not a date.");
     if (receivedDate > manilaDateKey(new Date())) throw new InputError("Goods cannot be received in the future.");
@@ -188,6 +193,7 @@ export async function receiveGoodsAction(
         supplierRef,
         purchaseOrderRef: text(raw.purchaseOrderRef, 20) || null,
         receiptNo,
+        poNumber,
         receivedDate,
         notes: text(raw.notes, 600),
         lines,

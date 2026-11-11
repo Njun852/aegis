@@ -3,7 +3,7 @@ import "server-only";
 import { formatStamp } from "@/lib/format";
 import { formatDate } from "@/lib/fleet";
 import { MOVE_REASONS } from "@/lib/data/inventory";
-import { statusFor } from "@/lib/inventory";
+import { cleanPoNumber, groupPoStock, requiresPoNumber, statusFor } from "@/lib/inventory";
 import {
   batchSourceFor,
   drawCost,
@@ -17,6 +17,7 @@ import type {
   BatchDraw,
   InventoryItem,
   InventoryItemDocument,
+  PoStock,
   RevenueMonthBucket,
   StockBatch,
   StockBatchDocument,
@@ -57,6 +58,8 @@ interface BatchStats {
   open: number;
   /** Unit cost of the oldest open batch. */
   nextCostCents: number;
+  /** Units left per PO No., oldest first. */
+  poStock: PoStock[];
 }
 
 /** Totals over the open batches, per SKU, in one aggregation. */
@@ -73,6 +76,8 @@ async function batchStats(sku?: string): Promise<Map<string, BatchStats>> {
           valueCents: { $sum: { $multiply: ["$remaining", "$unitCostCents"] } },
           open: { $sum: 1 },
           nextCostCents: { $first: "$unitCostCents" },
+          // Pushed in the sorted order, so the oldest batch comes first.
+          lots: { $push: { poNumber: { $ifNull: ["$poNumber", ""] }, remaining: "$remaining" } },
         },
       },
     ])
@@ -85,6 +90,7 @@ async function batchStats(sku?: string): Promise<Map<string, BatchStats>> {
         valueCents: row.valueCents as number,
         open: row.open as number,
         nextCostCents: row.nextCostCents as number,
+        poStock: groupPoStock(row.lots as PoStock[]),
       },
     ]),
   );
@@ -153,6 +159,7 @@ function toItem(doc: InventoryItemDocument, stats: BatchStats | undefined): Inve
     valueCents: stats?.valueCents ?? 0,
     openBatches: stats?.open ?? 0,
     nextCostCents: stats?.nextCostCents ?? null,
+    poStock: stats?.poStock ?? [],
     status: statusFor(doc),
     updated: formatStamp(doc.updatedAt),
     updatedAt: doc.updatedAt.toISOString(),
@@ -167,6 +174,7 @@ function toMove(doc: StockMoveDocument): StockMove {
     quantity: doc.quantity,
     reason: doc.reason,
     documentRef: doc.documentRef,
+    poNumber: doc.poNumber ?? "",
     party: doc.party,
     unitAmountCents: doc.unitAmountCents,
     amountCents: doc.amountCents,
@@ -190,6 +198,7 @@ function toBatch(doc: StockBatchDocument): StockBatch {
     unitCostCents: doc.unitCostCents,
     supplier: doc.supplier,
     documentRef: doc.documentRef,
+    poNumber: doc.poNumber ?? "",
   };
 }
 
@@ -452,6 +461,9 @@ export async function recordStockMove(
     );
   }
 
+  // Only goods bought carry a PO No.; the callers require it for those.
+  const poNumber = requiresPoNumber(input.reason) ? cleanPoNumber(input.poNumber) : "";
+
   const now = new Date();
   const amountCents = meta.transaction
     ? input.quantity * input.unitAmountCents
@@ -464,6 +476,7 @@ export async function recordStockMove(
     quantity: input.quantity,
     reason: input.reason,
     documentRef: input.documentRef.trim(),
+    poNumber,
     party: meta.transaction ? input.party.trim() : "",
     unitAmountCents: meta.transaction ? input.unitAmountCents : 0,
     amountCents,
@@ -516,6 +529,7 @@ export async function recordStockMove(
           unitCostCents,
           supplier: input.reason === "Goods received" ? input.party.trim() || item.supplier : item.supplier,
           documentRef: input.documentRef.trim(),
+          ...(poNumber ? { poNumber } : {}),
           moveRef: ref,
           createdAt: now,
         }),

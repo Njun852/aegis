@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/dal/businesses";
 import { recordStockMove } from "@/lib/dal/inventory";
 import { MOVE_REASONS } from "@/lib/data/inventory";
 import { parseCents } from "@/lib/format";
+import { cleanPoNumber, poNumberProblem, requiresPoNumber } from "@/lib/inventory";
 import type { StockMoveKind, StockMoveReason } from "@/types";
 
 export interface StockMoveFormState {
@@ -74,6 +75,13 @@ export async function recordStockMoveAction(
     unitAmountCents = parsed;
   }
 
+  let poNumber = "";
+  if (requiresPoNumber(reason)) {
+    const problem = poNumberProblem(text("poNumber"));
+    if (problem) return { error: problem };
+    poNumber = cleanPoNumber(text("poNumber"));
+  }
+
   try {
     const move = await recordStockMove({
       name,
@@ -81,6 +89,7 @@ export async function recordStockMoveAction(
       quantity,
       reason,
       documentRef: text("documentRef"),
+      poNumber,
       party,
       unitAmountCents,
     });
