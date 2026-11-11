@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
-import { formatAmount, formatPercent, formatQuoteDay, lineAmountCents } from "@/lib/quotations";
+import { formatAmount, formatPercent, formatQuoteDay, lineAmountCents, signatureBoxes } from "@/lib/quotations";
 import type { Quotation, QuotationSettings, QuoteLine, QuoteSection } from "@/types";
 
 /**
@@ -168,11 +168,9 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
     ["Valid Until", formatQuoteDay(quotation.validUntil)],
   ];
 
-  // Who signs each box. The service advisor's name prints in theirs, under the
-  // space left for the signature; the other boxes are signed by hand.
-  const signedBy: Record<string, string> = {
-    "Service Advisor:": quotation.serviceAdvisor,
-  };
+  // Who signs each box: the name, and beside it their saved signature when
+  // there is one. A box with no signature is left for a hand signature.
+  const signatureRows = signatureBoxes(quotation, settings);
 
   const totalRows: [string, string, boolean?][] = [
     ["TOTAL PARTS", formatAmount(totals.partsCents)],
@@ -332,24 +330,27 @@ export function QuotePdf({ quotation, settings, businessName }: QuotePdfProps) {
           <Text style={[styles.bar, styles.bold, { color: BLUE }]}>{settings.footer || " "}</Text>
 
           {/* Signatures */}
-          {[
-            ["Service Advisor:", "Assigned Technician:", "Customer:"],
-            ["Accounting:", "Head Technician:", "Manager:"],
-          ].map((row, rowIndex) => (
+          {signatureRows.map((row, rowIndex) => (
             <View key={rowIndex} style={styles.row} wrap={false}>
-              {row.map((label, index) => (
+              {row.map((box, index) => (
                 <View
-                  key={label}
+                  key={box.label}
                   style={[
                     styles.cell,
-                    { width: index === 2 ? "30%" : "35%", height: 30, justifyContent: "flex-start" },
+                    { width: index === 2 ? "30%" : "35%", height: 46, justifyContent: "flex-start" },
                     ...(index === 2 ? [{ borderRightWidth: 0 }] : []),
                     ...(rowIndex === 1 ? [{ borderBottomWidth: 0 }] : []),
                   ]}
                 >
-                  <Text style={styles.bold}>{label}</Text>
-                  {signedBy[label] ? (
-                    <Text style={{ marginTop: "auto", textAlign: "center" }}>{signedBy[label]}</Text>
+                  <Text style={styles.bold}>{box.label}</Text>
+                  {box.name || box.image ? (
+                    <View style={{ marginTop: "auto", flexDirection: "row", alignItems: "flex-end", gap: 6 }}>
+                      <Text style={{ flexShrink: 1 }}>{box.name}</Text>
+                      {box.image ? (
+                        // eslint-disable-next-line jsx-a11y/alt-text -- a PDF image has no alt attribute
+                        <Image src={box.image} style={{ height: 26, maxWidth: 100, objectFit: "contain" }} />
+                      ) : null}
+                    </View>
                   ) : null}
                 </View>
               ))}

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeModules } from "@/lib/data/businesses";
 import { formatStamp } from "@/lib/format";
 import { vehicleLabel } from "@/lib/fleet";
 import { getSmsProvider } from "@/lib/sms/provider";
@@ -87,7 +88,7 @@ function toMessage(doc: SmsMessageDocument): SmsMessage {
 
 export async function readTextBlastSettings(
   businessId: string,
-): Promise<TextBlastSettings & { hasLink: boolean; hasFleet: boolean }> {
+): Promise<TextBlastSettings & { hasLink: boolean; hasCars: boolean }> {
   const business = await findBusiness(businessId);
   const config = business?.textBlast;
   const hasLink = business ? bookingLink(business) !== "" : false;
@@ -98,7 +99,7 @@ export async function readTextBlastSettings(
     lastRunAt: config?.lastRunAt ? config.lastRunAt.toISOString() : null,
     lastRunNote: config?.lastRunNote ?? null,
     hasLink,
-    hasFleet: business?.modules.includes("fleet") ?? false,
+    hasCars: business ? normalizeModules(business.modules).includes("crm") : false,
   };
 }
 
@@ -121,8 +122,8 @@ export async function saveTextBlastSettings(
 
   const business = await findBusiness(businessId);
   if (!business) throw new InputError("That business is no longer on file.");
-  if (input.enabled && !business.modules.includes("fleet")) {
-    throw new InputError("Reminders are worked out from Fleet's service history. Grant Fleet first.");
+  if (input.enabled && !normalizeModules(business.modules).includes("crm")) {
+    throw new InputError("Reminders are worked out from the customers' cars in CRM. Grant CRM first.");
   }
 
   const businesses = await businessesCollection();
@@ -335,7 +336,9 @@ export async function runReminderSweep(businessId: string, now = new Date()): Pr
 
   if (!business) return idle("Business not found.");
   if (!business.modules.includes("sms")) return idle("Text Blast is not enabled for this business.");
-  if (!business.modules.includes("fleet")) return idle("Fleet is not enabled, so there are no due dates to work from.");
+  if (!normalizeModules(business.modules).includes("crm")) {
+    return idle("CRM is not enabled, so there are no customer cars or due dates to work from.");
+  }
   if (!business.textBlast?.enabled) return idle("Automatic reminders are switched off.");
 
   const collection = await messages();

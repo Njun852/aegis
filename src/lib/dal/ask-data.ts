@@ -40,8 +40,9 @@ const TOOL_MODULE: Record<AskTool, ModuleKey | null> = {
   ads: "ads",
   money: "finance",
   inventory: "inventory",
-  customers: null,
-  service_due: "fleet",
+  customers: "crm",
+  // Cars and their due dates live in CRM since Fleet was folded into it.
+  service_due: "crm",
   mail: "mail",
   app_help: null,
 };
@@ -49,7 +50,6 @@ const TOOL_MODULE: Record<AskTool, ModuleKey | null> = {
 export function toolsFor(business: Business): AskTool[] {
   return (Object.keys(TOOL_MODULE) as AskTool[]).filter((tool) => {
     const needed = TOOL_MODULE[tool];
-    if (tool === "customers") return isModuleEnabled(business, "crm") || isModuleEnabled(business, "fleet");
     return needed === null || isModuleEnabled(business, needed);
   });
 }
@@ -234,13 +234,12 @@ async function customers(business: Business, call: AskCall, now: Date) {
   if (!term) return { unavailable: "Name a customer, company, phone number or plate to look up." };
   const digits = phoneKey(term);
   const plate = plateKey(term);
-  const crm = business.modules.includes("crm");
-  const fleet = business.modules.includes("fleet");
-
+  // Only offered with CRM (`toolsFor`), which holds the customers and their cars.
+  void business;
   const [summaries, vehicles, records] = await Promise.all([
-    crm ? listCustomerSummaries() : Promise.resolve([]),
-    fleet ? listVehicles(now) : Promise.resolve([]),
-    fleet ? listServiceRecords() : Promise.resolve([]),
+    listCustomerSummaries(),
+    listVehicles(now),
+    listServiceRecords(),
   ]);
 
   const byPlate = plate.length >= 3 ? vehicles.filter((vehicle) => plateKey(vehicle.plate).includes(plate)) : [];
@@ -321,7 +320,7 @@ const APP_HELP = {
     quotations: "Quotations: list, Job orders tab, Price list tab, Settings. Open a quotation for the progress strip: send, record answer, make job order.",
     jobOrders: "Quotations, Job orders tab. Made only from an approved quotation.",
     ads: "Ads: campaigns, ad sets, ads; the Ads to bookings panel shows cost per booking.",
-    customers: "CRM for customer profiles; Fleet for cars and service due dates.",
+    customers: "CRM: each customer's profile lists their cars, with odometer and next service due. Add or edit a car there.",
     stock: "Inventory for items and stock moves; Suppliers for prices, purchase orders and receipts.",
     settings: "Business Management (administrators) for modules, mailbox, Meta, the online booking page and owner text alerts.",
     status: "System Status for Meta, Mail, Database and OpenAI health.",

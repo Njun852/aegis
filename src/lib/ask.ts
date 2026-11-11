@@ -65,7 +65,6 @@ export const ASK_SCREENS = {
   inventory: "/inventory",
   suppliers: "/suppliers",
   crm: "/crm",
-  fleet: "/fleet",
   mail: "/mail",
   text_blast: "/text-blast",
   status: "/status",
@@ -248,7 +247,7 @@ export function suggestedQuestions(modules: string[]): string[] {
     "How much revenue did we make this month?",
     has("inventory") ? "What stock is running low?" : "",
     has("bookings") ? "What is our cost per booking from ads?" : "",
-    has("fleet") ? "Which cars are due for service?" : "",
+    has("crm") ? "Which cars are due for service?" : "",
   ]
     .filter(Boolean)
     .slice(0, 4);

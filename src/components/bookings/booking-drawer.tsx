@@ -46,7 +46,7 @@ export interface BookingDrawerProps {
   vehicle: VehicleOption | null;
   /** CRM customers. Null without CRM, which hides the customer row and link. */
   customers: Customer[] | null;
-  fleetEnabled: boolean;
+  carsEnabled: boolean;
   /** For an online request still being linked: what its mobile and plate match. */
   matches: RequestMatches | null;
   /** Synced Meta campaigns, for a manual credit. Empty without a connected ad account. */
@@ -63,7 +63,7 @@ export function BookingDrawer({
   booking,
   vehicle,
   customers,
-  fleetEnabled,
+  carsEnabled,
   matches,
   campaigns,
   quotes,
@@ -401,7 +401,7 @@ export function BookingDrawer({
             <RequestPanel
               booking={{ ...booking, request: booking.request }}
               crmEnabled={customers !== null}
-              fleetEnabled={fleetEnabled}
+              carsEnabled={carsEnabled}
               matches={matches}
               pending={pending}
               run={run}

@@ -23,7 +23,7 @@ export interface NewBookingModalProps {
    */
   vehicles: VehicleOption[];
   /** Whether Fleet is on; without it the form does not ask about the car. */
-  fleetEnabled: boolean;
+  carsEnabled: boolean;
   /**
    * CRM customers, offered as matches while the name is typed. Null without
    * CRM; the booking then keeps only the typed name and number.
@@ -67,7 +67,7 @@ function nextHourLocal() {
  */
 export function NewBookingModal({
   vehicles,
-  fleetEnabled,
+  carsEnabled,
   customers,
   initialDate,
   campaigns = [],
@@ -478,7 +478,7 @@ export function NewBookingModal({
             </Field>
           )}
 
-          {fleetEnabled && (
+          {carsEnabled && (
             <div className="flex flex-col gap-1.5">
               <div className="grid grid-cols-2 gap-3.5 wide:grid-cols-4">
                 <Field label="Plate number">
@@ -568,8 +568,8 @@ export function NewBookingModal({
               ) : (
                 <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
                   {typedPlate
-                    ? "A new plate is added to Fleet under this customer. Completing the booking writes its service history."
-                    : "With a plate, the car is kept in Fleet and completing the booking writes its service history."}
+                    ? "A new plate is added to this customer's cars in CRM. Completing the booking records the service."
+                    : "With a plate, the car is kept on the customer in CRM and completing the booking records the service."}
                 </span>
               )}
             </div>

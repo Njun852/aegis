@@ -145,6 +145,38 @@ Types live in `src/types/*` and are re-exported from `@/types`.
 
 ## Fleet and CRM
 
+**11 Nov 2026: Fleet was removed as a module and folded into CRM.** The owner
+asked for CRM with basic car information per customer, keeping the service
+reminders working. What changed:
+
+- **Cars live on the customer.** The CRM profile has a Cars section: plate,
+  make, model, year, colour, odometer, notes, with Add car and Edit
+  (`src/components/crm/customer-cars.tsx`, `saveCarAction` in
+  `src/app/actions/cars.ts`). Each car shows its next service date and status.
+  New cars start on the default interval; CRM never asks for one. There is no
+  manual service log any more: history comes from completed bookings.
+- **Service due still runs behind the scenes** (same `vehicles` and
+  `serviceRecords` collections, same rules in `src/lib/fleet.ts`, internal
+  file names kept): Text Blast reminders, the dashboard's overdue alert, the
+  Owner Board's "Service due" section (each car opens its owner's profile), the
+  report's "Customer cars" card and the assistant's service-due tool all now
+  need CRM instead of Fleet.
+- **Bookings and quotations** still pick and add cars; they need CRM for it.
+- **`/fleet` redirects to `/crm`.** The Fleet screen, its drawer, new-vehicle
+  form and `src/app/actions/fleet.ts` are deleted.
+- **Old grants:** a business stored with `"fleet"` reads as having CRM
+  (`normalizeModules`, `src/lib/data/businesses.ts`), everywhere grants are
+  read, including the Text Blast sweep and the Owner Board. Saving a
+  business's modules in Business Management writes the clean list. Nothing
+  had to be migrated.
+- **Roles:** Accounting and Service Advisor had Fleet and not CRM; both now
+  have CRM in its place, so they keep seeing cars (and now the customer list).
+- Checks: `roles:check` covers the new role lists and the Fleet-to-CRM
+  reading; `sms:check` runs its sweep against a business stored with
+  `"fleet"`; `fleet:check` and `crm:check` unchanged.
+
+The notes below describe the two modules as they were built.
+
 Both are optional modules, both are **outside the frozen acceptance checklist**
 (it has no Fleet or CRM requirement; "fleet" appears only as an email category
 in the five-email test), so treat them as agreed extras, not Stage 2 items.
@@ -376,6 +408,20 @@ below; this section is the document itself.
   because the paper form has it; it is not linked to Suppliers' purchase
   orders. The PDF prints "Rev 2" from the second revision and the Valid Until
   date in the row under Technician. `?rev=N` prints an earlier revision.
+- **Signatures (11 Nov 2026):** each of the six boxes at the foot of the form
+  prints a name, and beside it that person's signature image when one is
+  saved. Service Advisor and Assigned Technician are the names on the
+  quotation; Accounting, Head Technician and Manager are set once in Settings
+  ("Signed by"); the customer's box prints their name and is signed by hand.
+  Signatures are kept in Settings → Signatures (name plus image, up to 20, on
+  the business record as `quotation.signers`), each saved the moment it is
+  added, replaced or removed. The browser turns the uploaded photo into a
+  trimmed PNG of the ink alone (`signatureImage`, `src/lib/image-resize.ts`:
+  the paper made transparent from its own brightness). A box finds its
+  signature by name, ignoring case, spacing and full stops (`signatureBoxes`,
+  `signerFor` in `src/lib/quotations.ts`); the editor suggests the names that
+  have one. Signatures print on every PDF made, including drafts and earlier
+  revisions shown again. `quote:check` covers the matching and the boxes.
 - **Email:** through the business's connected mailbox; `sendMail` now takes
   attachments. A person checks the address, subject and message and presses
   Send; the quotation is marked Sent only after SMTP accepts it. Gmail keeps

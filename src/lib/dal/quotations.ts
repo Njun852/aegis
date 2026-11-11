@@ -1,8 +1,10 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { formatStamp } from "@/lib/format";
 import {
   DEFAULT_VALID_DAYS,
+  MAX_SIGNERS,
   addDays,
   approvedLinesOf,
   belowCostLines,
@@ -16,6 +18,7 @@ import {
   manilaDateKey,
   quoteSettingsOf,
   quoteTotals,
+  signerKey,
   specialPricingKey,
 } from "@/lib/quotations";
 import { businessesCollection } from "./db";
@@ -920,7 +923,7 @@ export async function readQuotationSettings(): Promise<QuotationSettings> {
  * removes it, so saving the text fields never has to resend the image.
  */
 export async function saveQuotationSettings(
-  input: Omit<QuotationConfig, "logo">,
+  input: Omit<QuotationConfig, "logo" | "signers">,
   logo: string | null | undefined,
 ): Promise<void> {
   const { activeBusinessId } = await verifySession();
@@ -933,9 +936,54 @@ export async function saveQuotationSettings(
     "quotation.markupPercent": input.markupPercent,
     "quotation.validDays": input.validDays ?? DEFAULT_VALID_DAYS,
   };
+  if (input.signOff) set["quotation.signOff"] = input.signOff;
   if (typeof logo === "string") set["quotation.logo"] = logo;
   await businesses.updateOne(
     { businessId: activeBusinessId },
     { $set: set, ...(logo === null ? { $unset: { "quotation.logo": "" } } : {}) },
   );
+}
+
+/**
+ * Adds a signer, or replaces the name and signature of one on file. Kept apart
+ * from the other settings so saving the letterhead never resends the images.
+ * One signature per name: the PDF finds a signature by the name it prints.
+ */
+export async function saveQuoteSigner(input: { id: string | null; name: string; image: string }): Promise<string> {
+  const { activeBusinessId } = await verifySession();
+  const businesses = await businessesCollection();
+  const doc = await businesses.findOne({ businessId: activeBusinessId }, { projection: { quotation: 1 } });
+  const signers = doc?.quotation?.signers ?? [];
+
+  const key = signerKey(input.name);
+  const clash = signers.find((signer) => signerKey(signer.name) === key && signer.id !== input.id);
+  if (clash) throw new InputError(`${clash.name} already has a signature. Replace that one instead.`);
+
+  if (input.id) {
+    const result = await businesses.updateOne(
+      { businessId: activeBusinessId, "quotation.signers.id": input.id },
+      { $set: { "quotation.signers.$.name": input.name, "quotation.signers.$.image": input.image } },
+    );
+    if (result.matchedCount === 0) throw new InputError("That signature is no longer on file.");
+    return input.id;
+  }
+
+  if (signers.length >= MAX_SIGNERS) throw new InputError(`Up to ${MAX_SIGNERS} signatures can be kept.`);
+  const id = `SG-${randomUUID().slice(0, 8)}`;
+  // Guarded on the count read above, so two adds at once cannot pass the limit together.
+  const result = await businesses.updateOne(
+    {
+      businessId: activeBusinessId,
+      $or: [{ "quotation.signers": { $exists: false } }, { [`quotation.signers.${MAX_SIGNERS - 1}`]: { $exists: false } }],
+    },
+    { $push: { "quotation.signers": { id, name: input.name, image: input.image } } },
+  );
+  if (result.matchedCount === 0) throw new InputError(`Up to ${MAX_SIGNERS} signatures can be kept.`);
+  return id;
+}
+
+export async function removeQuoteSigner(id: string): Promise<void> {
+  const { activeBusinessId } = await verifySession();
+  const businesses = await businessesCollection();
+  await businesses.updateOne({ businessId: activeBusinessId }, { $pull: { "quotation.signers": { id } } });
 }

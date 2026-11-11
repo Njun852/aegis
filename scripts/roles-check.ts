@@ -22,19 +22,20 @@ import {
   type RoleHolder,
 } from "@/lib/business-roles";
 import { homePath, isModuleEnabled } from "@/lib/businesses";
+import { normalizeModules } from "@/lib/data/businesses";
 import type { Business, BusinessRole, ModuleKey, OptionalModuleKey } from "@/types";
 
-const ALL: ModuleKey[] = ["dashboard", "mail", "ads", "finance", "bookings", "crm", "quotes", "suppliers", "fleet", "inventory", "sms"];
+const ALL: ModuleKey[] = ["dashboard", "mail", "ads", "finance", "bookings", "crm", "quotes", "suppliers", "inventory", "sms"];
 
 /** The lists as the business wrote them, in the app's module names. */
 const WANTED: Record<BusinessRole, ModuleKey[]> = {
-  // email, quotation, supplier, fleet, accounting, inventory
-  service_advisor: ["mail", "quotes", "suppliers", "fleet", "finance", "inventory"],
-  // email, ads, finance, booking, fleet, account (money accounts, in Finance)
-  accounting: ["mail", "ads", "finance", "bookings", "fleet"],
+  // email, quotation, supplier, fleet (now customers and their cars, CRM), accounting, inventory
+  service_advisor: ["mail", "quotes", "suppliers", "crm", "finance", "inventory"],
+  // email, ads, finance, booking, fleet (now CRM), account (money accounts, in Finance)
+  accounting: ["mail", "ads", "finance", "bookings", "crm"],
   // dashboard, email, ads, finance, booking, customer, records (Finance reports),
-  // quotation, supplier, text blasting, fleet
-  marketing_admin: ["dashboard", "mail", "ads", "finance", "bookings", "crm", "quotes", "suppliers", "sms", "fleet"],
+  // quotation, supplier, text blasting, fleet (folded into CRM, 11 Nov 2026)
+  marketing_admin: ["dashboard", "mail", "ads", "finance", "bookings", "crm", "quotes", "suppliers", "sms"],
   // all, and the owner dashboard
   owner: ALL,
 };
@@ -102,11 +103,11 @@ function asSeenBy(sold: OptionalModuleKey[], holder: RoleHolder): Business {
   };
 }
 
-const sold: OptionalModuleKey[] = ["bookings", "quotes", "fleet"];
+const sold: OptionalModuleKey[] = ["bookings", "quotes", "crm"];
 
 const advisor = asSeenBy(sold, member("service_advisor"));
 assert.equal(isModuleEnabled(advisor, "quotes"), true);
-assert.equal(isModuleEnabled(advisor, "fleet"), true);
+assert.equal(isModuleEnabled(advisor, "crm"), true, "customers and their cars");
 assert.equal(isModuleEnabled(advisor, "inventory"), false, "in the role, but never bought");
 assert.equal(isModuleEnabled(advisor, "bookings"), false, "bought, but not in the role");
 assert.equal(isModuleEnabled(advisor, "dashboard"), false, "a core screen the role leaves out");
@@ -120,6 +121,14 @@ assert.deepEqual(owner.roleHidden, []);
 assert.equal(isModuleEnabled(owner, "inventory"), false, "not even an owner gets a module that was never bought");
 console.log("  ok    a role narrows the business's modules and never adds one");
 
+// ---- Fleet was folded into CRM: an old stored grant still reads right ------------------
+
+assert.deepEqual(normalizeModules(["bookings", "fleet", "sms"]), ["bookings", "crm", "sms"], "a stored Fleet grant reads as CRM");
+assert.deepEqual(normalizeModules(["fleet", "crm"]), ["crm"], "Fleet and CRM together read as CRM once");
+assert.deepEqual(normalizeModules(["finance", "inventory"]), ["inventory"], "a module that became core is dropped");
+assert.deepEqual(normalizeModules(undefined), []);
+console.log("  ok    a stored Fleet grant reads as CRM, once");
+
 // ---- Where each role lands -----------------------------------------------------------
 
 assert.equal(homePath(asSeenBy(sold, member("owner"))), "/dashboard");
@@ -127,7 +136,7 @@ assert.equal(homePath(asSeenBy(sold, member("marketing_admin"))), "/dashboard");
 assert.equal(homePath(asSeenBy(sold, member("service_advisor"))), "/mail");
 assert.equal(homePath(asSeenBy(sold, member("accounting"))), "/mail");
 for (const role of BUSINESS_ROLES) {
-  const business = asSeenBy(["bookings", "inventory", "crm", "fleet", "sms", "quotes", "suppliers"], member(role.key));
+  const business = asSeenBy(["bookings", "inventory", "crm", "sms", "quotes", "suppliers"], member(role.key));
   const landing = homePath(business);
   const key = landing.slice(1) as ModuleKey;
   assert.equal(isModuleEnabled(business, key), true, `${role.label} lands on ${landing}, which it can open`);

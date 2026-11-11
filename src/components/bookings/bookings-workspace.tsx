@@ -44,7 +44,7 @@ export interface BookingsWorkspaceProps {
   vehicles: VehicleOption[];
   /** CRM customers for linking. Null without CRM, which hides both controls. */
   customers: Customer[] | null;
-  fleetEnabled: boolean;
+  carsEnabled: boolean;
   /** What each unlinked online request matches on file, by booking ref. */
   requestMatches: Record<string, RequestMatches>;
   /**
@@ -73,7 +73,7 @@ export function BookingsWorkspace({
   bookings,
   vehicles,
   customers,
-  fleetEnabled,
+  carsEnabled,
   requestMatches,
   todayIso,
   todayKey,
@@ -622,7 +622,7 @@ export function BookingsWorkspace({
           booking={selected}
           vehicle={vehicles.find((vehicle) => vehicle.ref === selected.vehicleRef) ?? null}
           customers={customers}
-          fleetEnabled={fleetEnabled}
+          carsEnabled={carsEnabled}
           matches={requestMatches[selected.ref] ?? null}
           campaigns={campaigns}
           quotes={quoteLinks ? (quoteLinks[selected.ref] ?? []) : null}
@@ -634,7 +634,7 @@ export function BookingsWorkspace({
       {composing !== null && (
         <NewBookingModal
           vehicles={vehicles}
-          fleetEnabled={fleetEnabled}
+          carsEnabled={carsEnabled}
           customers={customers}
           initialDate={composing || null}
           campaigns={campaigns}

@@ -199,7 +199,7 @@ async function draftQuotation(proposal: AskProposal, modules: string[]): Promise
   } else if (booking) {
     billTo = { ...billTo, name: booking.customer, company: booking.company, phone: booking.phone, email: booking.email };
   }
-  const car = booking?.vehicleRef && modules.includes("fleet") ? await findVehicleOption(booking.vehicleRef) : null;
+  const car = booking?.vehicleRef && modules.includes("crm") ? await findVehicleOption(booking.vehicleRef) : null;
 
   const lines: QuoteLine[] = draft.lines.map((line) => ({
     ...emptyLine(line.section === "labor" ? "labor" : "parts", "suggested"),

@@ -31,6 +31,8 @@ import {
   readQuotationSettings,
   recordQuoteResponse,
   savePhoto,
+  removeQuoteSigner,
+  saveQuoteSigner,
   saveQuotationSettings,
   updatePriceItem,
   updateQuotation,
@@ -48,6 +50,7 @@ import {
   MAX_AMOUNT_CENTS,
   MAX_LINES,
   MAX_QTY,
+  MAX_SIGNATURE_CHARS,
   MAX_VALID_DAYS,
   QUOTE_HANDOVER_METHODS,
   QUOTE_RESPONSE_METHODS,
@@ -268,7 +271,7 @@ export async function saveQuotationAction(
   return guard(async () => {
     const input = await readInput(raw, {
       crm: business.modules.includes("crm"),
-      fleet: business.modules.includes("fleet"),
+      fleet: business.modules.includes("crm"),
       bookings: business.modules.includes("bookings"),
     });
     if (!input.billTo.name && !input.billTo.company) {
@@ -541,7 +544,7 @@ export async function setJobOrderStatusAction(
       // The booking moved with it: its screen, the ads counts and the car's history.
       revalidatePath("/bookings");
       revalidatePath("/ads");
-      revalidatePath("/fleet");
+      revalidatePath("/crm");
     }
     if (next === "Completed" || next === "Cancelled") {
       const job = await findJobOrder(ref);
@@ -637,9 +640,9 @@ export async function createQuotationFromPhotoAction(
     }
 
     // Link what the photo names to records already on file, never create
-    // them: a misread plate must not become a car in Fleet.
+    // them: a misread plate must not become a customer car in CRM.
     const crm = business.modules.includes("crm");
-    const fleet = business.modules.includes("fleet");
+    const fleet = crm;
     const vehicle: QuoteVehicle = {
       vehicleRef: null,
       plate: read.plate,
@@ -749,7 +752,7 @@ export async function deletePriceItemAction(
 const MAX_LOGO_CHARS = 400_000;
 
 export async function saveQuotationSettingsAction(
-  raw: Omit<QuotationConfig, "logo">,
+  raw: Omit<QuotationConfig, "logo" | "signers">,
   logo: string | null | undefined,
 ): Promise<Result> {
   await requireModule("quotes");
@@ -778,9 +781,50 @@ export async function saveQuotationSettingsAction(
         footer: text(raw.footer, 120),
         markupPercent: Math.round(markup * 100) / 100,
         validDays,
+        signOff: {
+          accounting: text(raw.signOff?.accounting, 80),
+          headTechnician: text(raw.signOff?.headTechnician, 80),
+          manager: text(raw.signOff?.manager, 80),
+        },
       },
       logo,
     );
+    refresh();
+    return { ok: true };
+  });
+}
+
+// ---- Signatures -------------------------------------------------------------------
+
+/**
+ * Adds a person's signature (`id` null) or replaces one. The image is already
+ * a trimmed PNG of the ink only, made in the browser; here it is only checked.
+ */
+export async function saveQuoteSignerAction(input: {
+  id: string | null;
+  name: string;
+  image: string;
+}): Promise<Result<{ id: string }>> {
+  await requireModule("quotes");
+  return guard(async () => {
+    const name = text(input.name, 80);
+    if (!name) throw new InputError("Type the name exactly as it prints on the quotation.");
+    if (typeof input.image !== "string" || !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(input.image)) {
+      throw new InputError("Upload the signature as an image.");
+    }
+    if (input.image.length > MAX_SIGNATURE_CHARS) {
+      throw new InputError("That signature is too large. Crop the photo closer to the signature.");
+    }
+    const id = await saveQuoteSigner({ id: typeof input.id === "string" ? text(input.id, 20) : null, name, image: input.image });
+    refresh();
+    return { ok: true, id };
+  });
+}
+
+export async function removeQuoteSignerAction(id: string): Promise<Result> {
+  await requireModule("quotes");
+  return guard(async () => {
+    await removeQuoteSigner(text(id, 20));
     refresh();
     return { ok: true };
   });

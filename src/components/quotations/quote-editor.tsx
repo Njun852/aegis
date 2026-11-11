@@ -80,7 +80,7 @@ export interface QuoteEditorProps {
   bookings: QuoteBookingOption[];
   bookingsEnabled: boolean;
   crmEnabled: boolean;
-  fleetEnabled: boolean;
+  carsEnabled: boolean;
   mailConnected: boolean;
   businessName: string;
   /** Administrators approve discounts and prices below cost. */
@@ -216,7 +216,7 @@ export function QuoteEditor({
   bookings,
   bookingsEnabled,
   crmEnabled,
-  fleetEnabled,
+  carsEnabled,
   mailConnected,
   businessName,
   isAdmin,
@@ -308,7 +308,7 @@ export function QuoteEditor({
 
   // Cars on file by plate, however it is spaced, or by make and model.
   const carMatches = useMemo(() => {
-    if (!fleetEnabled || draft.vehicleRef || !carField) return [];
+    if (!carsEnabled || draft.vehicleRef || !carField) return [];
     if (carField === "plate") {
       const typed = plateKey(draft.plate);
       if (typed.length < 2) return [];
@@ -317,7 +317,7 @@ export function QuoteEditor({
     const typed = draft.makeModel.trim().toLowerCase();
     if (typed.length < 3) return [];
     return vehicles.filter((entry) => entry.label.toLowerCase().includes(typed)).slice(0, MAX_MATCHES);
-  }, [fleetEnabled, vehicles, carField, draft.vehicleRef, draft.plate, draft.makeModel]);
+  }, [carsEnabled, vehicles, carField, draft.vehicleRef, draft.plate, draft.makeModel]);
 
   const customerOptions: MatchOption[] = customerMatches.map((entry) => ({
     key: entry.ref,
@@ -746,7 +746,7 @@ export function QuoteEditor({
                     value={draft.plate}
                     maxLength={12}
                     autoComplete="off"
-                    placeholder={fleetEnabled ? "Type to find a car" : undefined}
+                    placeholder={carsEnabled ? "Type to find a car" : undefined}
                     onChange={(event) => {
                       const plate = event.target.value.toUpperCase();
                       const linkedCar = vehicles.find((entry) => entry.ref === draft.vehicleRef);
@@ -792,14 +792,14 @@ export function QuoteEditor({
                   }}
                 />
               </div>
-              {fleetEnabled &&
+              {carsEnabled &&
                 (draft.vehicleRef ? (
                   <LinkedNote onUnlink={() => update({ vehicleRef: null })}>
-                    Linked to {draft.plate} in Fleet.
+                    Linked to {draft.plate}, a customer car in CRM.
                   </LinkedNote>
                 ) : (
                   <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-                    Start typing a plate or model to fill this in from Fleet.
+                    Start typing a plate or model to fill this in from the customers&apos; cars in CRM.
                   </span>
                 ))}
               {bookingsEnabled && (
@@ -867,9 +867,16 @@ export function QuoteEditor({
                     onChange={(event) => update({ validUntil: event.target.value })}
                   />
                 </Field>
+                {/* Names with a saved signature, so the spelling matches and it prints. */}
+                <datalist id="quote-editor-signers">
+                  {settings.signers.map((signer) => (
+                    <option key={signer.id} value={signer.name} />
+                  ))}
+                </datalist>
                 <Field label="Service advisor">
                   <input
                     style={INPUT}
+                    list="quote-editor-signers"
                     value={draft.serviceAdvisor}
                     maxLength={80}
                     onChange={(event) => update({ serviceAdvisor: event.target.value })}
@@ -878,6 +885,7 @@ export function QuoteEditor({
                 <Field label="Technician">
                   <input
                     style={INPUT}
+                    list="quote-editor-signers"
                     value={draft.technician}
                     maxLength={80}
                     onChange={(event) => update({ technician: event.target.value })}

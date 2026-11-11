@@ -3,6 +3,7 @@ import "server-only";
 import { manilaDateKey } from "@/lib/booking-slots";
 import { addDaysToKey } from "@/lib/finance-periods";
 import { apStatusGroup, isOver90 } from "@/lib/finance";
+import { normalizeModules } from "@/lib/data/businesses";
 import { computeDue } from "@/lib/fleet";
 import { formatMoney, withoutEmoji } from "@/lib/format";
 import { getDb } from "./db";
@@ -422,17 +423,18 @@ async function fleetSection(business: BusinessDocument, now: Date) {
   const overdue = due.filter((entry) => entry.due.status === "Overdue").length;
   const section: BoardSection = {
     key: "fleet",
-    title: "Fleet service",
+    title: "Service due",
     icon: "car",
-    href: "/fleet",
+    href: "/crm",
     stats: [
-      { label: "Overdue", value: String(overdue), href: "/fleet", tone: overdue > 0 ? "negative" : "neutral" },
-      { label: "Due soon", value: String(due.length - overdue), href: "/fleet", tone: "neutral" },
+      { label: "Overdue", value: String(overdue), href: "/crm", tone: overdue > 0 ? "negative" : "neutral" },
+      { label: "Due soon", value: String(due.length - overdue), href: "/crm", tone: "neutral" },
     ],
     items: due.slice(0, ITEMS).map(({ vehicle, due: next }) => ({
       label: `${vehicle.plate} · ${[vehicle.make, vehicle.model].filter(Boolean).join(" ")}`,
       detail: `${next.status}${next.dueDay ? ` · ${next.dueDay}` : ""} · a chance to book them in`,
-      href: "/fleet",
+      // The car lives on its owner's CRM profile.
+      href: `/crm?customer=${encodeURIComponent(vehicle.customerRef)}`,
       tone: next.status === "Overdue" ? "negative" : "warning",
     })),
     empty: "No customer vehicles due for service.",
@@ -443,7 +445,9 @@ async function fleetSection(business: BusinessDocument, now: Date) {
 // ---- The board ----------------------------------------------------------------------
 
 async function boardFor(business: BusinessDocument, now: Date, days: string[]) {
-  const has = (key: string) => business.modules.includes(key as BusinessDocument["modules"][number]);
+  // Stored grants, read the way the app reads them (an old "fleet" grant is CRM).
+  const sold = normalizeModules(business.modules);
+  const has = (key: string) => sold.includes(key as (typeof sold)[number]);
   const [messages, bookings, jobs, finance, stock, ads, fleet] = await Promise.all([
     messagesSection(business, now),
     has("bookings") ? bookingsSection(business, now, days) : Promise.resolve(null),
@@ -451,7 +455,7 @@ async function boardFor(business: BusinessDocument, now: Date, days: string[]) {
     financeSection(business, now),
     has("inventory") ? stockSection(business) : Promise.resolve(null),
     adsSection(business),
-    has("fleet") ? fleetSection(business, now) : Promise.resolve(null),
+    has("crm") ? fleetSection(business, now) : Promise.resolve(null),
   ]);
   const board: BusinessBoard = {
     businessId: business.businessId,
@@ -462,7 +466,7 @@ async function boardFor(business: BusinessDocument, now: Date, days: string[]) {
       (finance?.urgent ?? 0) +
       (stock?.low ?? 0) +
       (fleet?.overdue ?? 0),
-    modules: [...business.modules],
+    modules: sold,
     figures: {
       chatsWaiting: messages.waiting,
       unreadMail: messages.unread,
@@ -522,7 +526,7 @@ export async function loadOwnerBoard(now = new Date()): Promise<OwnerBoard> {
             businessId: business.businessId,
             name: business.name,
             attention: 0,
-            modules: [...business.modules],
+            modules: normalizeModules(business.modules),
             figures: NO_FIGURES,
             bookingsByDay: days.map(() => 0),
             sections: [

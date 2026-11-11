@@ -350,10 +350,34 @@ export interface QuotationConfig {
   validDays?: number;
   /** A PNG or JPEG data URL, already shrunk in the browser. */
   logo?: string;
+  /** People whose signature prints on the PDF beside their name. Saved one at a time, not with the rest. */
+  signers?: QuoteSigner[];
+  /** Who signs the boxes no quotation names. Matched to `signers` by name. */
+  signOff?: Partial<QuoteSignOff>;
 }
 
-export type QuotationSettings = Required<Omit<QuotationConfig, "logo">> & {
+/** One person who signs quotations, with their signature as an image. */
+export interface QuoteSigner {
+  id: string;
+  name: string;
+  /** A PNG data URL: the ink only, on a transparent background, trimmed in the browser. */
+  image: string;
+}
+
+/**
+ * The signature boxes no quotation fills in itself. Service Advisor and
+ * Assigned Technician come from each quotation; the customer signs by hand.
+ */
+export interface QuoteSignOff {
+  accounting: string;
+  headTechnician: string;
+  manager: string;
+}
+
+export type QuotationSettings = Required<Omit<QuotationConfig, "logo" | "signers" | "signOff">> & {
   logo: string | null;
+  signers: QuoteSigner[];
+  signOff: QuoteSignOff;
 };
 
 /** One row of the list. */

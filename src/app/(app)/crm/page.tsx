@@ -18,19 +18,17 @@ export default async function CrmPage(props: PageProps<"/crm">) {
   // straight to its owner's profile.
   const param = (await props.searchParams).customer;
   const openRef = typeof param === "string" ? param : null;
-  const fleet = business.modules.includes("fleet");
   const today = new Date();
 
   const [customers, profile] = await Promise.all([
     listCustomerSummaries(),
-    openRef ? getCustomerProfile(openRef, { withVehicles: fleet, today }) : Promise.resolve(null),
+    openRef ? getCustomerProfile(openRef, { today }) : Promise.resolve(null),
   ]);
 
   return (
     <CrmWorkspace
       customers={customers}
       profile={profile}
-      fleetEnabled={fleet}
       smsEnabled={business.modules.includes("sms")}
       todayIso={today.toISOString()}
     />

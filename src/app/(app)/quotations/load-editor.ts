@@ -40,13 +40,13 @@ async function listBookingOptions(): Promise<QuoteBookingOption[]> {
 /** What the editor needs besides the quotation itself, shared by the new and edit routes. */
 export async function loadEditorData(business: Business) {
   const crmEnabled = business.modules.includes("crm");
-  const fleetEnabled = business.modules.includes("fleet");
+  const carsEnabled = business.modules.includes("crm");
   const bookingsEnabled = business.modules.includes("bookings");
   const [settings, priceItems, customers, vehicles, bookings, mailConnected, costSources, session] = await Promise.all([
     readQuotationSettings(),
     listPriceItems(),
     crmEnabled ? listCustomers() : Promise.resolve([]),
-    fleetEnabled ? listVehicleOptions() : Promise.resolve([]),
+    carsEnabled ? listVehicleOptions() : Promise.resolve([]),
     bookingsEnabled ? listBookingOptions() : Promise.resolve([]),
     isMailboxConfigured(),
     listCostSources(business),
@@ -62,7 +62,7 @@ export async function loadEditorData(business: Business) {
     bookings,
     bookingsEnabled,
     crmEnabled,
-    fleetEnabled,
+    carsEnabled,
     mailConnected,
     businessName: business.name,
     // Named for what it was; it now means "may approve pricing", which owners can too.

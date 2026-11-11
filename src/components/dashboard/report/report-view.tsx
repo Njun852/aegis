@@ -278,9 +278,9 @@ export function ReportView({ report, insight, summary, aiEnabled }: ReportViewPr
       {(fleet || customers) && (
         <div className="grid gap-4 wide:grid-cols-2">
           {fleet && (
-            <Card title="Fleet" action={<Caption>As of now</Caption>}>
+            <Card title="Customer cars" action={<Caption>As of now</Caption>}>
               <div className="grid grid-cols-2 gap-4">
-                <Metric label="Vehicles on file" value={String(fleet.vehicles)} />
+                <Metric label="Cars on file" value={String(fleet.vehicles)} />
                 <Metric label="Overdue for service" value={String(fleet.overdue)} />
                 <Metric label="Due in 30 days" value={String(fleet.dueSoon)} />
                 <Metric label="No service on record" value={String(fleet.noHistory)} />

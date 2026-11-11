@@ -15,7 +15,7 @@ export interface MessengerInboxProps {
   conversations: MessengerConversation[];
   vehicles: VehicleOption[];
   customers: Customer[] | null;
-  fleetEnabled: boolean;
+  carsEnabled: boolean;
   campaigns: AdCampaignOption[];
   pageName: string | null;
   /** A chat to open on arrival, from a link such as the owner's board. */
@@ -28,7 +28,7 @@ export interface MessengerInboxProps {
  * they do here is turn a chat into a booking request, which carries the ad the
  * chat started from automatically, and confirm it later from Bookings.
  */
-export function MessengerInbox({ conversations, vehicles, customers, fleetEnabled, campaigns, pageName, openChat = null }: MessengerInboxProps) {
+export function MessengerInbox({ conversations, vehicles, customers, carsEnabled, campaigns, pageName, openChat = null }: MessengerInboxProps) {
   const router = useRouter();
   const toast = useToast();
   const linked = openChat ? conversations.find((chat) => chat.psid === openChat) ?? null : null;
@@ -256,7 +256,7 @@ export function MessengerInbox({ conversations, vehicles, customers, fleetEnable
       {composing && (
         <NewBookingModal
           vehicles={vehicles}
-          fleetEnabled={fleetEnabled}
+          carsEnabled={carsEnabled}
           customers={customers}
           campaigns={campaigns}
           fromChat={{

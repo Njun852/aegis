@@ -42,7 +42,6 @@ const ALL_MODULES: ModuleKey[] = [
   "crm",
   "quotes",
   "suppliers",
-  "fleet",
   "inventory",
   "sms",
 ];
@@ -58,22 +57,24 @@ export const BUSINESS_ROLES: RoleDefinition[] = [
   {
     key: "marketing_admin",
     label: "Admin Marketing",
-    summary: "Dashboard, mail, ads, bookings, customers, quotations, suppliers, Text Blast, fleet, and Finance with its reports.",
-    modules: ["dashboard", "mail", "ads", "finance", "bookings", "crm", "quotes", "suppliers", "sms", "fleet"],
+    summary: "Dashboard, mail, ads, bookings, customers and their cars, quotations, suppliers, Text Blast, and Finance with its reports.",
+    modules: ["dashboard", "mail", "ads", "finance", "bookings", "crm", "quotes", "suppliers", "sms"],
     capabilities: ["financeReports"],
   },
   {
     key: "accounting",
     label: "Accounting",
-    summary: "Mail, ads, bookings, fleet, and all of Finance including money accounts.",
-    modules: ["mail", "ads", "finance", "bookings", "fleet"],
+    // CRM replaced Fleet here when the cars moved into it (11 Nov 2026).
+    summary: "Mail, ads, bookings, customers and their cars, and all of Finance including money accounts.",
+    modules: ["mail", "ads", "finance", "bookings", "crm"],
     capabilities: ["financeReports", "financeBooks"],
   },
   {
     key: "service_advisor",
     label: "Service Advisor",
-    summary: "Mail, quotations, suppliers, fleet, inventory, and Finance for recording invoices, bills and payments.",
-    modules: ["mail", "quotes", "suppliers", "fleet", "inventory", "finance"],
+    // CRM replaced Fleet here when the cars moved into it (11 Nov 2026).
+    summary: "Mail, customers and their cars, quotations, suppliers, inventory, and Finance for recording invoices, bills and payments.",
+    modules: ["mail", "crm", "quotes", "suppliers", "inventory", "finance"],
     capabilities: [],
   },
 ];

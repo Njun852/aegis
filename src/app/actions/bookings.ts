@@ -52,7 +52,7 @@ function sameName(left: string, right: string) {
  * A booking typed in by staff. It asks for what the public booking page asks
  * for, and turns it into records straight away, because here staff have already
  * read what they are typing: the customer is linked or added to CRM, and the car
- * is linked or added to Fleet under them.
+ * is linked or added to their cars in CRM.
  */
 export async function createBookingAction(
   _previous: BookingFormState,
@@ -60,7 +60,8 @@ export async function createBookingAction(
 ): Promise<BookingFormState> {
   const business = await requireModule("bookings");
   const crm = business.modules.includes("crm");
-  const fleet = business.modules.includes("fleet");
+  // Customers' cars live in CRM (Fleet was folded into it), so the car fields come with it.
+  const fleet = crm;
 
   const text = (key: string) => String(formData.get(key) ?? "").trim();
 
@@ -203,7 +204,7 @@ export async function createBookingAction(
         intervalKm: DEFAULT_INTERVAL_KM,
         notes: "",
       });
-      written.push(`${plate} added to Fleet`);
+      written.push(`${plate} added to the customer's cars`);
     }
   } catch (error) {
     if (error instanceof InputError) return { error: error.message };
@@ -242,7 +243,7 @@ export async function createBookingAction(
   if (source) revalidatePath("/ads");
 
   revalidatePath("/bookings");
-  if (vehicleRef) revalidatePath("/fleet");
+  if (vehicleRef) revalidatePath("/crm");
   if (linked) revalidatePath("/crm");
   return { error: null, createdRef: booking.ref, createdNote: written.join(" · ") || undefined };
 }
@@ -294,7 +295,7 @@ export async function setBookingStatusAction(
   // Confirming or cancelling changes a campaign's Confirmed Bookings.
   revalidatePath("/ads");
   // A completed booking for a vehicle is a line in its service history.
-  revalidatePath("/fleet");
+  revalidatePath("/crm");
   return { ok: true };
 }
 
@@ -315,7 +316,7 @@ export async function rescheduleBookingAction(
 
   await rescheduleBooking(ref, when.toISOString(), durationMinutes);
   revalidatePath("/bookings");
-  revalidatePath("/fleet");
+  revalidatePath("/crm");
 }
 
 /**
@@ -407,7 +408,7 @@ export async function customerFromRequestAction(ref: string): Promise<Result> {
  */
 export async function vehicleFromRequestAction(ref: string, plateInput: string): Promise<Result> {
   await requireModule("bookings");
-  await requireModule("fleet");
+  await requireModule("crm");
 
   const booking = await getBooking(ref);
   if (!booking?.request) return { ok: false, error: `${ref} is not an online request.` };
@@ -439,7 +440,6 @@ export async function vehicleFromRequestAction(ref: string, plateInput: string):
   }
 
   revalidatePath("/bookings");
-  revalidatePath("/fleet");
   revalidatePath("/crm");
   return { ok: true };
 }
@@ -450,7 +450,7 @@ export async function vehicleFromRequestAction(ref: string, plateInput: string):
  */
 export async function linkBookingVehicleAction(ref: string, vehicleRef: string): Promise<Result> {
   await requireModule("bookings");
-  await requireModule("fleet");
+  await requireModule("crm");
 
   const booking = await getBooking(ref);
   if (!booking) return { ok: false, error: `${ref} is no longer on file.` };
@@ -468,7 +468,6 @@ export async function linkBookingVehicleAction(ref: string, vehicleRef: string):
   if (!booking.customerRef) await linkBookingCustomer(ref, vehicle.customerRef);
   await linkBookingVehicle(ref, vehicle.ref);
   revalidatePath("/bookings");
-  revalidatePath("/fleet");
   revalidatePath("/crm");
   return { ok: true };
 }

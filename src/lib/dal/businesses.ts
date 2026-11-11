@@ -3,7 +3,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { modulesHiddenByRole, roleAllowsModule, type RoleHolder } from "@/lib/business-roles";
 import { RESERVED_SLUGS } from "@/lib/data/booking-page";
-import { CORE_MODULES, OPTIONAL_MODULE_KEYS } from "@/lib/data/businesses";
+import { CORE_MODULES, normalizeModules } from "@/lib/data/businesses";
 import { businessesCollection, getDb } from "./db";
 import { InputError, isDuplicateKey } from "./refs";
 import { allowedBusinessIds, requireAdmin, verifySession } from "./session";
@@ -31,7 +31,8 @@ function toBusiness(doc: BusinessDocument, holder: RoleHolder = UNRESTRICTED): B
   // Only modules still sold per business. One that has since become core
   // (Finance) can linger in a stored list; it is everyone's now, so it is
   // dropped here and leaves the record the next time the grants are saved.
-  const sold = doc.modules.filter((key) => OPTIONAL_MODULE_KEYS.includes(key));
+  // A retired one (Fleet) reads as the module it became (CRM).
+  const sold = normalizeModules(doc.modules);
   const hidden = modulesHiddenByRole(holder);
   return {
     id: doc.businessId,

@@ -168,7 +168,7 @@ async function buildAlerts(
     }
   }
 
-  if (has("fleet")) {
+  if (has("crm")) {
     const overdue = (await listVehicles(today)).filter((vehicle) => vehicle.due.status === "Overdue");
     if (overdue.length > 0) {
       alerts.push({
@@ -177,7 +177,7 @@ async function buildAlerts(
         meta: overdue.slice(0, 2).map((vehicle) => vehicle.plate).join(", "),
         amount: String(overdue.length),
         amountTone: "neutral",
-        tag: "Fleet",
+        tag: "CRM",
         icon: "car",
         iconColor: ALERT_COLORS.info,
       });

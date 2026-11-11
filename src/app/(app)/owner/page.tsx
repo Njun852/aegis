@@ -4,7 +4,7 @@ import { loadOwnerBoard } from "@/lib/dal/owner-board";
 
 export const metadata: Metadata = {
   title: "Owner board · AEGIS AI",
-  description: "Every business on one screen: messages, bookings, jobs, finance, stock, ads and fleet, each item opening where it lives.",
+  description: "Every business on one screen: messages, bookings, jobs, finance, stock, ads and cars due for service, each item opening where it lives.",
 };
 
 /** Administrators only: `loadOwnerBoard` sends anyone else to their dashboard. */

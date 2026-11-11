@@ -6,7 +6,6 @@ export type OptionalModuleKey =
   | "bookings"
   | "inventory"
   | "crm"
-  | "fleet"
   | "sms"
   | "quotes"
   | "suppliers";

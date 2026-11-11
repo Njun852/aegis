@@ -42,7 +42,7 @@ type Tab = "Upcoming" | "Outbox";
 
 export interface TextBlastWorkspaceProps {
   businessName: string;
-  settings: TextBlastSettings & { hasLink: boolean; hasFleet: boolean };
+  settings: TextBlastSettings & { hasLink: boolean; hasCars: boolean };
   rows: ReminderRow[];
   messages: SmsMessage[];
   sentLast30: number;
@@ -197,10 +197,10 @@ export function TextBlastWorkspace({
           dropped.
         </Notice>
       )}
-      {!settings.hasFleet && (
+      {!settings.hasCars && (
         <Notice>
-          Reminders are worked out from Fleet&apos;s service history, and {businessName} does not have Fleet. Grant
-          it in Business Management before switching reminders on.
+          Reminders are worked out from the service history of the customers&apos; cars in CRM, and {businessName}{" "}
+          does not have CRM. Grant it in Business Management before switching reminders on.
         </Notice>
       )}
 
@@ -309,7 +309,7 @@ export function TextBlastWorkspace({
               {filtered.length === 0 && (
                 <Empty>
                   {rows.length === 0
-                    ? "No vehicles on file yet. Add customers' cars in Fleet and they appear here as they fall due."
+                    ? "No cars on file yet. Add them on each customer in CRM and they appear here as they fall due."
                     : "No vehicles match this search."}
                 </Empty>
               )}
@@ -368,7 +368,7 @@ export function TextBlastWorkspace({
           <Button
             variant={settings.enabled ? "outline" : "primary"}
             icon={settings.enabled ? "x" : "check"}
-            disabled={pending || (!settings.enabled && !settings.hasFleet) || unknown.length > 0}
+            disabled={pending || (!settings.enabled && !settings.hasCars) || unknown.length > 0}
             onClick={toggleAutomatic}
           >
             {settings.enabled ? "Switch off automatic reminders" : "Switch on automatic reminders"}

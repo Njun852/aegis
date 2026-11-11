@@ -47,7 +47,11 @@ import {
   parseQty,
   priceFromCost,
   pricingCleared,
+  quoteSettingsOf,
   quoteTotals,
+  signatureBoxes,
+  signerFor,
+  signerKey,
   specialPricingKey,
   specialPricingReason,
 } from "@/lib/quotations";
@@ -222,6 +226,44 @@ assert.ok(email.body.includes("Fortuner 2015 (WQN 733)") && email.body.includes(
 assert.ok(!/cost|margin/i.test(email.body), "the email never mentions cost or margin");
 
 console.log("✓ email wording");
+
+// ---- Signatures ---------------------------------------------------------------------
+{
+  const ink = "data:image/png;base64,AAAA";
+  const signers = [
+    { id: "SG-1", name: "Juan Dela Cruz", image: `${ink}1` },
+    { id: "SG-2", name: "Ma. Santos", image: `${ink}2` },
+  ];
+  assert.equal(signerKey("  Juan   DELA cruz. "), "juan dela cruz", "case, spacing and full stops are ignored");
+  assert.equal(signerFor("juan dela cruz", signers)?.id, "SG-1");
+  assert.equal(signerFor("Ma Santos", signers)?.id, "SG-2", "Ma. and Ma match");
+  assert.equal(signerFor("Juan", signers), null, "a first name alone is not the same person");
+  assert.equal(signerFor("", signers), null, "a blank box never takes a signature");
+
+  const settings = quoteSettingsOf({
+    address: "", contact: "", notes: "", footer: "", markupPercent: 50,
+    signers, signOff: { manager: "MA. SANTOS", accounting: "Rosa" },
+  });
+  assert.deepEqual(settings.signOff, { accounting: "Rosa", headTechnician: "", manager: "MA. SANTOS" }, "missing sign-off names read as blank");
+  const rows = signatureBoxes(
+    { serviceAdvisor: "Juan Dela Cruz", technician: "Pedro", billTo: { customerRef: null, name: "Juan Dela Cruz", company: "", address: "", phone: "", email: "" } },
+    settings,
+  );
+  assert.deepEqual(
+    rows.flat().map((box) => [box.label, box.name, box.image]),
+    [
+      ["Service Advisor:", "Juan Dela Cruz", `${ink}1`],
+      ["Assigned Technician:", "Pedro", null],
+      ["Customer:", "Juan Dela Cruz", null],
+      ["Accounting:", "Rosa", null],
+      ["Head Technician:", "", null],
+      ["Manager:", "MA. SANTOS", `${ink}2`],
+    ],
+    "each box prints its name and, when one is saved, that person's signature; the customer always signs by hand",
+  );
+  assert.deepEqual(quoteSettingsOf(undefined).signers, [], "no settings, no signatures");
+}
+console.log("✓ signatures: names match however typed, each box takes only its own signer's, the customer signs by hand");
 
 // ---- Part two: the photo path -------------------------------------------------
 

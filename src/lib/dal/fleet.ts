@@ -274,9 +274,15 @@ export async function createVehicle(input: VehicleInput): Promise<string> {
 }
 
 /** Details and schedule. The odometer has its own path because it only moves forward. */
+/**
+ * A car's details. The service interval is left as it is unless given: CRM
+ * edits only the basics, and the due date keeps working from the interval the
+ * car already has.
+ */
 export async function updateVehicle(
   ref: string,
-  input: Omit<VehicleInput, "customerRef" | "odometerKm">,
+  input: Omit<VehicleInput, "customerRef" | "odometerKm" | "intervalMonths" | "intervalKm"> &
+    Partial<Pick<VehicleInput, "intervalMonths" | "intervalKm">>,
 ): Promise<void> {
   const key = await assertPlateFree(input.plate, ref);
   const collection = await vehicles();
@@ -291,8 +297,8 @@ export async function updateVehicle(
           model: input.model,
           year: input.year,
           colour: input.colour,
-          intervalMonths: input.intervalMonths,
-          intervalKm: input.intervalKm,
+          ...(input.intervalMonths !== undefined ? { intervalMonths: input.intervalMonths } : {}),
+          ...(input.intervalKm !== undefined ? { intervalKm: input.intervalKm } : {}),
           notes: input.notes,
         },
       },
@@ -314,6 +320,8 @@ export async function updateOdometer(ref: string, km: number): Promise<void> {
   const collection = await vehicles();
   const doc = await collection.findOne({ ref });
   if (!doc) throw new InputError(`${ref} is no longer on file.`);
+  // The same reading again (a car form saved unchanged) is not a new reading.
+  if (doc.odometerKm === km) return;
   if (doc.odometerKm !== null && km < doc.odometerKm) {
     throw new InputError(
       `Readings only go forward. The last one was ${formatKm(doc.odometerKm)}.`,

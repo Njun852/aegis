@@ -66,15 +66,8 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
     key: "crm",
     name: "CRM",
     icon: "users",
-    desc: "Customer records with their vehicles, bookings and value over time.",
+    desc: "Customer records with their cars, bookings and value over time.",
     href: "/crm",
-  },
-  {
-    key: "fleet",
-    name: "Fleet",
-    icon: "car",
-    desc: "Customer vehicles, service history and next service due.",
-    href: "/fleet",
   },
   {
     key: "sms",
@@ -102,6 +95,23 @@ export const OPTIONAL_MODULES: ModuleDefinition[] = [
 export const OPTIONAL_MODULE_KEYS: OptionalModuleKey[] = OPTIONAL_MODULES.map(
   (module) => module.key as OptionalModuleKey,
 );
+
+/**
+ * Modules that were folded into another and what they now mean. Fleet (the
+ * customers' cars) became part of CRM on 11 Nov 2026, so a business stored
+ * with "fleet" reads as having CRM until its grants are next saved.
+ */
+const RETIRED_MODULES: Record<string, OptionalModuleKey> = { fleet: "crm" };
+
+/**
+ * A stored grant list as it reads today: retired modules mapped to their
+ * successor, anything no longer sold dropped, each module once. Every read of
+ * a business's stored `modules` goes through this.
+ */
+export function normalizeModules(stored: readonly string[] | undefined): OptionalModuleKey[] {
+  const keys = (stored ?? []).map((key) => RETIRED_MODULES[key] ?? key);
+  return OPTIONAL_MODULE_KEYS.filter((key) => keys.includes(key));
+}
 
 /**
  * Pages reachable from the user menu that are not modules. They share the

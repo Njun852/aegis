@@ -6,9 +6,10 @@ import { saveQuotationSettingsAction } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
 import { shrinkImage } from "@/lib/image-resize";
-import { priceFromCost, formatAmount } from "@/lib/quotations";
+import { priceFromCost, formatAmount, signerFor } from "@/lib/quotations";
 import { Field, INPUT, Modal, Notice } from "@/components/forms/form-kit";
 import type { QuotationSettings } from "@/types";
+import { SignaturesPanel } from "./signatures-panel";
 
 /** Roughly 300 KB once encoded, the most the server accepts. */
 const MAX_LOGO_CHARS = 400_000;
@@ -31,6 +32,7 @@ export function QuoteSettingsModal({
   const [footer, setFooter] = useState(settings.footer);
   const [markup, setMarkup] = useState(String(settings.markupPercent));
   const [validDays, setValidDays] = useState(String(settings.validDays));
+  const [signOff, setSignOff] = useState(settings.signOff);
   // undefined: unchanged; null: removed; string: a new image.
   const [logo, setLogo] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export function QuoteSettingsModal({
     setError(null);
     startTransition(async () => {
       const result = await saveQuotationSettingsAction(
-        { address, contact, notes, footer, markupPercent: markupValue, validDays: days },
+        { address, contact, notes, footer, markupPercent: markupValue, validDays: days, signOff },
         logo,
       );
       if (!result.ok) {
@@ -205,6 +207,48 @@ export function QuoteSettingsModal({
           value={validDays}
           onChange={(event) => setValidDays(event.target.value)}
         />
+      </Field>
+
+      <SignaturesPanel signers={settings.signers} />
+
+      <Field
+        label="Signed by"
+        hint="The names printed in these boxes on every quotation, with their signature when one is saved above. Service Advisor and Assigned Technician come from each quotation; the customer signs by hand."
+      >
+        <datalist id="quote-signer-names">
+          {settings.signers.map((signer) => (
+            <option key={signer.id} value={signer.name} />
+          ))}
+        </datalist>
+        <div className="grid gap-2.5 wide:grid-cols-3">
+          {(
+            [
+              ["accounting", "Accounting"],
+              ["headTechnician", "Head Technician"],
+              ["manager", "Manager"],
+            ] as const
+          ).map(([key, label]) => {
+            const signed = signerFor(signOff[key], settings.signers) !== null;
+            return (
+              <label key={key} className="flex min-w-0 flex-col gap-1.5">
+                <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)" }}>{label}</span>
+                <input
+                  style={INPUT}
+                  list="quote-signer-names"
+                  value={signOff[key]}
+                  maxLength={80}
+                  placeholder="Leave blank to sign by hand"
+                  onChange={(event) => setSignOff((current) => ({ ...current, [key]: event.target.value }))}
+                />
+                {signOff[key].trim() && (
+                  <span style={{ fontSize: "10.5px", color: signed ? "var(--status-positive)" : "var(--text-muted)" }}>
+                    {signed ? "Signature on file" : "No signature for this name: name only"}
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
       </Field>
     </Modal>
   );

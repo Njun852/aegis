@@ -161,6 +161,7 @@ try {
     name: "Check Motors",
     meta: "Throwaway",
     onboarded: "",
+    // Stored the old way, with "fleet": it must still read as CRM, so reminders keep running.
     modules: ["bookings", "fleet", "sms"],
     status: "active",
   });

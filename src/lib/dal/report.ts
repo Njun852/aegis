@@ -188,7 +188,7 @@ async function customersSection(range: DateRange, today: Date): Promise<ReportCu
 export async function buildReport(range: DateRange, today = new Date()): Promise<Report | null> {
   const business = await getActiveBusiness();
   if (!business) return null;
-  const has = (key: "bookings" | "inventory" | "fleet" | "crm") => business.modules.includes(key);
+  const has = (key: "bookings" | "inventory" | "crm") => business.modules.includes(key);
 
   const [revenue, bookings, ads, mail, inventory, fleet, customers] = await Promise.all([
     revenueSection(range, today),
@@ -196,7 +196,7 @@ export async function buildReport(range: DateRange, today = new Date()): Promise
     adsSection(),
     mailSection(range, today),
     has("inventory") ? inventorySection() : Promise.resolve(null),
-    has("fleet") ? fleetSection(range, today) : Promise.resolve(null),
+    has("crm") ? fleetSection(range, today) : Promise.resolve(null),
     has("crm") ? customersSection(range, today) : Promise.resolve(null),
   ]);
 

@@ -17,7 +17,7 @@ export interface RequestPanelProps {
   booking: Booking & { request: BookingRequest };
   /** Whether CRM is on; without it there is no customer to make. */
   crmEnabled: boolean;
-  fleetEnabled: boolean;
+  carsEnabled: boolean;
   matches: RequestMatches | null;
   pending: boolean;
   /** The drawer's runner: refreshes and toasts on success, toasts the reason on failure. */
@@ -30,7 +30,7 @@ export interface RequestPanelProps {
  * from the car details. Where the mobile or plate already match something on
  * file, linking is offered first so the same person is not added twice.
  */
-export function RequestPanel({ booking, crmEnabled, fleetEnabled, matches, pending, run }: RequestPanelProps) {
+export function RequestPanel({ booking, crmEnabled, carsEnabled, matches, pending, run }: RequestPanelProps) {
   const { request } = booking;
   const [plate, setPlate] = useState(request.vehicle.plate);
 
@@ -129,7 +129,7 @@ export function RequestPanel({ booking, crmEnabled, fleetEnabled, matches, pendi
         </Step>
       )}
 
-      {fleetEnabled && !booking.vehicleRef && plateMatch && plateMatchIsTheirs && (
+      {carsEnabled && !booking.vehicleRef && plateMatch && plateMatchIsTheirs && (
         <Step title="Vehicle">
           <Button
             size="sm"
@@ -148,14 +148,14 @@ export function RequestPanel({ booking, crmEnabled, fleetEnabled, matches, pendi
         </Step>
       )}
 
-      {fleetEnabled && !booking.vehicleRef && plateMatch && !plateMatchIsTheirs && (
+      {carsEnabled && !booking.vehicleRef && plateMatch && !plateMatchIsTheirs && (
         <p style={{ margin: 0, fontSize: "11.5px", color: "var(--status-warning)" }}>
           Plate {plateMatch.plate} is already on file under {plateMatch.ownerName || plateMatch.customerRef}, not
           this booking&apos;s customer. Check with the customer before linking.
         </p>
       )}
 
-      {fleetEnabled && !booking.vehicleRef && booking.customerRef && !plateMatch && (
+      {carsEnabled && !booking.vehicleRef && booking.customerRef && !plateMatch && (
         <Step title="Vehicle">
           {/* Full width with a shrinkable input, so the button stays inside the drawer. */}
           <div style={{ display: "flex", gap: 8, flex: "1 1 100%", minWidth: 0 }}>
@@ -183,17 +183,17 @@ export function RequestPanel({ booking, crmEnabled, fleetEnabled, matches, pendi
               disabled={pending || !plate.trim()}
               onClick={() =>
                 run(() => check(vehicleFromRequestAction(booking.ref, plate)), {
-                  done: `${plate.trim().toUpperCase()} added to Fleet`,
+                  done: `${plate.trim().toUpperCase()} added to the customer's cars`,
                 })
               }
             >
-              Add vehicle to Fleet
+              Add car to customer
             </Button>
           </div>
         </Step>
       )}
 
-      {fleetEnabled && !booking.vehicleRef && !booking.customerRef && !plateMatch && crmEnabled && (
+      {carsEnabled && !booking.vehicleRef && !booking.customerRef && !plateMatch && crmEnabled && (
         <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
           Link or create the customer first; the car is added under them.
         </span>

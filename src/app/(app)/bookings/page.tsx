@@ -55,7 +55,7 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
   const [bookings, vehicles, customers, campaigns, meta, quoteLinks, jobLinks] = await Promise.all([
     listBookings(),
     // Empty without Fleet, which hides the Vehicle field.
-    business.modules.includes("fleet") ? listVehicleOptions() : Promise.resolve([]),
+    business.modules.includes("crm") ? listVehicleOptions() : Promise.resolve([]),
     // Null without CRM, which hides the customer picker and the link control.
     business.modules.includes("crm") ? listCustomers() : Promise.resolve(null),
     // Empty without a connected ad account: only real campaigns may be credited.
@@ -76,7 +76,7 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
   const today = new Date();
   const requestMatches = await matchRequests(bookings, {
     crm: business.modules.includes("crm"),
-    fleet: business.modules.includes("fleet"),
+    fleet: business.modules.includes("crm"),
   });
 
   return (
@@ -84,7 +84,7 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
       bookings={bookings}
       vehicles={vehicles}
       customers={customers}
-      fleetEnabled={business.modules.includes("fleet")}
+      carsEnabled={business.modules.includes("crm")}
       requestMatches={requestMatches}
       todayIso={today.toISOString()}
       todayKey={dateKeyOf(today)}

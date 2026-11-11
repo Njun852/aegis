@@ -8,19 +8,18 @@ import { setCustomerSmsOptOutAction, updateCustomerAction } from "@/app/actions/
 import { Avatar, Badge, Button, Icon, IconButton, Switch } from "@/components/ui";
 import { useToast } from "@/components/layout/toast-provider";
 import { formatMoney, getStatusStyle } from "@/lib/bookings";
-import { SERVICE_DUE_STYLES, vehicleLabel } from "@/lib/fleet";
 import type { CustomerInput, CustomerProfile, MonthValue } from "@/types";
+import { CustomerCars } from "./customer-cars";
 
 export interface CustomerDrawerProps {
   profile: CustomerProfile;
-  fleetEnabled: boolean;
   /** Whether the business has Text Blast, which is what the Text reminders switch governs. */
   smsEnabled: boolean;
   onClose: () => void;
 }
 
 /** The right-hand profile for one customer: contact, cars, bookings, value, mail. */
-export function CustomerDrawer({ profile, fleetEnabled, smsEnabled, onClose }: CustomerDrawerProps) {
+export function CustomerDrawer({ profile, smsEnabled, onClose }: CustomerDrawerProps) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -200,25 +199,9 @@ export function CustomerDrawer({ profile, fleetEnabled, smsEnabled, onClose }: C
             <MonthlyBars months={months} />
           </Section>
 
-          {fleetEnabled && (
-            <Section title={`Vehicles · ${vehicles.length}`}>
-              {vehicles.length === 0 && <Empty>No cars on file. Add one in Fleet.</Empty>}
-              {vehicles.map((vehicle) => (
-                <Link
-                  key={vehicle.ref}
-                  href="/fleet"
-                  style={{ ...ROW, textDecoration: "none", color: "inherit" }}
-                >
-                  <Icon name="car" size={14} />
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px", fontWeight: 700 }}>{vehicle.plate}</span>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {vehicleLabel(vehicle)}
-                  </span>
-                  <Badge tone={SERVICE_DUE_STYLES[vehicle.due.status].tone}>{vehicle.due.status}</Badge>
-                </Link>
-              ))}
-            </Section>
-          )}
+          <Section title={`Cars · ${vehicles.length}`}>
+            <CustomerCars customerRef={customer.ref} customerName={customer.name} vehicles={vehicles} />
+          </Section>
 
           <Section title={`Bookings · ${bookings.length}`}>
             {bookings.length === 0 && (

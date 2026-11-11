@@ -24,7 +24,6 @@ export interface CrmWorkspaceProps {
   customers: CustomerSummary[];
   /** The customer named in `?customer=`, loaded on the server. */
   profile: CustomerProfile | null;
-  fleetEnabled: boolean;
   smsEnabled: boolean;
   todayIso: string;
 }
@@ -32,7 +31,6 @@ export interface CrmWorkspaceProps {
 export function CrmWorkspace({
   customers,
   profile,
-  fleetEnabled,
   smsEnabled,
   todayIso,
 }: CrmWorkspaceProps) {
@@ -202,7 +200,7 @@ export function CrmWorkspace({
           <div className={GRID} style={{ padding: "0 10px 8px", borderBottom: "1px solid var(--border-subtle)" }}>
             <ColumnLabel>Customer</ColumnLabel>
             <ColumnLabel>Contact</ColumnLabel>
-            <ColumnLabel className="hidden wide:block">Vehicles</ColumnLabel>
+            <ColumnLabel className="hidden wide:block">Cars</ColumnLabel>
             <ColumnLabel className="hidden wide:block">Bookings</ColumnLabel>
             <ColumnLabel className="hidden wide:block">Last visit</ColumnLabel>
             <ColumnLabel className="text-right">Booked value</ColumnLabel>
@@ -242,7 +240,7 @@ export function CrmWorkspace({
                     <Muted>{customer.email || "No email"}</Muted>
                   </span>
                   <span className="hidden wide:block">
-                    <Strong>{fleetEnabled ? String(customer.vehicleCount) : "—"}</Strong>
+                    <Strong>{String(customer.vehicleCount)}</Strong>
                   </span>
                   <span className="hidden wide:block">
                     <Strong>{String(customer.bookingCount)}</Strong>
@@ -275,7 +273,6 @@ export function CrmWorkspace({
         <CustomerDrawer
           key={profile.customer.ref}
           profile={profile}
-          fleetEnabled={fleetEnabled}
           smsEnabled={smsEnabled}
           onClose={() => open(null)}
         />

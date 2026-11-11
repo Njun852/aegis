@@ -7,7 +7,9 @@ import type {
   QuoteResponseMethod,
   QuoteSection,
   QuoteStatus,
+  QuoteSigner,
   QuoteTotals,
+  Quotation,
   QuotationConfig,
   QuotationSettings,
   QuotationSummary,
@@ -107,6 +109,8 @@ export const DEFAULT_QUOTATION_SETTINGS: QuotationSettings = {
   markupPercent: 50,
   validDays: DEFAULT_VALID_DAYS,
   logo: null,
+  signers: [],
+  signOff: { accounting: "", headTechnician: "", manager: "" },
 };
 
 /** The stored config with every gap filled, so screens never branch on absence. */
@@ -119,7 +123,65 @@ export function quoteSettingsOf(config: QuotationConfig | undefined): QuotationS
     markupPercent: config?.markupPercent ?? DEFAULT_QUOTATION_SETTINGS.markupPercent,
     validDays: config?.validDays ?? DEFAULT_QUOTATION_SETTINGS.validDays,
     logo: config?.logo ?? null,
+    signers: config?.signers ?? [],
+    signOff: { ...DEFAULT_QUOTATION_SETTINGS.signOff, ...config?.signOff },
   };
+}
+
+// ---- Signatures --------------------------------------------------------------------
+
+/** People who can sign, at most. Each signature is a small image on the business record. */
+export const MAX_SIGNERS = 20;
+/** About 110 KB of PNG: far more than a trimmed signature needs. */
+export const MAX_SIGNATURE_CHARS = 150_000;
+
+/** A name as it is matched: case, extra spaces and full stops ignored ("Juan  Dela Cruz." is "juan dela cruz"). */
+export function signerKey(name: string): string {
+  return name.toLowerCase().replace(/\./g, "").replace(/\s+/g, " ").trim();
+}
+
+/** The signature for a name printed on the form, or null when nobody by that name has one. */
+export function signerFor(name: string, signers: QuoteSigner[]): QuoteSigner | null {
+  const key = signerKey(name);
+  if (!key) return null;
+  return signers.find((signer) => signerKey(signer.name) === key) ?? null;
+}
+
+export interface SignatureBox {
+  label: string;
+  name: string;
+  /** The signature image to print beside the name, or null for one signed by hand. */
+  image: string | null;
+}
+
+/**
+ * The six boxes at the foot of the form, in print order. Service Advisor and
+ * Assigned Technician are whoever the quotation names; Accounting, Head
+ * Technician and Manager are set once in the settings. A box prints a
+ * signature only when a signer by that exact name has one. The customer's box
+ * carries their name and is signed by hand.
+ */
+export function signatureBoxes(
+  quotation: Pick<Quotation, "serviceAdvisor" | "technician" | "billTo">,
+  settings: Pick<QuotationSettings, "signers" | "signOff">,
+): SignatureBox[][] {
+  const box = (label: string, name: string, signs = true): SignatureBox => ({
+    label,
+    name: name.trim(),
+    image: signs ? (signerFor(name, settings.signers)?.image ?? null) : null,
+  });
+  return [
+    [
+      box("Service Advisor:", quotation.serviceAdvisor),
+      box("Assigned Technician:", quotation.technician),
+      box("Customer:", quotation.billTo.name, false),
+    ],
+    [
+      box("Accounting:", settings.signOff.accounting),
+      box("Head Technician:", settings.signOff.headTechnician),
+      box("Manager:", settings.signOff.manager),
+    ],
+  ];
 }
 
 /** Quantity × unit price, rounded to the centavo. Zero while the line is unpriced. */

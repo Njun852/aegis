@@ -10,8 +10,9 @@ import type { CustomerProfile, CustomerSummary } from "@/types";
 
 /**
  * CRM's reads, assembled from the modules that own each piece: customers,
- * bookings, vehicles and mail. Kept apart from `./customers.ts` so the
- * collection owner does not import Fleet, which imports it.
+ * bookings, their cars and mail. Kept apart from `./customers.ts` so the
+ * collection owner does not import the cars code (`./fleet.ts`), which
+ * imports it.
  */
 
 /** Every customer with what their linked bookings add up to. */
@@ -43,14 +44,14 @@ export async function listCustomerSummaries(): Promise<CustomerSummary[]> {
  */
 export async function getCustomerProfile(
   ref: string,
-  { withVehicles, today = new Date() }: { withVehicles: boolean; today?: Date },
+  { today = new Date() }: { today?: Date } = {},
 ): Promise<CustomerProfile | null> {
   const customer = await findCustomer(ref);
   if (!customer) return null;
 
   const [bookings, vehicles, messages] = await Promise.all([
     listBookingsForCustomer(ref),
-    withVehicles ? listVehiclesForCustomer(ref, today) : Promise.resolve([]),
+    listVehiclesForCustomer(ref, today),
     listMessagesFromAddress(customer.email, 10),
   ]);
 

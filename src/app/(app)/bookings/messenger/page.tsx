@@ -19,7 +19,7 @@ export default async function MessengerPage(props: PageProps<"/bookings/messenge
     listConversations(),
     readActiveMetaAdsStatus(),
     listMetaCampaignOptions(),
-    business.modules.includes("fleet") ? listVehicleOptions() : Promise.resolve([]),
+    business.modules.includes("crm") ? listVehicleOptions() : Promise.resolve([]),
     business.modules.includes("crm") ? listCustomers() : Promise.resolve(null),
   ]);
 
@@ -29,7 +29,7 @@ export default async function MessengerPage(props: PageProps<"/bookings/messenge
       openChat={typeof chat === "string" ? chat : null}
       vehicles={vehicles}
       customers={customers}
-      fleetEnabled={business.modules.includes("fleet")}
+      carsEnabled={business.modules.includes("crm")}
       campaigns={campaigns}
       pageName={meta.pageName}
     />

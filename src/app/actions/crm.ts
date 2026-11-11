@@ -13,8 +13,7 @@ import type { CustomerInput, CustomerMatch } from "@/types";
 
 function refresh() {
   revalidatePath("/crm");
-  // Customers appear in the Fleet owner picker and on bookings.
-  revalidatePath("/fleet");
+  // Customers appear on bookings and in their pickers.
   revalidatePath("/bookings");
 }
 
