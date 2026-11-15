@@ -65,6 +65,32 @@ Working, on real data:
 - **Mail.** A company Gmail is connected per business over IMAP and SMTP. 62
   messages, AI triage (priority, category, summary, action required, deadline,
   suggested reply), approval guardrails, and sending only on a person's click.
+  **13 Nov 2026:** Compose's Send did nothing (it only closed the window, and
+  its Cc box was never used); it now sends through `sendEmailAction`
+  (`src/app/actions/mail.ts`) with To, Cc and Bcc, each box checked by
+  `readRecipients` (`src/lib/mail-recipients.ts`: commas or semicolons, "Name
+  <address>", each address once, at most 20 people), a confirmation naming
+  everyone, and toasts either way. Replies take Cc and Bcc too (the reply
+  itself still goes only to the sender). The inert Attach and Schedule buttons
+  and the "Draft saved" label were removed; nothing is saved until sent, and
+  Gmail keeps the copy in its Sent folder. A failed send now says nothing was
+  sent (`explainSendFailure`), including for quotations and automatic replies,
+  and the server log keeps Gmail's own reason (`[mail] send failed …`).
+  `mail:check` covers the address rules. The mailbox's SMTP sign-in was
+  checked working; replies had been sending all along.
+  **Attachments and links (13 Nov 2026):** each email records its attachments
+  (name, type, size; not the bytes) and its links (`readLinks`,
+  `src/lib/mail-links.ts`: real targets, each once, at most 40, only http(s)
+  and mailto) when it is read in (`readMailExtras`, `src/lib/mail/extras.ts`).
+  Older mail is read from Gmail once, the first time it is opened
+  (`loadMailExtrasAction`; `fetchOne` opens INBOX read-only, so nothing is
+  marked read). A file opens through `/api/mail/attachment?message=…&index=n`:
+  from Gmail the first time, then from `mailAttachmentCache` (files up to
+  8 MB, 30-day expiry; one Gmail read per email however many photos load at
+  once). Photos and PDFs show in place, sandboxed; every other type downloads.
+  The message shows photo thumbnails, file chips, a links list showing each
+  link's real host, and clickable web addresses in the text. Tiny inline images
+  (a newsletter's logos, under 12 KB) are counted but not shown.
 - **Bookings, inventory, the revenue ledger, dashboard, users, business
   management and system status** all work on stored data.
 - **Messenger.** The webhook (`src/app/api/meta/webhook/route.ts`) is built and
@@ -888,6 +914,25 @@ index).
 
 ## Finance (16 Oct 2026, phase 1 of 9)
 
+**12 Nov 2026: documents on Money In/Out, and a clearer account history.**
+
+- **Money in / out** has an "Attach documents" field (photos or PDFs, up to 6)
+  as well as the scan box; each is attached to the record the entry makes, as
+  it is saved (the invoice for a sale, the bill for an expense, else the
+  payment). A failed attachment has its own toast naming the record to attach
+  it from.
+- **The account drawer's history** (`AccountHistory`,
+  `src/components/finance/account-history.tsx`, built by `loadAccountHistory`
+  in `src/lib/dal/finance-accounts.ts`, only for the open account) is newest
+  first. Each line shows what it was (Sale, Expense, Collection, Bill payment,
+  Transfer in/out, Owner's money, Count adjustment…), with whom, its reference
+  and fee, a link to its invoice or bill, the signed amount and the balance
+  after it, who recorded it and when (the payment's `createdBy`, `createdAt`),
+  and its documents (its own and its invoice's or bill's), each opening in a
+  new tab. Any line can take a new document (Attach), which goes on its
+  invoice or bill when it has one. Lines without a document say so. Void stays
+  on transfers and adjustments, for administrators.
+
 Built against the owner's *AEGIS Finance Reporting Checklist* (frozen
 specification, printed): a Monthly Income Report and a Financial Standing
 Report, kept separate, generated automatically after each month, archived with
@@ -1245,6 +1290,19 @@ has not been browser-tested; production needs a long-running server or a
 scheduled `npm run finance:close`.
 
 ## Ads: Today and Yesterday (19 Oct 2026)
+
+**13 Nov 2026:** the Ads screen opens on **Today** (`SCREEN_DEFAULT_RANGE` in
+`src/app/(app)/ads/page.tsx`; `DEFAULT_AD_RANGE` stays 30 days for the stored
+flat figures and the dashboard card). Ads to bookings and the Amount spent
+tile show centavos, as the AI does. The AI **Daily report** no longer types
+figures: it writes slots (`{spend}`, `{results}`, `{costPerResult}`,
+`{c:<campaign id>.costPerResult}`…) and the server fills them from the last
+sync every time it is shown (`fillSlots`, `parseReport` in
+`src/lib/ads-report-slots.ts`; a reply with a typed-out amount is refused), so
+its numbers always match the screen. The wording is still written at most
+hourly (prompt version 3); the footnote says the figures are live.
+`ads:check` covers it. The 30-day commentary is unchanged: it is keyed on its
+exact figures and rewritten when they change.
 
 The Ads range picker now offers **Today** and **Yesterday** before 7 days,
 30 days and Maximum. They are Meta's own `today` and `yesterday` presets:

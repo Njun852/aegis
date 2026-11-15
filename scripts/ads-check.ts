@@ -27,7 +27,25 @@ import { mapSnapshot, readOfDay, spendOfDay, type MetaSnapshot } from "@/lib/met
 import { dayFigures, windowForRange } from "@/lib/meta/ranges";
 import { buildFunnel, periodLabel } from "@/lib/ad-funnel";
 import { decryptSecret } from "@/lib/auth/secrets";
+import { fillSlots, parseReport } from "@/lib/ads-report-slots";
 import type { BusinessDocument } from "@/types";
+
+// ---- The daily report's figures are slots, filled live ------------------------
+
+{
+  const values = { spend: "₱ 917.91", costPerResult: "₱ 22.95", "c:1202.costPerResult": "₱ 19.05" };
+  assert.equal(
+    fillSlots("Spent {spend} at {costPerResult}; PMS SALES at {c:1202.costPerResult}, Aug 2026 run.", values),
+    "Spent ₱ 917.91 at ₱ 22.95; PMS SALES at ₱ 19.05, Aug 2026 run.",
+    "slots take today's figures; plain text and numbers in names are left alone",
+  );
+  assert.equal(fillSlots("Gone: {c:999.spend}.", values), "Gone: —.", "a campaign no longer there reads as a dash, not a stale figure");
+  assert.equal(parseReport({ report: "Spent {spend} so far." }), "Spent {spend} so far.");
+  assert.equal(parseReport({ report: "Spent ₱909 so far." }), null, "a report that types an amount out is refused");
+  assert.equal(parseReport({ report: "Spent ₱ 909.00 so far." }), null);
+  assert.equal(parseReport({ report: "The Aug 2026 campaign got {results} results." }), "The Aug 2026 campaign got {results} results.");
+  console.log("✓ daily report: figures are slots filled from the live figures; typed-out amounts refused");
+}
 
 // ---- Part one: the arithmetic ----------------------------------------------
 

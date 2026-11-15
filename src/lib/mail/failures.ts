@@ -17,7 +17,30 @@ export type MailFailure =
   | "unreachable"
   | "timeout"
   | "mailbox-missing"
+  /** Gmail refused a recipient address, so nothing was sent. */
+  | "rejected"
   | "error";
+
+/**
+ * The same cases, worded for a message that was being sent: the person needs
+ * to know it did not leave, and what to do about it.
+ */
+export function explainSendFailure(reason: MailFailure): string {
+  switch (reason) {
+    case "not-configured":
+      return "No mailbox is connected for this business, so nothing was sent.";
+    case "auth-failed":
+      return "Gmail rejected the sign-in, so nothing was sent. The app password may have been revoked or changed: reconnect the mailbox.";
+    case "unreachable":
+      return "Gmail could not be reached, so nothing was sent. Check the server's internet connection and try again.";
+    case "timeout":
+      return "Gmail did not answer in time. It may not have been sent: check Gmail's Sent folder before trying again.";
+    case "rejected":
+      return "Gmail refused one of the addresses, so nothing was sent. Check the To, Cc and Bcc addresses.";
+    default:
+      return "Gmail did not accept the message, so nothing was sent. Try again; if it keeps failing, the server log has Gmail's reason.";
+  }
+}
 
 export function explainMailFailure(reason: MailFailure): string {
   switch (reason) {
@@ -111,6 +134,11 @@ export function classifyMailError(error: unknown): MailFailure {
 
   if (text.includes("mailbox does not exist") || text.includes("nonexistent")) {
     return "mailbox-missing";
+  }
+
+  // nodemailer's "no recipients" / every recipient refused, or an SMTP 5xx on RCPT.
+  if (code === "EENVELOPE" || text.includes("recipient") || /\b55[0-3]\b.*rcpt/.test(text)) {
+    return "rejected";
   }
 
   return "error";

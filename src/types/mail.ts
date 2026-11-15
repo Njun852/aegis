@@ -76,6 +76,33 @@ export interface MailMessage {
    * looked at it (switched off, or it was not yet eligible to be judged).
    */
   autoReply: MailAutoReplyOutcome | null;
+  /** Files attached to the email. Null when not read yet (mail stored before this was recorded). */
+  attachments: MailAttachmentInfo[] | null;
+  /** Links in the email. Null when not read yet. */
+  links: MailLink[] | null;
+  /** Whether the mail server can still be asked for this message (it has a UID). */
+  canReadFromMailbox: boolean;
+}
+
+/**
+ * One file attached to an email, as recorded when the email is read. The file
+ * itself stays in Gmail and is fetched when someone opens it.
+ */
+export interface MailAttachmentInfo {
+  /** Its position among the email's attachments, which is how it is fetched. */
+  index: number;
+  filename: string;
+  contentType: string;
+  /** Bytes. */
+  size: number;
+  /** Shown in the body (a pasted photo, a signature logo) rather than attached as a file. */
+  inline: boolean;
+}
+
+/** One link in an email: where it really goes, and the words it was shown as. */
+export interface MailLink {
+  url: string;
+  text: string;
 }
 
 /** `sent` went out, `failed` was tried once and refused, `held` waits for a person. */
@@ -227,7 +254,24 @@ export interface MailMessageDocument {
    */
   uid?: number;
   uidValidity?: string;
+  /** Recorded when the email is read in; absent on mail stored before 13 Nov 2026 until it is opened. */
+  attachments?: MailAttachmentInfo[];
+  links?: MailLink[];
   receivedAt: Date;
+  createdAt: Date;
+}
+
+/**
+ * An attachment's bytes, kept after the first time it is fetched from Gmail so
+ * the next view does not open another mailbox connection. Expires after 30 days.
+ */
+export interface MailAttachmentCacheDocument {
+  businessId: string;
+  messageId: string;
+  index: number;
+  filename: string;
+  contentType: string;
+  content: Buffer;
   createdAt: Date;
 }
 

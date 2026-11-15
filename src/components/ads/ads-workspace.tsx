@@ -227,6 +227,13 @@ export function AdsWorkspace({
   // the 30-day commentary is only requested once someone opens it.
   const [insightView, setInsightView] = useState<"period" | "daily">(live ? "daily" : "period");
   const [daily, setDaily] = useState<DailyReportView | null>(cachedDaily);
+  // Each refresh of the page brings the report back with the latest synced
+  // figures in its slots; take it, unless a newer report is already showing.
+  const [seenDaily, setSeenDaily] = useState(cachedDaily);
+  if (cachedDaily !== seenDaily) {
+    setSeenDaily(cachedDaily);
+    if (cachedDaily && (!daily || cachedDaily.at >= daily.at)) setDaily(cachedDaily);
+  }
   const [dailyNote, setDailyNote] = useState<string | null>(null);
   const [dailyChecked, setDailyChecked] = useState(false);
   const dailyRequest = useRef<ReturnType<typeof generateAdsDailyReportAction> | null>(null);
@@ -297,7 +304,8 @@ export function AdsWorkspace({
   const stats = [
     {
       label: "Amount spent",
-      value: figure(money(totals.spendCents, false)),
+      // With centavos, so it reads the same as the AI insight and Ads to bookings.
+      value: figure(money(totals.spendCents)),
       icon: "wallet",
       bg: "var(--accent-soft)",
       fg: "var(--accent-primary)",
@@ -667,7 +675,7 @@ export function AdsWorkspace({
                   : (insightNote ?? (generating ? "Writing commentary on these figures…" : "Commentary appears once the account has campaign figures to analyse.")))
           }
           loading={generating}
-          footnote={insightView === "daily" && daily && shown ? dailyReportFootnote(daily.at) : undefined}
+          footnote={insightView === "daily" && daily && shown ? dailyReportFootnote(daily.at, { liveFigures: true }) : undefined}
           action={live ? undefined : "Rebalance budgets"}
         />
 

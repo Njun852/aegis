@@ -17,7 +17,7 @@ import { MoneyModal } from "./money-modal";
 import { PaymentDrawer } from "./payment-drawer";
 import { StatTiles, type StatTile } from "./stat-tiles";
 import { TransferModal } from "./transfer-modal";
-import type { CountRow, FeeRule, MoneyAccountSummary, PaymentDetail, RecordTrail } from "@/types";
+import type { AccountHistoryLine, CountRow, FeeRule, MoneyAccountSummary, PaymentDetail, RecordTrail } from "@/types";
 
 const GRID =
   "grid gap-3 items-center grid-cols-[minmax(150px,1.4fr)_minmax(90px,1fr)_20px] wide:grid-cols-[minmax(180px,1.4fr)_110px_minmax(0,1fr)_minmax(0,1.1fr)_130px_22px]";
@@ -29,13 +29,15 @@ export interface AccountsPanelProps {
   openRef: string | null;
   /** The payment open over the account, with its history and documents. */
   openPayment: { payment: PaymentDetail; trail: RecordTrail } | null;
+  /** The open account's history, newest first. Empty when no account is open. */
+  history: AccountHistoryLine[];
   isAdmin: boolean;
   /** Manila's today, as the server saw it. */
   today: string;
 }
 
 /** The Accounts tab: cash, bank, passbook and e-wallet balances, money in and out, transfers and counts. */
-export function AccountsPanel({ accounts, counts, feeRules, openRef, openPayment, isAdmin, today }: AccountsPanelProps) {
+export function AccountsPanel({ accounts, counts, feeRules, openRef, openPayment, history, isAdmin, today }: AccountsPanelProps) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
   const [moneyFor, setMoneyFor] = useState<string | null>(null);
@@ -218,6 +220,7 @@ export function AccountsPanel({ accounts, counts, feeRules, openRef, openPayment
         <AccountDrawer
           key={open.ref}
           account={open}
+          history={history}
           counts={counts.filter((count) => count.accountRef === open.ref)}
           isAdmin={isAdmin}
           today={today}

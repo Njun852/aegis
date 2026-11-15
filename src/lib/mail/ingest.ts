@@ -7,10 +7,101 @@ import {
   recordSyncFailure,
   recordSyncSuccess,
 } from "@/lib/dal/mailbox";
-import { upsertFetchedMessages } from "@/lib/dal/mail";
+import {
+  cacheAttachments,
+  findMessage,
+  readCachedAttachment,
+  readMessageLocation,
+  saveMessageExtras,
+  upsertFetchedMessages,
+} from "@/lib/dal/mail";
+import { verifySession } from "@/lib/dal/session";
+import { readLinks } from "@/lib/mail-links";
+import type { MailAttachmentInfo, MailLink } from "@/types";
+import type { ParsedMail } from "mailparser";
+import { readAttachmentInfo, readMailExtras } from "./extras";
 import { createImapSource } from "./imap-source";
 import type { MailFailure } from "./failures";
 import type { MailAttachment, SendOptions } from "./source";
+
+// ---- Attachments and links -----------------------------------------------------------
+
+function filesOf(parsed: ParsedMail) {
+  const info = readAttachmentInfo(parsed);
+  return (parsed.attachments ?? []).map((file, index) => ({
+    index,
+    filename: info[index].filename,
+    contentType: info[index].contentType,
+    content: file.content,
+  }));
+}
+
+/** One mailbox read per message at a time: a page of thumbnails opens once, not once per photo. */
+const inFlight = new Map<string, Promise<ParsedMail | MailFailure>>();
+
+async function readFromMailbox(messageId: string): Promise<ParsedMail | MailFailure> {
+  const { activeBusinessId } = await verifySession();
+  const key = `${activeBusinessId}:${messageId}`;
+  const running = inFlight.get(key);
+  if (running) return running;
+
+  const work = (async (): Promise<ParsedMail | MailFailure> => {
+    const location = await readMessageLocation(messageId);
+    if (!location) return "mailbox-missing";
+    const credentials = await readMailboxCredentials();
+    if (!credentials) return "not-configured";
+    const result = await createImapSource(credentials).fetchOne(location.uid, location.uidValidity);
+    if (!result.ok) {
+      console.error(`[mail] reading ${messageId} failed (${result.reason}): ${result.detail}`);
+      return result.reason;
+    }
+    // Every file is kept while the message is in hand, so the others open instantly.
+    await cacheAttachments(messageId, filesOf(result.data));
+    return result.data;
+  })();
+  inFlight.set(key, work);
+  try {
+    return await work;
+  } finally {
+    inFlight.delete(key);
+  }
+}
+
+/**
+ * The attachments and links of a message stored before they were recorded,
+ * read from Gmail once and then kept. Mail with no place on the server (seeded
+ * samples) gets its links from its text and no attachments.
+ */
+export async function loadMessageExtras(
+  messageId: string,
+): Promise<{ attachments: MailAttachmentInfo[]; links: MailLink[] } | MailFailure> {
+  const message = await findMessage(messageId);
+  if (!message) return "mailbox-missing";
+  if (message.attachments && message.links) return { attachments: message.attachments, links: message.links };
+
+  if (!message.canReadFromMailbox) {
+    const extras = { attachments: [], links: readLinks(undefined, message.body.join("\n\n")) };
+    await saveMessageExtras(messageId, extras);
+    return extras;
+  }
+  const parsed = await readFromMailbox(messageId);
+  if (typeof parsed === "string") return parsed;
+  const extras = readMailExtras(parsed, parsed.text ?? message.body.join("\n\n"));
+  await saveMessageExtras(messageId, extras);
+  return extras;
+}
+
+/** One attachment's bytes: from the cache when it has been opened before, else from Gmail. */
+export async function readMailAttachment(
+  messageId: string,
+  index: number,
+): Promise<{ filename: string; contentType: string; content: Buffer } | MailFailure | "missing"> {
+  const cached = await readCachedAttachment(messageId, index);
+  if (cached) return cached;
+  const parsed = await readFromMailbox(messageId);
+  if (typeof parsed === "string") return parsed;
+  return filesOf(parsed).find((file) => file.index === index) ?? "missing";
+}
 
 /**
  * Retrieval: the step that replaced the seeded sample inbox.
@@ -119,7 +210,14 @@ export async function sendMail(
   if (!credentials) return "not-configured";
 
   const result = await createImapSource(credentials).send(to, subject, body, attachments, options);
-  return result.ok ? null : result.reason;
+  if (!result.ok) {
+    // The screen gets the plain-language reason; the server log keeps what
+    // Gmail actually said, so a failed send can be diagnosed. Never the
+    // password, and never the message itself.
+    console.error(`[mail] send failed (${result.reason}): ${result.detail}`);
+    return result.reason;
+  }
+  return null;
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   autoReplySubject,
   autoReplyVerdict,
 } from "./auto-reply";
-import { explainMailFailure } from "./failures";
+import { explainSendFailure } from "./failures";
 import { sendMail } from "./ingest";
 import type { MailMessageDocument } from "@/types";
 
@@ -140,7 +140,7 @@ async function send(
   });
 
   if (failure) {
-    await finishAutoReply(doc.messageId, threadId, { sent: false, reason: explainMailFailure(failure) });
+    await finishAutoReply(doc.messageId, threadId, { sent: false, reason: explainSendFailure(failure) });
     return "failed";
   }
   await finishAutoReply(doc.messageId, threadId, { sent: true, body });

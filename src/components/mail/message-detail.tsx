@@ -18,6 +18,9 @@ import {
 } from "@/components/ui";
 import { useBusiness } from "@/components/business/business-provider";
 import { relativeAge } from "@/lib/freshness";
+import { splitLinks } from "@/lib/mail-links";
+import { readRecipients } from "@/lib/mail-recipients";
+import { MessageExtras } from "./message-extras";
 import { getPriorityStyle } from "@/lib/mail";
 import { replyPolicy } from "@/lib/mail-reply-policy";
 import type { MailMessage, SentReply } from "@/types";
@@ -74,6 +77,10 @@ export function MessageDetail({
   const writing = reveal !== null && !done;
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  /** Cc and Bcc on the reply. The reply itself always goes to the sender. */
+  const [copiesOpen, setCopiesOpen] = useState(false);
+  const [replyCc, setReplyCc] = useState("");
+  const [replyBcc, setReplyBcc] = useState("");
   // Seeded from the stored record, so replies survive a reload rather than
   // living only as long as the component that sent them.
   const [sentReplies, setSentReplies] = useState<SentReply[]>(
@@ -199,11 +206,24 @@ export function MessageDetail({
 
     const body = draft;
     const target = message.email || message.from;
-    if (!window.confirm(`Send this reply to ${target}?`)) return;
+    const copies = readRecipients({ to: "", cc: replyCc, bcc: replyBcc }, { requireTo: false });
+    if (!copies.ok) {
+      setCopiesOpen(true);
+      toast({ tone: "error", title: "Reply not sent", description: copies.error, key: "reply-send" });
+      return;
+    }
+    const { cc, bcc } = copies.recipients;
+    const extra = [cc.length ? `Cc: ${cc.join(", ")}` : "", bcc.length ? `Bcc: ${bcc.join(", ")}` : ""].filter(Boolean).join("\n");
+    if (!window.confirm(`Send this reply to ${target}?${extra ? `\n\n${extra}` : ""}`)) return;
 
     setSending(true);
     startSending(async () => {
-      const result = await sendReplyAction(message.id, body);
+      let result: Awaited<ReturnType<typeof sendReplyAction>>;
+      try {
+        result = await sendReplyAction(message.id, body, { cc: replyCc, bcc: replyBcc });
+      } catch {
+        result = { sent: false, error: "The send did not complete. Check Gmail's Sent folder before trying again." };
+      }
       setSending(false);
 
       if (!result.sent) {
@@ -223,10 +243,13 @@ export function MessageDetail({
       ]);
       setDraft("");
       setReveal(null);
+      setReplyCc("");
+      setReplyBcc("");
+      setCopiesOpen(false);
       toast({
         tone: "success",
         title: "Reply sent",
-        description: `Delivered to ${target}.`,
+        description: `Delivered to ${target}${cc.length + bcc.length > 0 ? `, with ${cc.length + bcc.length} copied in` : ""}.`,
         key: "reply-send",
       });
 
@@ -488,10 +511,27 @@ export function MessageDetail({
                 overflowWrap: "anywhere",
               }}
             >
-              {paragraph}
+              {splitLinks(paragraph).map((part, index) =>
+                part.url ? (
+                  <a
+                    key={index}
+                    href={part.url}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    style={{ color: "var(--text-accent)", textDecoration: "underline" }}
+                  >
+                    {part.text}
+                  </a>
+                ) : (
+                  part.text
+                ),
+              )}
             </p>
           ))}
         </div>
+
+        {/* The photos, files and links the email came with. */}
+        <MessageExtras message={message} />
 
         {sentReplies.map((reply) => (
           <div
@@ -751,6 +791,52 @@ export function MessageDetail({
             </div>
           </div>
         )}
+        {/* Who else gets the reply. Closed until wanted, like the composer. */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2" style={{ fontSize: "12px" }}>
+            <span style={{ color: "var(--text-muted)" }}>To</span>
+            <span style={{ flex: 1, minWidth: 0, color: "var(--text-primary)", overflowWrap: "anywhere" }}>
+              {message.email || message.from}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCopiesOpen((open) => !open)}
+              aria-expanded={copiesOpen}
+              style={{ border: 0, background: "none", padding: 0, font: "inherit", fontSize: "12px", fontWeight: 600, color: "var(--accent-primary)", cursor: "pointer" }}
+            >
+              {copiesOpen ? "Hide Cc / Bcc" : replyCc.trim() || replyBcc.trim() ? "Cc / Bcc (added)" : "Cc / Bcc"}
+            </button>
+          </div>
+          {copiesOpen &&
+            (
+              [
+                ["Cc", replyCc, setReplyCc, "Copied in; everyone sees them"],
+                ["Bcc", replyBcc, setReplyBcc, "Copied in; hidden from the others"],
+              ] as const
+            ).map(([label, value, set, placeholder]) => (
+              <label key={label} className="flex items-center gap-2" style={{ fontSize: "12px" }}>
+                <span style={{ width: 28, color: "var(--text-muted)" }}>{label}</span>
+                <input
+                  value={value}
+                  onChange={(event) => set(event.target.value)}
+                  placeholder={placeholder}
+                  aria-label={label}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    font: "inherit",
+                    fontSize: "12.5px",
+                    color: "var(--text-primary)",
+                    background: "var(--surface-card)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "6px 10px",
+                    outline: "none",
+                  }}
+                />
+              </label>
+            ))}
+        </div>
         {/*
           One box. While a draft is filling it the textarea shows the reveal and
           is read-only — typing into text that is still arriving would fight the

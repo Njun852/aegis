@@ -6,10 +6,14 @@ import { NO_DRAFT_CATEGORIES } from "@/lib/mail-reply-policy";
 import { formatDay, formatStamp } from "@/lib/format";
 import type { FetchedMessage } from "@/lib/mail/source";
 import { isMailboxConnected } from "@/lib/integrations";
+import { getDb } from "./db";
 import { readActiveMailSync } from "./mailbox";
 import { verifySession } from "./session";
 import type {
+  MailAttachmentCacheDocument,
+  MailAttachmentInfo,
   MailFreshnessState,
+  MailLink,
   MailMessage,
   MailMessageDocument,
   MailTriageResult,
@@ -59,7 +63,74 @@ function toMessage(doc: MailMessageDocument): MailMessage {
     autoReply: doc.autoReply
       ? { status: doc.autoReply.status, reason: doc.autoReply.reason, at: doc.autoReply.at.toISOString() }
       : null,
+    attachments: doc.attachments ?? null,
+    links: doc.links ?? null,
+    canReadFromMailbox: Boolean(doc.uid && doc.uidValidity),
   };
+}
+
+/** Records the attachments and links of a message read in before they were. */
+export async function saveMessageExtras(
+  messageId: string,
+  extras: { attachments: MailAttachmentInfo[]; links: MailLink[] },
+): Promise<void> {
+  const collection = await messages();
+  await collection.updateOne({ messageId }, { $set: { attachments: extras.attachments, links: extras.links } });
+}
+
+// ---- Attachment cache ------------------------------------------------------------
+
+/** Files bigger than this are passed through from Gmail each time rather than kept. */
+export const MAX_CACHED_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const CACHE_DAYS = 30;
+let cacheIndexed = false;
+
+async function attachmentCache() {
+  const collection = await tenantScope<MailAttachmentCacheDocument>("mailAttachmentCache");
+  if (!cacheIndexed) {
+    // Created once per server process; repeating it is a no-op on the database.
+    const db = await getDb();
+    await db.collection("mailAttachmentCache").createIndex({ businessId: 1, messageId: 1, index: 1 }, { unique: true });
+    await db.collection("mailAttachmentCache").createIndex({ createdAt: 1 }, { expireAfterSeconds: CACHE_DAYS * 86_400 });
+    cacheIndexed = true;
+  }
+  return collection;
+}
+
+export async function readCachedAttachment(
+  messageId: string,
+  index: number,
+): Promise<{ filename: string; contentType: string; content: Buffer } | null> {
+  const collection = await attachmentCache();
+  const doc = await collection.findOne({ messageId, index });
+  if (!doc) return null;
+  // Stored as BSON Binary; hand back a plain Buffer.
+  const content = doc.content as unknown as { buffer?: Uint8Array } | Buffer;
+  return {
+    filename: doc.filename,
+    contentType: doc.contentType,
+    content: Buffer.isBuffer(content) ? content : Buffer.from((content as { buffer: Uint8Array }).buffer),
+  };
+}
+
+/** Keeps a message's attachments, each up to the size limit. Safe to repeat. */
+export async function cacheAttachments(
+  messageId: string,
+  files: { index: number; filename: string; contentType: string; content: Buffer }[],
+): Promise<void> {
+  const collection = await attachmentCache();
+  const now = new Date();
+  await Promise.all(
+    files
+      .filter((file) => file.content.length <= MAX_CACHED_ATTACHMENT_BYTES)
+      .map((file) =>
+        collection.updateOne(
+          { messageId, index: file.index },
+          { $setOnInsert: { messageId, index: file.index, filename: file.filename, contentType: file.contentType, content: file.content, createdAt: now } },
+          { upsert: true },
+        ),
+      ),
+  );
 }
 
 /**
@@ -127,6 +198,8 @@ export async function upsertFetchedMessages(
           uid: message.uid,
           uidValidity: message.uidValidity,
           signals: message.signals,
+          attachments: message.attachments,
+          links: message.links,
           time: formatStamp(message.receivedAt),
           date: formatDay(message.receivedAt),
         },

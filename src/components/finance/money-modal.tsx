@@ -1,19 +1,23 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { recordMoneyAction } from "@/app/actions/finance";
+import { useRef, useState, useTransition } from "react";
+import { attachFileAction, recordMoneyAction } from "@/app/actions/finance";
 import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
-import { Button } from "@/components/ui";
+import { Button, Icon } from "@/components/ui";
 import { EXPENSE_CATEGORIES, MONEY_NATURES, moneyEntryProblem } from "@/lib/finance";
 import { monthLabel } from "@/lib/finance-periods";
 import { formatMoney } from "@/lib/format";
 import { parseAmount } from "@/lib/quotations";
 import { DuplicateNotice } from "./duplicate-notice";
 import { useFee } from "./fee-fields";
-import { ScanBox, scanAmount, useAttachScan, type Scan } from "./scan-fill";
+import { prepareUpload } from "./record-trail";
+import { ScanBox, scanAmount, useAttachScan, type Scan, type ScannedFile } from "./scan-fill";
 import type { DuplicateMatch, ExpenseCategory, FeeRule, MoneyAccountSummary, MoneyNature } from "@/types";
+
+/** Documents picked in the form; more can be attached from the transaction afterwards. */
+const MAX_DOCUMENTS = 6;
 
 /**
  * Money In or Money Out entered on its own: a walk-in sale, an expense paid on
@@ -51,7 +55,51 @@ export function MoneyModal({
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<Scan | null>(null);
   const attachScan = useAttachScan();
+  /** Receipts, deposit slips, screenshots of a transfer: attached to the transaction as it is saved. */
+  const [documents, setDocuments] = useState<ScannedFile[]>([]);
+  const [reading, setReading] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
+
+  const pickDocuments = async (files: FileList | null) => {
+    const list = files ? [...files] : [];
+    if (picker.current) picker.current.value = "";
+    if (list.length === 0) return;
+    const room = MAX_DOCUMENTS - documents.length;
+    if (room <= 0) {
+      setError(`Attach up to ${MAX_DOCUMENTS} documents here; add more from the transaction once it is saved.`);
+      return;
+    }
+    setReading(true);
+    setError(null);
+    try {
+      const prepared: ScannedFile[] = [];
+      for (const file of list.slice(0, room)) {
+        prepared.push({ name: file.name, dataUrl: await prepareUpload(file) });
+      }
+      setDocuments((current) => [...current, ...prepared]);
+      if (list.length > room) setError(`Only the first ${room} were added: up to ${MAX_DOCUMENTS} documents here.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That file could not be read.");
+    } finally {
+      setReading(false);
+    }
+  };
+
+  /** Attaches the picked documents to the saved record. Returns the sentence the success toast adds. */
+  const attachDocuments = async (recordRef: string): Promise<string> => {
+    let attached = 0;
+    for (const doc of documents) {
+      try {
+        const result = await attachFileAction(recordRef, doc.name, doc.dataUrl);
+        if (result.ok) attached += 1;
+        else toast({ tone: "error", title: `${doc.name} not attached`, description: `${result.error} Attach it from ${recordRef}.`, key: `money-doc-${doc.name}` });
+      } catch {
+        toast({ tone: "error", title: `${doc.name} not attached`, description: `Attach it from ${recordRef}.`, key: `money-doc-${doc.name}` });
+      }
+    }
+    return attached === 0 ? "" : ` ${attached} ${attached === 1 ? "document" : "documents"} attached.`;
+  };
 
   const entry = MONEY_NATURES.find((item) => item.key === nature)!;
   const amountCents = parseAmount(amount) || 0;
@@ -107,7 +155,7 @@ export function MoneyModal({
         toast({ tone: "error", title: `Money ${direction} not recorded`, description: result.error, key: "finance-money" });
         return;
       }
-      const attached = await attachScan(result.ref, scan?.file);
+      const attached = (await attachScan(result.ref, scan?.file)) + (await attachDocuments(result.ref));
       const moved = direction === "in" ? amountCents - (fee.fee?.cents ?? 0) : amountCents + (fee.fee?.cents ?? 0);
       toast({
         tone: "success",
@@ -244,9 +292,52 @@ export function MoneyModal({
         <textarea rows={2} maxLength={600} style={{ ...INPUT, resize: "vertical" }} value={description} onChange={(event) => setDescription(event.target.value)} />
       </Field>
       {fee.fields}
-      <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-        Attach the receipt or deposit slip from the record once it is saved.
-      </span>
+      <Field
+        label="Attach documents"
+        hint="The receipt, official receipt, deposit slip or a screenshot of the transfer: a photo or a PDF. Saved with the transaction and shown in the account history."
+      >
+        <div className="flex flex-col gap-2">
+          {scan && (
+            <span className="flex items-center gap-2" style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+              <Icon name="sparkles" size={14} />
+              {scan.file.name} <span style={{ color: "var(--text-muted)" }}>(the scan, attached too)</span>
+            </span>
+          )}
+          {documents.map((doc, index) => (
+            <span key={`${doc.name}-${index}`} className="flex items-center gap-2" style={{ fontSize: "12px" }}>
+              <Icon name={doc.dataUrl.startsWith("data:application/pdf") ? "file-text" : "image"} size={14} />
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() => setDocuments((current) => current.filter((_, at) => at !== index))}
+              >
+                Remove
+              </Button>
+            </span>
+          ))}
+          <input
+            ref={picker}
+            type="file"
+            accept="image/*,application/pdf"
+            multiple
+            hidden
+            onChange={(event) => void pickDocuments(event.target.files)}
+          />
+          <div>
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="paperclip"
+              disabled={pending || reading || documents.length >= MAX_DOCUMENTS}
+              onClick={() => picker.current?.click()}
+            >
+              {reading ? "Reading…" : documents.length > 0 ? "Add another" : "Attach photo or PDF"}
+            </Button>
+          </div>
+        </div>
+      </Field>
     </Modal>
   );
 }

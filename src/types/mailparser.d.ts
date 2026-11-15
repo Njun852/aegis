@@ -28,6 +28,20 @@ declare module "mailparser" {
     headers: Map<string, unknown>;
     inReplyTo?: string;
     references?: string | string[];
+    /** Every attached or embedded file, with its bytes. */
+    attachments?: Attachment[];
+  }
+
+  export interface Attachment {
+    filename?: string;
+    contentType: string;
+    contentDisposition?: string;
+    /** Content-ID, for an image the HTML body points at. */
+    cid?: string;
+    /** True when the file belongs to the body (multipart/related) rather than attached. */
+    related?: boolean;
+    size?: number;
+    content: Buffer;
   }
 
   export function simpleParser(

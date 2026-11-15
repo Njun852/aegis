@@ -19,7 +19,7 @@ import { isModuleEnabled } from "@/lib/businesses";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { verifySession } from "@/lib/dal/session";
 import { financeActor, listEventsFor } from "@/lib/dal/finance";
-import { listAccountSummaries, listCounts } from "@/lib/dal/finance-accounts";
+import { listAccountSummaries, listCounts, loadAccountHistory } from "@/lib/dal/finance-accounts";
 import { listAttachmentsFor } from "@/lib/dal/finance-attachments";
 import { listFeeRules } from "@/lib/dal/finance-fees";
 import { countIntakeWaiting, intakeAllowance, listIntake } from "@/lib/dal/finance-intake";
@@ -128,7 +128,13 @@ export default async function FinancePage(props: PageProps<"/finance">) {
     panel = <ReportsPanel archive={archive} openReport={openReport} openSummary={openSummary} aiReady={isAiConfigured()} />;
   } else if (tab === "accounts") {
     const paymentRef = typeof params.payment === "string" ? params.payment : null;
-    const [feeRules, payment] = await Promise.all([listFeeRules(), paymentRef ? findPaymentDetail(paymentRef) : Promise.resolve(null)]);
+    const openRef = typeof params.account === "string" ? params.account : null;
+    const [feeRules, payment, history] = await Promise.all([
+      listFeeRules(),
+      paymentRef ? findPaymentDetail(paymentRef) : Promise.resolve(null),
+      // Only the open account's history is built: it reads its documents too.
+      openRef ? loadAccountHistory(openRef, today) : Promise.resolve([]),
+    ]);
     const openPayment = payment ? { payment, trail: await loadTrail({ ref: payment.ref, payments: [] }) } : null;
     panel = (
       <AccountsPanel
@@ -136,7 +142,8 @@ export default async function FinancePage(props: PageProps<"/finance">) {
         counts={counts}
         feeRules={feeRules}
         openPayment={openPayment}
-        openRef={typeof params.account === "string" ? params.account : null}
+        history={history}
+        openRef={openRef}
         isAdmin={isAdmin}
         today={today}
       />

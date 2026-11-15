@@ -11,6 +11,7 @@ import {
 } from "@/lib/ads";
 import { manilaDateKey } from "@/lib/booking-slots";
 import { formatMoneyIn } from "@/lib/format";
+import { fillSlots, parseReport } from "@/lib/ads-report-slots";
 import { AI_MODELS } from "./client";
 import { cacheKeyFor, generate } from "./generate";
 import { hourlyReport, latestReport, type TimedReport } from "./hourly-report";
@@ -90,6 +91,13 @@ export interface AdsInsightFacts {
  * the commentary has always covered; with "today", the daily report's.
  */
 export async function buildAdsInsightFacts(range?: Extract<AdRange, "today">): Promise<AdsInsightFacts | null> {
+  return (await readInsightFacts(range))?.facts ?? null;
+}
+
+/** The facts, and each campaign's id in the same order, read together. */
+async function readInsightFacts(
+  range?: Extract<AdRange, "today">,
+): Promise<{ facts: AdsInsightFacts; campaignIds: string[] } | null> {
   const [all, meta] = await Promise.all([range ? listAdRows(range) : listAdRows(), readActiveMetaAdsStatus()]);
   const campaigns = rowsAtLevel(all, "campaigns");
   if (campaigns.length === 0) return null;
@@ -104,13 +112,13 @@ export async function buildAdsInsightFacts(range?: Extract<AdRange, "today">): P
   );
   const mixed = live && !totals.resultLabel && totals.spendCents > 0;
 
-  return {
+  const facts: AdsInsightFacts = {
     currency,
     source: live ? "live Meta account" : "sample data",
     // listAdRows() without a range reads the default period.
     period: !live ? "sample period" : range === "today" ? "today so far" : "last 30 days",
     account: {
-      spend: formatMoney(totals.spendCents, false),
+      spend: formatMoney(totals.spendCents),
       results: mixed ? "mixed" : totals.results,
       costPerResult: totals.costPerResultCents ? formatMoney(totals.costPerResultCents) : "n/a",
       roas: totals.roas.toFixed(2),
@@ -120,7 +128,7 @@ export async function buildAdsInsightFacts(range?: Extract<AdRange, "today">): P
       name: row.name,
       state: displayState(row),
       objective: row.objective,
-      spend: formatMoney(row.spendCents, false),
+      spend: formatMoney(row.spendCents),
       results: row.results,
       resultLabel: row.resultLabel,
       costPerResult: costPerResultCents(row) ? formatMoney(costPerResultCents(row)) : "n/a",
@@ -129,6 +137,7 @@ export async function buildAdsInsightFacts(range?: Extract<AdRange, "today">): P
         row.budgetType === "Daily" ? formatMoney(row.budgetCents, false) : null,
     })),
   };
+  return { facts, campaignIds: campaigns.map((row) => row.id) };
 }
 
 function parseInsight(raw: unknown): string | null {
@@ -175,7 +184,9 @@ export async function generateAdsInsight(): Promise<AiResult<string>> {
  * figures would describe a day that did not happen.
  */
 // 2: today so far, refreshed hourly, rather than yesterday once a day.
-const DAILY_PROMPT_VERSION = 2;
+// 3: figures written as slots and filled from the live figures on every view,
+//    so the report's numbers always match the screen beside it.
+const DAILY_PROMPT_VERSION = 3;
 const DAILY_KIND = "ads-daily" as const;
 
 const DAILY_SCHEMA = {
@@ -196,36 +207,94 @@ const DAILY_INSTRUCTIONS = [
   "Say what the account has spent today and what it has got for it, which campaign is doing best and which",
   "worst by cost per result, and one thing worth checking before the day ends, such as a campaign spending",
   "with no results. The day is not over, so never treat a figure as final.",
-  "Three sentences. Quote the figures you are reasoning from. Never invent a number that is not in the input.",
-  "Amounts are in the currency given; write them the way they appear in the input.",
+  "Three sentences. Quote the figures you are reasoning from, but never write a figure yourself:",
+  "every figure in the input sits beside its slot, and you write the slot instead, exactly as given,",
+  "in curly braces, for example {spend} or {c:123.costPerResult}. The screen puts in the live figure,",
+  "so a figure you type out would soon be wrong. Campaign names are written out as they are.",
+  "Never invent a figure or a slot that is not in the input.",
   "If the account's results are marked mixed, compare campaigns by their own cost per result",
   "and do not add up results of different kinds. If nothing has run yet today, say so in one sentence.",
 ].join(" ");
+
+/**
+ * Today's figures for the daily report: what the model reads (each figure with
+ * the slot it must write instead), and the live value of every slot, which is
+ * what fills a stored report each time it is shown.
+ */
+interface DailyFigures {
+  facts: AdsInsightFacts;
+  /** The model's input: the facts, each figure paired with its slot. */
+  input: unknown;
+  /** Slot name to its figure now, as the screen prints it. */
+  values: Record<string, string>;
+}
+
+async function buildDailyFigures(): Promise<DailyFigures | null> {
+  const read = await readInsightFacts("today");
+  if (!read) return null;
+  const { facts, campaignIds } = read;
+
+  const values: Record<string, string> = {
+    spend: facts.account.spend,
+    results: String(facts.account.results),
+    costPerResult: facts.account.costPerResult,
+    dailyBudget: facts.account.dailyBudget,
+  };
+  const slotted = facts.campaigns.map((campaign, index) => {
+    const id = campaignIds[index] ?? String(index);
+    const slot = (field: string) => `{c:${id}.${field}}`;
+    values[`c:${id}.spend`] = campaign.spend;
+    values[`c:${id}.results`] = String(campaign.results);
+    values[`c:${id}.costPerResult`] = campaign.costPerResult;
+    if (campaign.dailyBudget) values[`c:${id}.dailyBudget`] = campaign.dailyBudget;
+    return {
+      ...campaign,
+      spend: { value: campaign.spend, slot: slot("spend") },
+      results: { value: campaign.results, slot: slot("results") },
+      costPerResult: { value: campaign.costPerResult, slot: slot("costPerResult") },
+      dailyBudget: campaign.dailyBudget ? { value: campaign.dailyBudget, slot: slot("dailyBudget") } : null,
+    };
+  });
+
+  return {
+    facts,
+    input: {
+      ...facts,
+      account: {
+        ...facts.account,
+        spend: { value: facts.account.spend, slot: "{spend}" },
+        results: { value: facts.account.results, slot: "{results}" },
+        costPerResult: { value: facts.account.costPerResult, slot: "{costPerResult}" },
+        dailyBudget: { value: facts.account.dailyBudget, slot: "{dailyBudget}" },
+      },
+      campaigns: slotted,
+    },
+    values,
+  };
+}
 
 function timeLabel(now: Date): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" }).format(now);
 }
 
-function parseReport(raw: unknown): string | null {
-  const report = (raw as { report?: unknown })?.report;
-  if (typeof report !== "string") return null;
-  const trimmed = report.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-/** The latest report written today, or null. Cache read only — safe on a render path. */
+/** The latest report written today, with today's figures put in. Cache read only — safe on a render path. */
 export async function cachedAdsDailyReport(now = new Date()): Promise<TimedReport | null> {
-  return latestReport(DAILY_KIND, manilaDateKey(now), DAILY_PROMPT_VERSION);
+  const latest = await latestReport(DAILY_KIND, manilaDateKey(now), DAILY_PROMPT_VERSION);
+  if (!latest) return null;
+  const figures = await buildDailyFigures();
+  return { ...latest, text: figures ? fillSlots(latest.text, figures.values) : latest.text };
 }
 
 /** Null when there is nothing to report on: no connected account, or no campaigns today. */
 export async function generateAdsDailyReport(now = new Date()): Promise<AiResult<TimedReport> | null> {
   const meta = await readActiveMetaAdsStatus();
   if (!meta.connected) return null;
-  const facts = await buildAdsInsightFacts("today");
-  if (!facts) return null;
+  const figures = await buildDailyFigures();
+  if (!figures) return null;
 
-  return hourlyReport(DAILY_KIND, manilaDateKey(now), DAILY_PROMPT_VERSION, facts, (cacheKey) =>
+  // Keyed on the figures, so the hourly rule still decides when the wording is
+  // rewritten; the numbers in it are filled from `figures.values` every time.
+  const result = await hourlyReport(DAILY_KIND, manilaDateKey(now), DAILY_PROMPT_VERSION, figures.facts, (cacheKey) =>
     generate<string>({
       kind: DAILY_KIND,
       cacheKey,
@@ -233,7 +302,7 @@ export async function generateAdsDailyReport(now = new Date()): Promise<AiResult
       model: AI_MODELS.reasoning,
       instructions: DAILY_INSTRUCTIONS,
       // The time is for the model only; it is not part of the key.
-      input: JSON.stringify({ ...facts, asOf: timeLabel(now) }),
+      input: JSON.stringify({ ...(figures.input as object), asOf: timeLabel(now) }),
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       schemaName: "ads_daily_report",
       schema: DAILY_SCHEMA as unknown as Record<string, unknown>,
@@ -241,4 +310,5 @@ export async function generateAdsDailyReport(now = new Date()): Promise<AiResult
     }),
     now,
   );
+  return result.ok ? { ...result, data: { ...result.data, text: fillSlots(result.data.text, figures.values) } } : result;
 }

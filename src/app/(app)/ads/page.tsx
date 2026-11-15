@@ -10,7 +10,7 @@ import { loadCampaignFunnel } from "@/lib/dal/ad-funnel";
 import { listAdRows } from "@/lib/dal/ads";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { AD_FALLBACK_INSIGHT } from "@/lib/data/ads";
-import { AD_RANGE_KEYS, DEFAULT_AD_RANGE } from "@/lib/meta/mapping";
+import { AD_RANGE_KEYS } from "@/lib/meta/mapping";
 import { dayFigures, isDayRange } from "@/lib/meta/ranges";
 import type { AdRange } from "@/types";
 
@@ -20,8 +20,15 @@ export const metadata: Metadata = {
     "Meta campaign performance across campaigns, ad sets and ads, with AI commentary on where the budget is working.",
 };
 
+/**
+ * The screen opens on Today (owner's request, 13 Nov 2026). Only the screen:
+ * `DEFAULT_AD_RANGE` stays the last 30 days, because the stored flat figures
+ * and the dashboard's ads card are read over that window.
+ */
+const SCREEN_DEFAULT_RANGE: AdRange = "today";
+
 function parseRange(value: string | string[] | undefined): AdRange {
-  return AD_RANGE_KEYS.find((key) => key === value) ?? DEFAULT_AD_RANGE;
+  return AD_RANGE_KEYS.find((key) => key === value) ?? SCREEN_DEFAULT_RANGE;
 }
 
 export default async function AdsPage(props: PageProps<"/ads">) {

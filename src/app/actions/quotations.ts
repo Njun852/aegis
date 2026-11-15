@@ -39,7 +39,7 @@ import {
 } from "@/lib/dal/quotations";
 import { InputError } from "@/lib/dal/refs";
 import { hasCapability } from "@/lib/dal/session";
-import { explainMailFailure } from "@/lib/mail/failures";
+import { explainSendFailure } from "@/lib/mail/failures";
 import { sendMail } from "@/lib/mail/ingest";
 import { quotePdfFilename, renderQuotePdf } from "@/lib/quote-pdf";
 import { describeRead, draftLinesFromRead } from "@/lib/quote-photo";
@@ -375,7 +375,7 @@ export async function sendQuotationAction(
         contentType: "application/pdf",
       },
     ]);
-    if (failure) throw new InputError(explainMailFailure(failure));
+    if (failure) throw new InputError(explainSendFailure(failure));
 
     // Recorded only once the mail server accepted it.
     await markQuotationSent(ref, to, "email");

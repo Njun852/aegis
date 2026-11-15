@@ -1,4 +1,5 @@
-import type { MailSignals } from "@/types";
+import type { ParsedMail } from "mailparser";
+import type { MailAttachmentInfo, MailLink, MailSignals } from "@/types";
 import type { MailFailure } from "./failures";
 
 /**
@@ -34,6 +35,9 @@ export interface FetchedMessage {
   uidValidity: string;
   /** Whether a machine sent it, and which conversation it belongs to. */
   signals: MailSignals;
+  /** Its attached files (described, not stored) and its links. */
+  attachments: MailAttachmentInfo[];
+  links: MailLink[];
 }
 
 /**
@@ -87,6 +91,12 @@ export interface MailSource {
     attachments?: MailAttachment[],
     options?: SendOptions,
   ): Promise<MailOutcome<true>>;
+  /**
+   * One message read in full by its UID: for the attachments and links of mail
+   * stored before they were recorded, and for an attachment's bytes. Reads
+   * only; never changes a flag. `uidValidity` is checked as `setSeen` does.
+   */
+  fetchOne(uid: number, uidValidity: string): Promise<MailOutcome<ParsedMail>>;
 }
 
 /** Threading and the marks an automatic reply carries. */
@@ -100,6 +110,10 @@ export interface SendOptions {
    * auto-responders cannot answer each other for ever.
    */
   automatic?: boolean;
+  /** Copied in, visible to every recipient. Already checked addresses. */
+  cc?: string[];
+  /** Copied in, hidden from everyone else. Already checked addresses. */
+  bcc?: string[];
 }
 
 /** A file sent with a message, built on the server: a quotation PDF. */

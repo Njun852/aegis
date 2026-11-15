@@ -14,16 +14,20 @@ import {
   figureOf,
   isAmount,
   lowestBalance,
+  moneyNatureLabel,
+  netMovementCents,
   reconcile,
   transferProblem,
 } from "@/lib/finance";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
-import { logFinanceEvent, moneyAccounts, payments, reconciliations, recordAudit } from "./finance";
+import { bills, invoices, logFinanceEvent, moneyAccounts, payments, reconciliations, recordAudit } from "./finance";
+import { listAttachmentsFor } from "./finance-attachments";
 import { toAccount } from "./finance-books";
 import { checkFee } from "./finance-fees";
 import { InputError, insertWithRef, isDuplicateKey } from "./refs";
 import type {
+  AccountHistoryLine,
   CountRow,
   DateKey,
   FinanceActor,
@@ -123,6 +127,115 @@ export async function listAccountSummaries(asOf: DateKey = todayKey()): Promise<
       };
     })
     .sort((a, b) => TYPE_ORDER[a.type] - TYPE_ORDER[b.type] || Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+}
+
+/**
+ * One account's history, newest first, for its drawer: every line of its
+ * balance, described in full, with the balance after it, who recorded it and
+ * the documents behind it. A sale or expense entered as Money In or Out keeps
+ * its documents on the invoice or bill it made, so those are shown here too.
+ */
+export async function loadAccountHistory(accountRef: string, asOf: DateKey = todayKey()): Promise<AccountHistoryLine[]> {
+  const { accounts, accountDocs, recorded } = await readAll();
+  const account = accounts.find((entry) => entry.ref === accountRef);
+  const accountDoc = accountDocs.find((entry) => entry.ref === accountRef);
+  if (!account || !accountDoc || account.openingDate > asOf) return [];
+
+  const mine = recorded
+    .filter((payment) => payment.paidOn <= asOf)
+    .filter((payment) => payment.accountRef === accountRef || (payment.kind === "transfer" && payment.toAccountRef === accountRef))
+    // Same-day lines in the order they were recorded, so the running balance reads true.
+    .sort((a, b) => (a.paidOn < b.paidOn ? -1 : a.paidOn > b.paidOn ? 1 : a.createdAt.getTime() - b.createdAt.getTime()));
+
+  const invoiceRefs = [...new Set(mine.map((payment) => payment.invoiceRef).filter((ref): ref is string => Boolean(ref)))];
+  const billRefs = [...new Set(mine.map((payment) => payment.billRef).filter((ref): ref is string => Boolean(ref)))];
+  const [invoiceDocs, billDocs, files] = await Promise.all([
+    invoiceRefs.length ? (await invoices()).find({ ref: { $in: invoiceRefs } }).toArray() : Promise.resolve([]),
+    billRefs.length ? (await bills()).find({ ref: { $in: billRefs } }).toArray() : Promise.resolve([]),
+    listAttachmentsFor([accountRef, ...mine.map((payment) => payment.ref), ...invoiceRefs, ...billRefs]),
+  ]);
+  const filesFor = (...refs: (string | null | undefined)[]) => files.filter((file) => refs.includes(file.recordRef));
+  const nameOf = (ref: string | undefined) => accounts.find((entry) => entry.ref === ref)?.name ?? ref ?? "";
+
+  let balance = account.openingBalanceCents;
+  const lines: AccountHistoryLine[] = [
+    {
+      ref: account.ref,
+      kind: "opening",
+      dateKey: account.openingDate,
+      title: "Opening balance",
+      party: "",
+      reference: "",
+      note: "",
+      linkedRef: null,
+      amountCents: account.openingBalanceCents,
+      feeCents: 0,
+      balanceCents: balance,
+      recordedBy: accountDoc.createdBy ?? "",
+      recordedAt: accountDoc.createdAt.toISOString(),
+      attachments: filesFor(account.ref),
+      voidable: false,
+    },
+  ];
+
+  for (const payment of mine) {
+    const arrives = payment.kind === "transfer" && payment.toAccountRef === accountRef;
+    const feeCents = !arrives && payment.fee && payment.fee.cents > 0 ? payment.fee.cents : 0;
+    const amountCents = arrives ? payment.amountCents : netMovementCents(payment);
+    balance += amountCents;
+
+    const invoice = payment.invoiceRef ? invoiceDocs.find((doc) => doc.ref === payment.invoiceRef) : undefined;
+    const bill = payment.billRef ? billDocs.find((doc) => doc.ref === payment.billRef) : undefined;
+    let kind: AccountHistoryLine["kind"] = payment.direction === "in" ? "in" : "out";
+    let title: string;
+    let party = "";
+    let reference = "";
+    if (payment.kind === "transfer") {
+      kind = arrives ? "transfer-in" : "transfer-out";
+      title = arrives ? "Transfer in" : "Transfer out";
+      party = arrives ? `From ${nameOf(payment.accountRef)}` : `To ${nameOf(payment.toAccountRef)}`;
+    } else if (payment.reconciliationRef) {
+      kind = "adjustment";
+      title = "Count adjustment";
+      reference = `Count ${payment.reconciliationRef}`;
+    } else if (payment.kind === "collection") {
+      // A sale entered as Money In is an invoice collected the same day.
+      title = invoice && invoice.invoiceDate === payment.paidOn && invoice.dueDate === payment.paidOn ? "Sale" : "Collection";
+      party = invoice?.customerName ?? "";
+      reference = invoice ? `Invoice ${invoice.number}` : "";
+    } else if (payment.kind === "bill") {
+      title = bill && bill.billDate === payment.paidOn && bill.dueDate === payment.paidOn ? "Expense" : "Bill payment";
+      party = bill?.payee ?? "";
+      reference = bill?.reference ? `Ref. ${bill.reference}` : "";
+    } else {
+      title = payment.nature ? moneyNatureLabel(payment.nature) : payment.direction === "in" ? "Money in" : "Money out";
+      party = payment.party ?? "";
+      reference = payment.reference ? `Ref. ${payment.reference}` : "";
+    }
+
+    lines.push({
+      ref: payment.ref,
+      kind,
+      dateKey: payment.paidOn,
+      title,
+      party,
+      reference,
+      // A bill payment's note is often just the payee; said once is enough.
+      note:
+        payment.reconciliationRef || [party, reference, bill?.payee, invoice?.customerName].some((said) => said && said.trim() === payment.note.trim())
+          ? ""
+          : payment.note,
+      linkedRef: payment.invoiceRef ?? payment.billRef ?? null,
+      amountCents,
+      feeCents,
+      balanceCents: balance,
+      recordedBy: payment.createdBy,
+      recordedAt: payment.createdAt.toISOString(),
+      attachments: filesFor(payment.ref, payment.invoiceRef, payment.billRef),
+      voidable: payment.kind === "transfer" || payment.kind === "other",
+    });
+  }
+  return lines.reverse();
 }
 
 /** Every count on record, newest first, with what the book says for that day now. */

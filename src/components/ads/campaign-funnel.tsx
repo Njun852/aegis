@@ -19,7 +19,9 @@ const GRID =
  */
 export function CampaignFunnelPanel({ funnel, currency }: { funnel: CampaignFunnel; currency: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  const money = (cents: number | null) => (cents === null ? "—" : formatMoneyIn(cents, currency, false));
+  // With centavos, like the AI insight and Meta: a rounded figure here would
+  // not match the same cost written there (₱22.72, not ₱23).
+  const money = (cents: number | null) => (cents === null ? "—" : formatMoneyIn(cents, currency, true));
   // Meta's figures for the chosen day are not here: spend is unknown, not zero.
   const spend = (cents: number) => (funnel.missingFigures ? "—" : money(cents));
   const open = funnel.rows.find((row) => row.campaignId === openId) ?? null;

@@ -1,9 +1,27 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { CSSProperties } from "react";
 import { draftEmailAction } from "@/app/actions/ai";
+import { sendEmailAction } from "@/app/actions/mail";
+import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { useTypewriter } from "@/hooks/use-typewriter";
+import { readRecipients } from "@/lib/mail-recipients";
+
+const FIELD_INPUT: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  border: 0,
+  outline: "none",
+  font: "inherit",
+  fontSize: "13.5px",
+  color: "var(--text-primary)",
+  background: "transparent",
+};
+
+const FIELD_ROW: CSSProperties = { padding: "11px 18px", borderBottom: "1px solid var(--border-subtle)" };
+const FIELD_LABEL: CSSProperties = { flex: "0 0 52px", fontSize: "12px", color: "var(--text-muted)" };
 
 export interface ComposeModalProps {
   open: boolean;
@@ -20,9 +38,13 @@ export function ComposeModal({
   mailbox,
   onClose,
 }: ComposeModalProps) {
+  const toast = useToast();
   const [ccOpen, setCcOpen] = useState(false);
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [sending, startSending] = useTransition();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [intent, setIntent] = useState("");
@@ -46,6 +68,8 @@ export function ComposeModal({
   const discard = () => {
     setTo("");
     setCc("");
+    setBcc("");
+    setError(null);
     setSubject("");
     setBody("");
     setIntent("");
@@ -75,7 +99,58 @@ export function ComposeModal({
     });
   };
 
-  const savedLabel = shownBody || subject ? "Draft saved" : "No changes yet";
+  /**
+   * Sends for real, from the connected mailbox. The addresses are checked here
+   * first and again on the server; the person confirms who it goes to, since
+   * the button leaves the building.
+   */
+  const handleSend = () => {
+    const read = readRecipients({ to, cc, bcc });
+    if (!read.ok) {
+      setError(read.error);
+      if (!ccOpen && /^(Cc|Bcc):/.test(read.error)) setCcOpen(true);
+      return;
+    }
+    const text = shownBody.trim();
+    if (!subject.trim() && !text) {
+      setError("Write a subject or a message first.");
+      return;
+    }
+    // The addresses are good now, so an earlier complaint about them goes.
+    setError(null);
+    const { recipients } = read;
+    const who = [
+      `To: ${recipients.to.join(", ")}`,
+      recipients.cc.length ? `Cc: ${recipients.cc.join(", ")}` : "",
+      recipients.bcc.length ? `Bcc: ${recipients.bcc.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (!window.confirm(`Send this email${subject.trim() ? "" : " with no subject"}?\n\n${who}`)) return;
+
+    setError(null);
+    startSending(async () => {
+      try {
+        const result = await sendEmailAction({ to, cc, bcc, subject, body: text });
+        if (!result.sent) {
+          setError(result.error);
+          toast({ tone: "error", title: "Email not sent", description: result.error ?? "It could not be sent.", key: "compose-send" });
+          return;
+        }
+        toast({
+          tone: "success",
+          title: "Email sent",
+          description: `Delivered to Gmail for ${result.recipients} ${result.recipients === 1 ? "recipient" : "recipients"}. The copy is in Gmail's Sent folder.`,
+          key: "compose-send",
+        });
+        discard();
+      } catch {
+        const message = "The send did not complete. Check Gmail's Sent folder before trying again.";
+        setError(message);
+        toast({ tone: "error", title: "Email not sent", description: message, key: "compose-send" });
+      }
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center p-8">
@@ -139,66 +214,64 @@ export function ComposeModal({
         </div>
 
         <div className="flex flex-none flex-col">
-          <label
-            className="flex items-center gap-3"
-            style={{ padding: "11px 18px", borderBottom: "1px solid var(--border-subtle)" }}
-          >
-            <span style={{ flex: "0 0 52px", fontSize: "12px", color: "var(--text-muted)" }}>
+          <div className="flex items-center gap-3" style={FIELD_ROW}>
+            <label htmlFor="compose-to" style={FIELD_LABEL}>
               To
-            </span>
+            </label>
             <input
+              id="compose-to"
               value={to}
               onChange={(event) => setTo(event.target.value)}
-              placeholder="name@company.com"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                border: 0,
-                outline: "none",
-                font: "inherit",
-                fontSize: "13.5px",
-                color: "var(--text-primary)",
-                background: "transparent",
-              }}
+              placeholder="name@company.com, another@company.com"
+              style={FIELD_INPUT}
             />
-            <span
+            <button
+              type="button"
               onClick={() => setCcOpen((v) => !v)}
+              aria-expanded={ccOpen}
               style={{
                 flex: "0 0 auto",
+                border: 0,
+                background: "none",
+                padding: 0,
+                font: "inherit",
                 fontSize: "12px",
                 fontWeight: 600,
                 color: "var(--accent-primary)",
                 cursor: "pointer",
               }}
             >
-              Cc / Bcc
-            </span>
-          </label>
+              {ccOpen ? "Hide Cc / Bcc" : "Cc / Bcc"}
+            </button>
+          </div>
 
           {ccOpen && (
-            <label
-              className="flex items-center gap-3"
-              style={{ padding: "11px 18px", borderBottom: "1px solid var(--border-subtle)" }}
-            >
-              <span style={{ flex: "0 0 52px", fontSize: "12px", color: "var(--text-muted)" }}>
-                Cc
-              </span>
-              <input
-                value={cc}
-                onChange={(event) => setCc(event.target.value)}
-                placeholder="Add recipients"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  border: 0,
-                  outline: "none",
-                  font: "inherit",
-                  fontSize: "13.5px",
-                  color: "var(--text-primary)",
-                  background: "transparent",
-                }}
-              />
-            </label>
+            <>
+              <div className="flex items-center gap-3" style={FIELD_ROW}>
+                <label htmlFor="compose-cc" style={FIELD_LABEL}>
+                  Cc
+                </label>
+                <input
+                  id="compose-cc"
+                  value={cc}
+                  onChange={(event) => setCc(event.target.value)}
+                  placeholder="Copied in; everyone sees them"
+                  style={FIELD_INPUT}
+                />
+              </div>
+              <div className="flex items-center gap-3" style={FIELD_ROW}>
+                <label htmlFor="compose-bcc" style={FIELD_LABEL}>
+                  Bcc
+                </label>
+                <input
+                  id="compose-bcc"
+                  value={bcc}
+                  onChange={(event) => setBcc(event.target.value)}
+                  placeholder="Copied in; hidden from the others"
+                  style={FIELD_INPUT}
+                />
+              </div>
+            </>
           )}
 
           <label
@@ -346,15 +419,31 @@ export function ComposeModal({
             background: "var(--gray-25)",
           }}
         >
-          <Button variant="primary" size="md" icon="send" onClick={onClose}>
-            Send
+          <Button
+            variant="primary"
+            size="md"
+            icon="send"
+            onClick={handleSend}
+            disabled={sending || !mailbox || !to.trim()}
+          >
+            {sending ? "Sending…" : "Send"}
           </Button>
-          <IconButton icon="paperclip" size={34} label="Attach file" />
-          <IconButton icon="clock" size={34} label="Schedule send" />
-          <span className="ml-auto flex items-center gap-2.5">
-            <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>{savedLabel}</span>
-            <IconButton icon="trash-2" size={34} label="Discard draft" onClick={discard} />
+          <span
+            role={error ? "alert" : undefined}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: "11.5px",
+              color: error ? "var(--status-negative)" : "var(--text-muted)",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {error ??
+              (mailbox
+                ? "Separate several addresses with commas. Nothing is saved until it is sent."
+                : "Connect a mailbox in Business Management to send.")}
           </span>
+          <IconButton icon="trash-2" size={34} label="Discard" onClick={discard} disabled={sending} />
         </div>
       </div>
     </div>

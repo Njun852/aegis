@@ -13,11 +13,62 @@
  * Runs with `--conditions=react-server` so the `server-only` marker on the
  * modules below resolves to an empty module instead of throwing.
  */
+import assert from "node:assert/strict";
 import { MongoClient } from "mongodb";
 import { decryptSecret } from "@/lib/auth/secrets";
-import { explainMailFailure } from "@/lib/mail/failures";
+import { isSafeLink, linkHost, readLinks, splitLinks } from "@/lib/mail-links";
+import { MAX_RECIPIENTS, parseRecipients, readRecipients } from "@/lib/mail-recipients";
+import { classifyMailError, explainMailFailure, explainSendFailure } from "@/lib/mail/failures";
 import { createImapSource } from "@/lib/mail/imap-source";
 import type { BusinessDocument } from "@/types";
+
+// ---- Addresses for To, Cc and Bcc (no network) -------------------------------------
+
+assert.deepEqual(
+  parseRecipients("Ana@Shop.ph, ana@shop.ph; Ben Cruz <ben@cruz.com>\n carl@x.co"),
+  { addresses: ["ana@shop.ph", "ben@cruz.com", "carl@x.co"], invalid: [] },
+  "commas, semicolons, new lines and display names; each address once",
+);
+assert.deepEqual(parseRecipients("ana@shop.ph, not an address").invalid, ["not", "an", "address"]);
+assert.equal(readRecipients({ to: "", cc: "", bcc: "" }).ok, false, "a new email needs someone to send to");
+assert.equal(readRecipients({ to: "", cc: "a@b.co", bcc: "" }, { requireTo: false }).ok, true, "a reply's copies need no To");
+const both = readRecipients({ to: "a@b.co", cc: "A@b.co, c@d.co", bcc: "c@d.co, e@f.co" });
+assert.ok(both.ok);
+assert.deepEqual(both.recipients, { to: ["a@b.co"], cc: ["c@d.co"], bcc: ["e@f.co"] }, "nobody gets the same message twice");
+const bad = readRecipients({ to: "a@b.co", cc: "", bcc: "oops" });
+assert.ok(!bad.ok && bad.error.startsWith("Bcc:"), "the box with the mistake is named");
+const many = Array.from({ length: MAX_RECIPIENTS + 1 }, (_, i) => `p${i}@x.co`).join(",");
+assert.equal(readRecipients({ to: many, cc: "", bcc: "" }).ok, false, "a slip cannot become a blast");
+assert.equal(classifyMailError({ code: "EENVELOPE", message: "No recipients defined" }), "rejected");
+assert.equal(classifyMailError({ code: "EAUTH", message: "Invalid login" }), "auth-failed");
+assert.match(explainSendFailure("error"), /nothing was sent/, "a failed send says it did not leave");
+console.log("✓ To, Cc and Bcc: parsed, checked, deduplicated, capped; send failures say nothing was sent");
+
+// ---- Links in mail (no network) -----------------------------------------------------
+
+{
+  const html = `<p>Hi</p><a href="https://drive.google.com/x?a=1&amp;b=2">See <b>the photos</b></a>
+    <a href='javascript:alert(1)'>click</a><a href="mailto:ana@shop.ph">Email Ana</a>
+    <a href="https://drive.google.com/x?a=1&amp;b=2">again</a>`;
+  const links = readLinks(html, "Also at https://autoblitz.ph/book. Thanks.");
+  assert.deepEqual(
+    links,
+    [
+      { url: "https://drive.google.com/x?a=1&b=2", text: "See the photos" },
+      { url: "mailto:ana@shop.ph", text: "Email Ana" },
+      { url: "https://autoblitz.ph/book", text: "" },
+    ],
+    "real addresses, each once, with their words; javascript: dropped; trailing full stop not part of the link",
+  );
+  assert.equal(isSafeLink("data:text/html,hi"), false);
+  assert.deepEqual(splitLinks("Book at https://autoblitz.ph/book, today."), [
+    { text: "Book at " },
+    { text: "https://autoblitz.ph/book", url: "https://autoblitz.ph/book" },
+    { text: ", today." },
+  ]);
+  assert.equal(linkHost("https://www.facebook.com/autoblitz"), "facebook.com");
+  console.log("✓ links: read from HTML and text, unsafe ones dropped, addresses in text made clickable");
+}
 
 const businessId = process.argv[2] ?? "BIZ-1001";
 const SHOW = 5;

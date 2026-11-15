@@ -4,6 +4,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import { readMailSignals } from "./auto-reply";
+import { readMailExtras } from "./extras";
 import { classifyMailError } from "./failures";
 import type {
   FetchResult,
@@ -226,6 +227,8 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
                 inReplyTo: parsed.inReplyTo,
                 references: parsed.references,
               }),
+              // Described now, while the message is in hand; the files stay in Gmail.
+              ...readMailExtras(parsed, plain),
             });
 
             if (item.uid > highest) highest = item.uid;
@@ -236,6 +239,23 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
             cursor: { uidValidity, lastUid: highest || cursor.lastUid },
             initialImport: fresh,
           };
+        } finally {
+          lock.release();
+        }
+      });
+    },
+
+    async fetchOne(uid: number, uidValidity: string) {
+      return guarded(async (connection) => {
+        // Read-only: opening INBOX this way never marks anything read.
+        const lock = await connection.getMailboxLock("INBOX", { readOnly: true });
+        try {
+          const mailbox = connection.mailbox;
+          if (!mailbox || typeof mailbox === "boolean") throw new Error("mailbox does not exist");
+          if (String(mailbox.uidValidity) !== uidValidity) throw new Error("uid no longer valid for this mailbox");
+          const item = await connection.fetchOne(String(uid), { source: true }, { uid: true });
+          if (!item || !item.source) throw new Error("message nonexistent on the server");
+          return simpleParser(item.source);
         } finally {
           lock.release();
         }
@@ -299,6 +319,8 @@ export function createImapSource(credentials: MailboxCredentials): MailSource {
         await transport.sendMail({
           from: credentials.address,
           to,
+          ...(options.cc?.length ? { cc: options.cc } : {}),
+          ...(options.bcc?.length ? { bcc: options.bcc } : {}),
           subject,
           text: body,
           // Buffers AEGIS built itself, never a path or URL: nodemailer would

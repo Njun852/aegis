@@ -2,20 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { resolveCountAction, setAccountActiveAction, voidPaymentAction } from "@/app/actions/finance";
+import { resolveCountAction, setAccountActiveAction } from "@/app/actions/finance";
 import { INPUT, Notice } from "@/components/forms/form-kit";
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon, IconButton } from "@/components/ui";
 import { MIN_RESOLUTION, accountTypeLabel } from "@/lib/finance";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { formatQuoteDay } from "@/lib/quotations";
+import { AccountHistory } from "./account-history";
 import { AccountModal } from "./account-modal";
 import { CountBadge } from "./count-badge";
 import { AuditLines } from "./record-trail";
-import type { CountRow, MoneyAccountSummary } from "@/types";
+import type { AccountHistoryLine, CountRow, MoneyAccountSummary } from "@/types";
 
 export interface AccountDrawerProps {
   account: MoneyAccountSummary;
+  /** Every line of its balance, newest first, with who recorded each and its documents. */
+  history: AccountHistoryLine[];
   counts: CountRow[];
   isAdmin: boolean;
   /** Manila's today, the latest an opening balance can be for. */
@@ -35,6 +38,7 @@ const signed = formatSignedMoney;
 
 export function AccountDrawer({
   account,
+  history,
   counts,
   isAdmin,
   today,
@@ -49,7 +53,6 @@ export function AccountDrawer({
   const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
-  const rowsTotal = account.rows.reduce((sum, row) => sum + row.amountCents, 0);
 
   const toggleActive = () => {
     if (account.active && !window.confirm(`Mark ${account.name} as no longer used? Its history is kept.`)) return;
@@ -119,7 +122,7 @@ export function AccountDrawer({
             </span>
           </div>
 
-          <Activity account={account} isAdmin={isAdmin} rowsTotal={rowsTotal} onOpenPayment={onOpenPayment} />
+          <AccountHistory lines={history} balanceCents={account.balanceCents} isAdmin={isAdmin} onOpenPayment={onOpenPayment} />
 
           <section style={SECTION}>
             <h3 style={HEADING}>Counts</h3>
@@ -169,109 +172,6 @@ export function AccountDrawer({
         <AccountModal account={account} today={today} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />
       )}
     </>
-  );
-}
-
-/** The rows the balance is made of. They add up to the balance shown, and the footer says so. */
-function Activity({
-  account,
-  isAdmin,
-  rowsTotal,
-  onOpenPayment,
-}: {
-  account: MoneyAccountSummary;
-  isAdmin: boolean;
-  rowsTotal: number;
-  onOpenPayment: (ref: string) => void;
-}) {
-  const router = useRouter();
-  const toast = useToast();
-  const [voiding, setVoiding] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
-  const [pending, startTransition] = useTransition();
-
-  const confirmVoid = (ref: string) => {
-    startTransition(async () => {
-      const result = await voidPaymentAction(ref, reason);
-      if (!result.ok) {
-        toast({ tone: "error", title: "Not voided", description: result.error, key: "finance-void" });
-        return;
-      }
-      toast({ tone: "success", title: `${ref} voided`, description: "Kept on record as void, with the reason.", key: "finance-void" });
-      setVoiding(null);
-      setReason("");
-      router.refresh();
-    });
-  };
-
-  return (
-    <section style={SECTION}>
-      <h3 style={HEADING}>What the balance is made of</h3>
-      <div style={{ border: "1px solid var(--border-default)", borderRadius: 12, overflow: "hidden" }}>
-        {account.rows.map((row) => (
-          <div key={`${row.kind}-${row.ref}`} style={{ borderBottom: "1px solid var(--gray-50)", padding: "8px 12px" }}>
-            <div className="flex items-center gap-3">
-              <span style={{ width: 84, flex: "0 0 auto", fontSize: "11.5px", color: "var(--text-muted)" }}>{formatQuoteDay(row.dateKey)}</span>
-              <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                <span style={{ fontSize: "12.5px", overflowWrap: "anywhere" }}>{row.kind === "opening" ? "Opening balance" : row.label}</span>
-                {row.kind === "payment" && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenPayment(row.ref)}
-                    title="Open this payment: fee, who recorded it, documents"
-                    style={{ border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-accent)" }}
-                  >
-                    {row.ref} · details
-                  </button>
-                )}
-              </span>
-              <span
-                style={{
-                  fontSize: "12.5px",
-                  fontWeight: 600,
-                  fontVariantNumeric: "tabular-nums",
-                  whiteSpace: "nowrap",
-                  color: row.amountCents < 0 ? "var(--status-negative)" : "var(--text-primary)",
-                }}
-              >
-                {row.kind === "opening" ? formatMoney(row.amountCents) : signed(row.amountCents)}
-              </span>
-              {isAdmin && account.voidableRefs.includes(row.ref) && voiding !== row.ref && (
-                <Button size="sm" variant="ghost" onClick={() => setVoiding(row.ref)}>
-                  Void
-                </Button>
-              )}
-            </div>
-            {voiding === row.ref && (
-              <div className="flex flex-wrap items-center gap-2" style={{ marginTop: 8 }}>
-                <input
-                  style={{ ...INPUT, flex: 1, minWidth: 180 }}
-                  value={reason}
-                  maxLength={300}
-                  placeholder="Why is this being voided?"
-                  onChange={(event) => setReason(event.target.value)}
-                />
-                <Button size="sm" variant="secondary" onClick={() => confirmVoid(row.ref)} disabled={pending}>
-                  {pending ? "Voiding…" : "Void it"}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setVoiding(null)} disabled={pending}>
-                  Keep
-                </Button>
-              </div>
-            )}
-          </div>
-        ))}
-        <div className="flex items-center justify-between gap-3" style={{ padding: "9px 12px", background: "var(--gray-25)" }}>
-          <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-            {account.rows.length} {account.rows.length === 1 ? "line" : "lines"}, adding up to
-          </span>
-          <span style={{ fontSize: "13px", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{formatMoney(rowsTotal)}</span>
-        </div>
-      </div>
-      {account.rows.length === 1 && (
-        <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>Nothing has moved through this account since it was opened.</span>
-      )}
-    </section>
   );
 }
 

@@ -744,6 +744,39 @@ export interface CountRow extends Reconciliation {
   bookNowCents: number;
 }
 
+/**
+ * One line of an account's history as the account drawer shows it: what
+ * happened, with whom, the balance after it, who recorded it, and the
+ * documents behind it (its own and those on the invoice or bill it settled).
+ */
+export interface AccountHistoryLine {
+  /** PY-… for a payment; the account's own ref for its opening balance. */
+  ref: string;
+  kind: "opening" | "in" | "out" | "transfer-in" | "transfer-out" | "adjustment";
+  dateKey: DateKey;
+  /** "Sale", "Expense", "Collection", "Bill payment", "Transfer in", "Owner's money in"… */
+  title: string;
+  /** The customer, supplier, lender or other account. Empty when none. */
+  party: string;
+  /** "Invoice OR-1043", "Ref. 88213", "Count RC-1002"… Empty when none. */
+  reference: string;
+  note: string;
+  /** The invoice or bill it settles, to open. */
+  linkedRef: string | null;
+  /** What moved in or out of this account, fees included; signed. */
+  amountCents: number;
+  /** A fee taken from this account with it, already in `amountCents`. */
+  feeCents: number;
+  /** The account's balance after this line. */
+  balanceCents: number;
+  recordedBy: string;
+  /** ISO time it was recorded. */
+  recordedAt: string;
+  attachments: FinanceAttachment[];
+  /** A transfer or adjustment, which can be voided from the account. */
+  voidable: boolean;
+}
+
 /** One account as the Accounts tab lists it, with its balance today. */
 export interface MoneyAccountSummary extends MoneyAccount {
   audit: RecordAudit;
