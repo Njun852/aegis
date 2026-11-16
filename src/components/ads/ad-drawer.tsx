@@ -102,7 +102,9 @@ export function AdDrawer({
           ? `${formatCount(row.impressions)} · ${freq}`
           : "No impressions in this range",
     },
-  ];
+    // Meta leaves some of these blank at some levels (a campaign has no
+    // audience or placements of its own); a label over nothing is dropped.
+  ].filter((field) => field.value.trim() !== "");
 
   return (
     <>
@@ -379,6 +381,9 @@ export function AdDrawer({
 
           )}
 
+          {/* Only ads carry a creative; Meta campaigns and ad sets arrive with
+              none, and an empty preview box says nothing. */}
+          {(row.format || row.primary || row.headline || row.cta) && (
           <div className="flex flex-col gap-2.5">
             <SectionLabel>Creative</SectionLabel>
             <div
@@ -430,6 +435,7 @@ export function AdDrawer({
                   >
                     {row.headline}
                   </span>
+                  {row.cta && (
                   <span
                     style={{
                       flex: "0 0 auto",
@@ -446,10 +452,12 @@ export function AdDrawer({
                   >
                     {row.cta}
                   </span>
+                  )}
                 </span>
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {live ? (

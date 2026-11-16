@@ -8,6 +8,10 @@
 @import "./tokens/base.css";
 @import "./tokens/themes.css";
 
+/* The Ads report's side layout: from laptop width the AI insight stands in a
+   column beside the report instead of above the breakdown. */
+@custom-variant side (@media (min-width: 1180px));
+
 /* Expose the AEGIS tokens Tailwind needs as utilities. `wide` is the 1240px
    breakpoint the dashboard bands and the mail three-pane switch on. */
 @theme inline {
