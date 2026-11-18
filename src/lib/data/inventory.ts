@@ -114,6 +114,21 @@ export const MOVE_REASONS: Record<StockMoveReason, StockMoveReasonMeta> = {
     transaction: false,
     note: "Internal move between locations — stock only, nothing is posted.",
   },
+  // The sale is the booking's (or the invoice's), counted once there, so a
+  // part used on a job posts nothing. Its cost is kept on the movement and on
+  // the job order line.
+  "Used on job order": {
+    kind: "out",
+    transaction: false,
+    jobOnly: true,
+    note: "Taken for a job order at the cost of its batches. The sale is counted on the booking, not here.",
+  },
+  "Returned from job order": {
+    kind: "in",
+    transaction: false,
+    jobOnly: true,
+    note: "Put back from a cancelled job order, into the batches it came from, at their cost.",
+  },
 };
 
 export interface MoveReasonChip {

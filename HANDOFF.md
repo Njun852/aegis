@@ -1335,6 +1335,47 @@ prints each campaign's today and yesterday from the live account).
 Browser-checked on AUTOBLITZ on 19 Oct 2026: Today ₱730 / 21 conversations,
 Yesterday ₱988 / 38, both matching Meta's account totals.
 
+## Job orders take their parts from stock (18 Nov 2026)
+
+Quotation → Inventory → costing, as the owner asked. Decided with the
+developer: stock leaves when the **job order is made** (the customer has
+approved), never while quoting, since quotations are revised, declined or
+left unanswered.
+
+- **When:** `convertToJobOrderAction`, with Inventory on, calls
+  `takeJobStock` (`src/lib/dal/job-orders.ts`). Every approved part line
+  linked to an Inventory item (`sku`, set when the editor fills the cost from
+  stock or a linked supplier entry) is taken through `recordStockMove` with
+  the new reason **Used on job order** (`documentRef` the JO), oldest batch
+  first. It posts nothing to the ledger: the sale is the booking's.
+- **On the line:** `stock` (movement, quantity, batches drawn, their cost,
+  when). That cost is the line's actual cost. The old empty
+  `actualCostCents` is gone (old documents still carry `null`, unread).
+- **Short of stock, or fractions:** the line stays "Not taken from stock
+  yet" with the reason, and the job order shows **Take from stock**
+  (`takeJobStockAction`) for when the goods arrive. Inventory counts whole
+  units, so 4.5 L is refused rather than rounded. The same button takes stock
+  for job orders made before this.
+- **Cancel:** `setJobOrderStatus` → `returnJobOrderStock` → `returnJobStock`
+  (`src/lib/dal/inventory.ts`) puts the units back **into the batches they
+  came from** (same PO, same cost) with a **Returned from job order**
+  movement; a batch no longer on file is replaced by one `job-return` batch at
+  the cost taken. A cancelled job still holding stock shows **Put back in
+  stock**.
+- **Never twice:** each line is claimed on the job order (`stockClaimAt`,
+  stale after 2 minutes; `returnMoveRef: "returning"`) before its stock
+  moves. The two new reasons are `jobOnly` and refused by the stock dialog.
+- **Costing on the job order** (internal): a Cost column per line (stock
+  cost, "+₱20 vs quoted", or the quoted cost labelled "quoted"), and Quoted
+  vs Actual cost and profit. Actual uses stock cost where taken and quoted
+  cost elsewhere (`jobOrderCosting`, `src/lib/job-orders.ts`).
+
+Check: `npm run quote:check` (which lines are taken, whole units, quoted vs
+actual, returned stock). Browser-checked on AUTOBLITZ 18 Nov 2026: JO-1001
+took Oil Filter × 3 (₱600, PO 1200) by the button; test QT-1002 / JO-1002
+took Wiper blade × 2 on conversion and gave both back to batch
+OPEN-SKU-4610 on cancel.
+
 ## Known issue
 
 The booking drawer's timeline (`bookingTimeline`, `src/lib/bookings.ts`) shows

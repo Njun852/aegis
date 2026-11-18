@@ -18,7 +18,9 @@ export type StockMoveReason =
   | "Customer return"
   | "Transfer in"
   | "Cycle count correction"
+  | "Returned from job order"
   | "Picked for booking"
+  | "Used on job order"
   | "Returned to supplier"
   | "Damaged / write-off"
   | "Transfer out";
@@ -36,6 +38,11 @@ export interface StockMoveReasonMeta {
   kind: StockMoveKind;
   transaction: boolean;
   side?: "price" | "cost";
+  /**
+   * Written only by job orders (`src/lib/dal/job-orders.ts`), which keep the
+   * movement and the line it costs in step. The stock dialog cannot record it.
+   */
+  jobOnly?: boolean;
   /** Short tag shown against the money block, e.g. "Revenue". */
   ledger?: string;
   moneyTitle?: string;
@@ -185,7 +192,9 @@ export type BatchSource =
   | "goods-received"
   | "customer-return"
   | "transfer-in"
-  | "count-correction";
+  | "count-correction"
+  /** Units a cancelled job order gave back whose own batch was no longer on file. */
+  | "job-return";
 
 /** Units taken from, or put into, one batch by one movement. */
 export interface BatchDraw {

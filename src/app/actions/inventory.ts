@@ -44,7 +44,8 @@ export async function recordStockMoveAction(
   }
 
   const reason = text("reason");
-  if (!isReason(reason) || MOVE_REASONS[reason].kind !== kind) {
+  // Job order movements are written with the job order they cost, never from here.
+  if (!isReason(reason) || MOVE_REASONS[reason].kind !== kind || MOVE_REASONS[reason].jobOnly) {
     return { error: "Pick what kind of movement this is." };
   }
 

@@ -18,5 +18,11 @@ export default async function JobOrderPage(props: PageProps<"/quotations/jobs/[r
   const linked =
     jobOrder.bookingRef && business.modules.includes("bookings") ? await getBooking(jobOrder.bookingRef) : null;
 
-  return <JobOrderView jobOrder={jobOrder} booking={linked ? { ref: linked.ref, status: linked.status } : null} />;
+  return (
+    <JobOrderView
+      jobOrder={jobOrder}
+      booking={linked ? { ref: linked.ref, status: linked.status } : null}
+      inventoryEnabled={business.modules.includes("inventory")}
+    />
+  );
 }

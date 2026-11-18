@@ -67,6 +67,7 @@ const SOURCES: Partial<Record<StockMoveReason, BatchSource>> = {
   "Customer return": "customer-return",
   "Transfer in": "transfer-in",
   "Cycle count correction": "count-correction",
+  "Returned from job order": "job-return",
 };
 
 export function batchSourceFor(reason: StockMoveReason): BatchSource {
@@ -92,4 +93,5 @@ export const BATCH_SOURCE_LABELS: Record<BatchSource, string> = {
   "customer-return": "Customer return",
   "transfer-in": "Transfer in",
   "count-correction": "Count correction",
+  "job-return": "Back from job order",
 };

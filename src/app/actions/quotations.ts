@@ -11,7 +11,13 @@ import { isMailboxConfigured } from "@/lib/dal/mailbox";
 import { findCustomer, findDuplicates } from "@/lib/dal/customers";
 import { findVehicleByPlate, findVehicleOption } from "@/lib/dal/fleet";
 import { getBooking, updateBookingDetails } from "@/lib/dal/bookings";
-import { findJobOrder, setJobOrderStatus } from "@/lib/dal/job-orders";
+import {
+  findJobOrder,
+  returnJobOrderStock,
+  setJobOrderStatus,
+  stockTakeSummary,
+  takeJobStock,
+} from "@/lib/dal/job-orders";
 import { notifyOwner } from "@/lib/dal/owner-alerts";
 import { approvalNeededText, jobText, quoteAnsweredText, quoteSentText } from "@/lib/owner-alerts";
 import {
@@ -488,15 +494,25 @@ export async function clearQuoteResponseAction(ref: string): Promise<Result> {
  * Turns the approved quotation into a job order. When the quotation is for a
  * booking, the booking's value becomes the approved amount: that one booking
  * is where the sale is recorded, so the ledger entry it already has is
- * updated rather than a second one added.
+ * updated rather than a second one added. With Inventory on, the approved
+ * parts linked to stock leave Inventory now, at the cost of their batches.
  */
 export async function convertToJobOrderAction(
   ref: string,
-): Promise<Result<{ jobOrderRef: string; created: boolean; bookingNote: string | null }>> {
+): Promise<Result<{ jobOrderRef: string; created: boolean; bookingNote: string | null; stockNote: string | null }>> {
   const business = await requireModule("quotes");
   return guard(async () => {
     const { jobOrderRef, created, doc } = await convertToJobOrder(ref);
     let bookingNote: string | null = null;
+    let stockNote: string | null = null;
+
+    if (created && business.modules.includes("inventory")) {
+      stockNote = stockTakeSummary(await takeJobStock(jobOrderRef));
+      if (stockNote) {
+        await noteOnQuotation(ref, doc.revision ?? 1, `${jobOrderRef}: ${stockNote}`);
+        revalidatePath("/inventory");
+      }
+    }
 
     const bookingRef = doc.bookingRef ?? null;
     const approvedTotal = doc.response?.approvedTotalCents ?? null;
@@ -523,23 +539,60 @@ export async function convertToJobOrderAction(
 
     refresh(ref);
     revalidatePath(`/quotations/jobs/${jobOrderRef}`);
-    return { ok: true, jobOrderRef, created, bookingNote };
+    return { ok: true, jobOrderRef, created, bookingNote, stockNote };
+  });
+}
+
+/**
+ * Takes a job order's waiting parts from Inventory: the ones short of stock
+ * when it was made (once the goods are in), or a job order made before parts
+ * were taken automatically.
+ */
+export async function takeJobStockAction(ref: string): Promise<Result<{ stockNote: string | null; taken: number }>> {
+  // Like making the job order, which takes the same parts, this is part of the
+  // quotation's work, so it needs the business to keep Inventory, not the
+  // person's role to show it.
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    if (!business.modules.includes("inventory")) throw new InputError(`${business.name} does not keep Inventory in AEGIS.`);
+    const result = await takeJobStock(ref);
+    const job = await findJobOrder(ref);
+    const stockNote = stockTakeSummary(result);
+    if (job && stockNote) await noteOnQuotation(job.quotationRef, job.quotationRevision, `${ref}: ${stockNote}`);
+    revalidatePath(`/quotations/jobs/${ref}`);
+    revalidatePath("/inventory");
+    return { ok: true, stockNote, taken: result.taken.length };
+  });
+}
+
+/** Puts back parts a cancelled job order still holds, if putting them back failed when it was cancelled. */
+export async function returnJobStockAction(ref: string): Promise<Result<{ returned: number; failed: string[] }>> {
+  await requireModule("quotes");
+  return guard(async () => {
+    const job = await findJobOrder(ref);
+    if (!job) throw new InputError(`${ref} is no longer on file.`);
+    if (job.status !== "Cancelled") throw new InputError("Only a cancelled job order gives its parts back.");
+    const result = await returnJobOrderStock(ref);
+    revalidatePath(`/quotations/jobs/${ref}`);
+    revalidatePath("/inventory");
+    return { ok: true, ...result };
   });
 }
 
 export async function setJobOrderStatusAction(
   ref: string,
   status: string,
-): Promise<Result<{ bookingNote: string | null }>> {
+): Promise<Result<{ bookingNote: string | null; stockNote: string | null }>> {
   const business = await requireModule("quotes");
   return guard(async () => {
     const next = JOB_ORDER_STATUSES.find((entry) => entry === status);
     if (!next) throw new InputError("Unknown job order status.");
-    const { bookingNote } = await setJobOrderStatus(ref, next, {
+    const { bookingNote, stockNote } = await setJobOrderStatus(ref, next, {
       bookingsEnabled: business.modules.includes("bookings"),
     });
     revalidatePath("/quotations");
     revalidatePath(`/quotations/jobs/${ref}`);
+    if (stockNote) revalidatePath("/inventory");
     if (bookingNote) {
       // The booking moved with it: its screen, the ads counts and the car's history.
       revalidatePath("/bookings");
@@ -554,7 +607,7 @@ export async function setJobOrderStatusAction(
         jobText(business.name, ref, next, job ? job.billTo.name || job.billTo.company : ""),
       );
     }
-    return { ok: true, bookingNote };
+    return { ok: true, bookingNote, stockNote };
   });
 }
 

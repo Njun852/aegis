@@ -1,4 +1,97 @@
-import type { BookingStatus, JobOrderStatus } from "@/types";
+import type { BookingStatus, JobLineStockState, JobOrderLine, JobOrderStatus } from "@/types";
+
+// ---- Stock and costing --------------------------------------------------------------
+
+/**
+ * A part line takes its stock from Inventory when the job order is made: the
+ * customer has approved it, so the part is really going on the car. A
+ * quotation never holds stock, since most are revised, declined or never
+ * answered.
+ */
+export function stockStateOf(line: Pick<JobOrderLine, "section" | "sku" | "stock">): JobLineStockState {
+  if (line.stock) return line.stock.returnMoveRef ? "returned" : "taken";
+  if (line.section !== "parts" || !line.sku) return "none";
+  return "waiting";
+}
+
+/** Why a waiting line cannot be taken from stock as it stands, or null when it can. */
+export function stockTakeRefusal(line: Pick<JobOrderLine, "qty" | "unit" | "description">): string | null {
+  if (!Number.isInteger(line.qty) || line.qty < 1) {
+    return `${line.description}: Inventory counts whole units, and this line is for ${line.qty} ${line.unit}. Take it from stock in Inventory.`;
+  }
+  return null;
+}
+
+/** The lines a job order should take from stock now. */
+export function linesToTake<T extends Pick<JobOrderLine, "section" | "sku" | "stock" | "qty" | "unit" | "description">>(
+  lines: T[],
+): { take: T[]; refused: string[] } {
+  const take: T[] = [];
+  const refused: string[] = [];
+  for (const line of lines) {
+    if (stockStateOf(line) !== "waiting") continue;
+    const refusal = stockTakeRefusal(line);
+    if (refusal) refused.push(refusal);
+    else take.push(line);
+  }
+  return { take, refused };
+}
+
+function marginOf(costCents: number, salesCents: number, costedLines: number, discountCents: number) {
+  const discount = costedLines ? discountCents : 0;
+  const marginCents = salesCents - costCents - discount;
+  const base = salesCents - discount;
+  return {
+    costCents,
+    marginCents,
+    marginPercent: costedLines && base > 0 ? Math.round((marginCents / base) * 1000) / 10 : null,
+    costedLines,
+  };
+}
+
+/**
+ * Quoted cost and margin over the lines that carry a cost, and the same with
+ * each part taken from stock at what its batches actually cost. A line with
+ * no stock taken keeps its quoted cost in the actual figure, so the two can
+ * be compared line for line. Internal; never printed.
+ */
+export function jobOrderCosting(
+  lines: Pick<JobOrderLine, "qty" | "unitPriceCents" | "quotedCostCents" | "stock">[],
+  discountCents: number,
+) {
+  let quotedCost = 0;
+  let quotedSales = 0;
+  let quotedLines = 0;
+  let actualCost = 0;
+  let actualSales = 0;
+  let actualLines = 0;
+  let stockLines = 0;
+
+  for (const line of lines) {
+    const sales = Math.round(line.qty * line.unitPriceCents);
+    if (line.quotedCostCents !== null) {
+      quotedCost += Math.round(line.qty * line.quotedCostCents);
+      quotedSales += sales;
+      quotedLines += 1;
+    }
+    if (line.stock && !line.stock.returnMoveRef) {
+      actualCost += line.stock.costCents;
+      actualSales += sales;
+      actualLines += 1;
+      stockLines += 1;
+    } else if (line.quotedCostCents !== null) {
+      actualCost += Math.round(line.qty * line.quotedCostCents);
+      actualSales += sales;
+      actualLines += 1;
+    }
+  }
+
+  return {
+    quoted: marginOf(quotedCost, quotedSales, quotedLines, discountCents),
+    actual: marginOf(actualCost, actualSales, actualLines, discountCents),
+    stockLines,
+  };
+}
 
 /**
  * How a booking and its job orders share one job without tracking it twice.

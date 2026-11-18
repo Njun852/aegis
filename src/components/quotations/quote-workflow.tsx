@@ -129,7 +129,7 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
       toast({
         tone: "success",
         title: result.created ? `${result.jobOrderRef} created` : `Already ${result.jobOrderRef}`,
-        description: result.bookingNote ?? undefined,
+        description: [result.bookingNote, result.stockNote].filter(Boolean).join(" ") || undefined,
         key: "quote-flow",
       });
       router.push(`/quotations/jobs/${encodeURIComponent(result.jobOrderRef)}`);

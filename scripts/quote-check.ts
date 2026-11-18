@@ -23,7 +23,15 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { MongoClient } from "mongodb";
 import { QUOTATION_INDEXES } from "@/lib/data/quotations";
-import { bookingMoveRefusal, bookingStatusFromJobs, jobStartRefusal, syncedBookingStatus } from "@/lib/job-orders";
+import {
+  bookingMoveRefusal,
+  bookingStatusFromJobs,
+  jobOrderCosting,
+  jobStartRefusal,
+  linesToTake,
+  stockStateOf,
+  syncedBookingStatus,
+} from "@/lib/job-orders";
 import { applyCostSources, checkLineCost, findCostSource, markupOf } from "@/lib/quote-costing";
 import { draftLinesFromRead, parseQuotePhotoRead } from "@/lib/quote-photo";
 import {
@@ -55,7 +63,7 @@ import {
   specialPricingKey,
   specialPricingReason,
 } from "@/lib/quotations";
-import type { QuoteCostSource, QuoteLine, QuotePriceItem, QuoteSection } from "@/types";
+import type { JobOrderLine, QuoteCostSource, QuoteLine, QuotePriceItem, QuoteSection } from "@/types";
 
 // ---- Part one: arithmetic -----------------------------------------------------
 
@@ -199,6 +207,66 @@ assert.equal(jobStartRefusal("In progress", { ref: "BK-1", status: "Confirmed" }
 assert.equal(jobStartRefusal("In progress", null), null, "a job order with no booking starts freely");
 
 console.log("✓ bookings follow their job orders; the booking side hands work over and cannot cancel open work");
+
+// ---- Job orders: stock out and actual cost -----------------------------------------
+
+const jobLine = (over: Partial<JobOrderLine>): JobOrderLine => ({
+  id: randomUUID(),
+  section: "parts",
+  description: "Oil filter C-110",
+  qty: 2,
+  unit: "pcs",
+  unitPriceCents: 45_000,
+  quotedCostCents: 30_000,
+  sku: "SKU-1",
+  stock: null,
+  ...over,
+});
+const takenStock = (costCents: number, returned = false) => ({
+  moveRef: "MV-1",
+  quantity: 2,
+  costCents,
+  batches: [{ batchRef: "BT-1", quantity: 2, unitCostCents: costCents / 2 }],
+  takenAt: new Date(),
+  returnMoveRef: returned ? "MV-2" : null,
+});
+
+assert.equal(stockStateOf(jobLine({})), "waiting", "a linked part waits for its stock");
+assert.equal(stockStateOf(jobLine({ section: "labor" })), "none", "labor never touches Inventory");
+assert.equal(stockStateOf(jobLine({ sku: null })), "none", "a part typed without an Inventory link is left alone");
+assert.equal(stockStateOf(jobLine({ stock: takenStock(64_000) })), "taken");
+assert.equal(stockStateOf(jobLine({ stock: takenStock(64_000, true) })), "returned");
+
+const stockPlan = linesToTake([
+  jobLine({ description: "Filter" }),
+  jobLine({ description: "Engine oil", qty: 4.5, unit: "L" }),
+  jobLine({ description: "Labor", section: "labor" }),
+  jobLine({ description: "Already taken", stock: takenStock(60_000) }),
+]);
+assert.deepEqual(stockPlan.take.map((line) => line.description), ["Filter"], "only waiting parts in whole units are taken");
+assert.equal(stockPlan.refused.length, 1, "a part in fractions of a unit is refused with a reason, not rounded");
+assert.match(stockPlan.refused[0], /whole units/);
+
+// Quoted ₱300 a unit; the oldest batches actually cost ₱320 a unit.
+const jobCosting = jobOrderCosting(
+  [
+    jobLine({ stock: takenStock(64_000) }),
+    jobLine({ section: "labor", sku: null, qty: 1, unitPriceCents: 80_000, quotedCostCents: null }),
+  ],
+  0,
+);
+assert.equal(jobCosting.quoted.costCents, 60_000, "2 × ₱300 quoted");
+assert.equal(jobCosting.actual.costCents, 64_000, "2 units at what their batches cost");
+assert.equal(jobCosting.actual.marginCents, 90_000 - 64_000, "labor with no cost stays out of the margin, as on the quotation");
+assert.equal(jobCosting.stockLines, 1);
+const returnedCosting = jobOrderCosting([jobLine({ stock: takenStock(64_000, true) })], 0);
+assert.equal(returnedCosting.actual.costCents, 60_000, "stock put back no longer costs the job; the quoted cost stands in");
+assert.equal(returnedCosting.stockLines, 0);
+const waitingCosting = jobOrderCosting([jobLine({})], 10_000);
+assert.equal(waitingCosting.actual.costCents, waitingCosting.quoted.costCents, "nothing taken: actual is the quoted cost");
+assert.equal(waitingCosting.actual.marginCents, 90_000 - 60_000 - 10_000, "the discount comes off both");
+
+console.log("✓ job orders take linked parts from stock in whole units; actual cost from the batches, quoted where none taken");
 
 const priceList: QuotePriceItem[] = [
   { section: "labor", description: "Turbo cleaning", unit: "", unitPriceCents: 350_000, costCents: null, useCount: 3, lastUsedDay: "" },

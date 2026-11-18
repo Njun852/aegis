@@ -1,3 +1,5 @@
+import type { BatchDraw } from "./inventory";
+
 /** The two halves of a quotation, in the order the printed form lists them. */
 export type QuoteSection = "parts" | "labor";
 
@@ -498,9 +500,25 @@ export interface BookingQuoteLink {
 export type JobOrderStatus = "Open" | "In progress" | "Completed" | "Cancelled";
 
 /**
+ * The Inventory stock one job order line took: the "Used on job order"
+ * movement, the batches it drew oldest first, and what those units cost.
+ * That cost is the line's actual cost, set against the quoted one.
+ */
+export interface JobLineStock {
+  moveRef: string;
+  quantity: number;
+  /** For the whole quantity, from the batches drawn. */
+  costCents: number;
+  batches: BatchDraw[];
+  takenAt: Date;
+  /** The "Returned from job order" movement, once a cancelled job gave the units back. */
+  returnMoveRef: string | null;
+}
+
+/**
  * One approved line carried onto the job. The quoted figures are fixed at
- * conversion; `actualCostCents` is there for when the work is costed, which is
- * what later lets quoted cost be set against actual cost and an invoice.
+ * conversion. A part linked to an Inventory item takes its stock when the job
+ * order is made (`stock`), which gives the line its actual cost.
  */
 export interface JobOrderLine {
   id: string;
@@ -509,10 +527,39 @@ export interface JobOrderLine {
   qty: number;
   unit: string;
   unitPriceCents: number;
+  /** Per unit, as quoted. */
   quotedCostCents: number | null;
-  /** Nothing writes this yet. */
-  actualCostCents: number | null;
   sku: string | null;
+  /** Absent or null until the stock is taken. */
+  stock?: JobLineStock | null;
+  /** Set while a request is taking this line's stock, so two cannot take it twice. */
+  stockClaimAt?: Date | null;
+}
+
+/** Where a job order line stands with Inventory, for the screen. */
+export type JobLineStockState =
+  /** Labor, or a part not linked to an Inventory item. */
+  | "none"
+  /** Linked, but not taken yet: not enough on hand, or made before stock was taken automatically. */
+  | "waiting"
+  | "taken"
+  /** Taken, then put back when the job order was cancelled. */
+  | "returned";
+
+export interface JobOrderLineView {
+  id: string;
+  section: QuoteSection;
+  description: string;
+  qty: number;
+  unit: string;
+  unitPriceCents: number;
+  quotedCostCents: number | null;
+  sku: string | null;
+  stockState: JobLineStockState;
+  /** What the stock taken cost, for the whole line. Null unless taken. */
+  actualCostCents: number | null;
+  /** "MV-1042 · Oct 15 · 09:12" */
+  stockNote: string | null;
 }
 
 export interface JobOrderDocument {
@@ -549,7 +596,7 @@ export interface JobOrder {
   vehicle: QuoteVehicle;
   serviceAdvisor: string;
   technician: string;
-  lines: JobOrderLine[];
+  lines: JobOrderLineView[];
   discountCents: number;
   approvedTotalCents: number;
   /** "Oct 15, 2026 · 09:12" */
@@ -560,6 +607,17 @@ export interface JobOrder {
   quotedMarginCents: number;
   quotedMarginPercent: number | null;
   costedLines: number;
+  /**
+   * Cost with each part taken from stock at what its batches cost, and every
+   * other costed line at its quoted cost. Internal.
+   */
+  actualCostCents: number;
+  actualMarginCents: number;
+  actualMarginPercent: number | null;
+  /** Lines whose cost is the stock actually used. */
+  stockLines: number;
+  /** Linked parts not taken from stock yet. */
+  waitingLines: number;
   createdBy: string;
   /** "Oct 15 · 09:12" */
   created: string;

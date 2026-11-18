@@ -576,6 +576,83 @@ export async function recordStockMove(
 }
 
 /**
+ * Puts back what a job order took, into the very batches it was drawn from,
+ * so the stock keeps its own PO and cost and the next job uses it in the same
+ * order as before. Units whose batch is no longer on file (or that the
+ * batches could not cover when taken) come back as one batch at the cost
+ * they were taken at. Writes a "Returned from job order" movement.
+ *
+ * The caller (`src/lib/dal/job-orders.ts`) claims the line first, so one
+ * taking is never returned twice.
+ */
+export async function returnJobStock(input: {
+  sku: string;
+  quantity: number;
+  /** What the units cost when taken, for the whole quantity. */
+  costCents: number;
+  batches: BatchDraw[];
+  jobOrderRef: string;
+}): Promise<string> {
+  await ensureOpeningBatches();
+  const itemsCollection = await items();
+  const batchCollection = await batches();
+
+  const item = await itemsCollection.findOne({ sku: input.sku });
+  if (!item) throw new Error(`${input.sku} is no longer in inventory, so its units cannot be put back.`);
+
+  const now = new Date();
+  const ref = await insertMove({
+    sku: item.sku,
+    kind: "in",
+    quantity: input.quantity,
+    reason: "Returned from job order",
+    documentRef: input.jobOrderRef,
+    poNumber: "",
+    party: "",
+    unitAmountCents: 0,
+    amountCents: 0,
+    createdItem: false,
+    batches: input.batches,
+    costCents: input.costCents,
+    occurredAt: now,
+    createdAt: now,
+  });
+
+  let restored = 0;
+  let restoredCost = 0;
+  for (const draw of input.batches) {
+    const result = await batchCollection.updateOne({ ref: draw.batchRef, sku: item.sku }, { $inc: { remaining: draw.quantity } });
+    if (result.matchedCount === 0) continue;
+    restored += draw.quantity;
+    restoredCost += draw.quantity * draw.unitCostCents;
+  }
+
+  const left = input.quantity - restored;
+  if (left > 0) {
+    const unitCostCents = Math.max(0, Math.round((input.costCents - restoredCost) / left));
+    await insertWithRef(batchCollection, "BT-", 1001, (next) =>
+      batchCollection.insertOne({
+        ref: next,
+        sku: item.sku,
+        source: "job-return",
+        receivedAt: now,
+        quantityReceived: left,
+        remaining: left,
+        unitCostCents,
+        supplier: item.supplier,
+        documentRef: input.jobOrderRef,
+        moveRef: ref,
+        createdAt: now,
+      }),
+    );
+  }
+
+  await itemsCollection.updateOne({ sku: item.sku }, { $inc: { onHand: input.quantity }, $set: { updatedAt: now } });
+  await refreshAverage(item.sku, now);
+  return ref;
+}
+
+/**
  * What the shop paid for goods received, by calendar month: the dashboard's
  * Expenses. Every goods-received movement counts, whether it was typed into
  * Inventory or posted from a supplier receipt, since a receipt records its
