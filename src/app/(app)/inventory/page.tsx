@@ -3,6 +3,7 @@ import { InventoryWorkspace } from "@/components/inventory/inventory-workspace";
 import { ModulePage } from "@/components/modules/module-page";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { listBatches, listInventory, listMoves } from "@/lib/dal/inventory";
+import { listPartsUsedOnJobs } from "@/lib/dal/job-orders";
 
 export default async function InventoryPage() {
   const business = await getActiveBusiness();
@@ -17,13 +18,19 @@ export default async function InventoryPage() {
   // Inventory first: it converts any stock still without batches, which the
   // batch list then includes.
   const items = await listInventory();
-  const [moves, batches] = await Promise.all([listMoves(), listBatches()]);
+  // Parts used on jobs come from the job orders, which name the customer and car.
+  const [moves, batches, jobUses] = await Promise.all([
+    listMoves(),
+    listBatches(),
+    business.modules.includes("quotes") ? listPartsUsedOnJobs() : Promise.resolve([]),
+  ]);
 
   return (
     <InventoryWorkspace
       items={items}
       moves={moves}
       batches={batches}
+      jobUses={jobUses}
       todayIso={new Date().toISOString()}
     />
   );

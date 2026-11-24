@@ -62,10 +62,9 @@ const ACTION_GUIDE: Record<AskActionKind, string> = {
   booking_status: "move a booking (ref BK-…) to status Pending, Confirmed, In progress, Completed or Cancelled",
   draft_quotation: "save a new Draft quotation: customer (name) or ref of a booking BK-…, and lines with section parts or labor, description, qty, unit_price in pesos (0 if they gave no price). Never invent prices",
   quote_mark_given: "record that quotation QT-… reached the customer outside AEGIS email (how: Printed and handed over, Shown on screen, Sent by Messenger or text, Read out by phone)",
-  quote_answer: "record that the customer approved or declined quotation QT-… in full (outcome Approved or Declined; customer: who answered, if said)",
   approve_pricing: "approve the discount or below-cost pricing on quotation QT-…",
-  make_job_order: "make the job order from approved quotation QT-…",
-  job_status: "move job order JO-… to status Open, In progress, Completed or Cancelled",
+  make_job_order: "make the job order from quotation QT-… once the customer agrees (making it records their approval of the whole quotation)",
+  job_status: "cancel job order JO-… (status Cancelled); job orders have no other status to move to",
 };
 
 function answerSchema(kinds: AskActionKind[]) {
@@ -80,13 +79,12 @@ function answerSchema(kinds: AskActionKind[]) {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["kind", "ref", "screen", "status", "outcome", "customer", "how", "lines"],
+          required: ["kind", "ref", "screen", "status", "customer", "how", "lines"],
           properties: {
             kind: { type: "string", enum: kinds },
             ref: { type: "string" },
             screen: { type: "string" },
             status: { type: "string" },
-            outcome: { type: "string" },
             customer: { type: "string" },
             how: { type: "string" },
             lines: {

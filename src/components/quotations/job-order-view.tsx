@@ -3,25 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition, type ReactNode } from "react";
-import { returnJobStockAction, setJobOrderStatusAction, takeJobStockAction } from "@/app/actions/quotations";
+import { cancelJobOrderAction, returnJobStockAction, takeJobStockAction } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon } from "@/components/ui";
 import { Notice } from "@/components/forms/form-kit";
-import { jobStartRefusal } from "@/lib/job-orders";
+import { jobOrderLabel } from "@/lib/job-orders";
 import { formatPeso } from "@/lib/quotations";
 import { jobStatusTone } from "./job-orders-panel";
-import type { BookingStatus, JobOrder, JobOrderLineView, JobOrderStatus } from "@/types";
-
-/** The one next step for each status, plus a way back where it makes sense. Cancelled is final. */
-const NEXT: Record<JobOrderStatus, { status: JobOrderStatus; label: string; icon: string; quiet?: boolean }[]> = {
-  Open: [{ status: "In progress", label: "Start work", icon: "wrench" }],
-  "In progress": [
-    { status: "Open", label: "Back to open", icon: "arrow-left", quiet: true },
-    { status: "Completed", label: "Mark completed", icon: "check" },
-  ],
-  Completed: [{ status: "In progress", label: "Reopen", icon: "refresh-cw", quiet: true }],
-  Cancelled: [],
-};
+import { ScanBeside, ScanPane, SideBySideToggle, useSideBySide } from "./scan-beside";
+import type { BookingStatus, JobOrder, JobOrderEvent, JobOrderLineView, QuotePhotoView } from "@/types";
 
 const CARD = {
   background: "var(--surface-card)",
@@ -34,38 +24,45 @@ export function JobOrderView({
   jobOrder,
   booking,
   inventoryEnabled,
+  photo,
+  events,
 }: {
   jobOrder: JobOrder;
   /** The linked booking and its status. Null with no booking or with Bookings off. */
   booking: { ref: string; status: BookingStatus } | null;
   /** The business keeps Inventory, so linked parts can be taken from stock. */
   inventoryEnabled: boolean;
+  /** The scanned paper job order (or photo) the work was read from. */
+  photo: QuotePhotoView | null;
+  /** The job order's history, newest first. */
+  events: JobOrderEvent[];
 }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
-  const startBlocked = jobOrder.status === "Open" ? jobStartRefusal("In progress", booking) : null;
+  const [sideBySide, setSideBySide] = useSideBySide();
   const cancelled = jobOrder.status === "Cancelled";
   const holding = jobOrder.lines.filter((line) => line.stockState === "taken").length;
 
-  const move = (status: JobOrderStatus) => {
+  // A job order is a record of the agreed work: nothing to start or complete. Cancelling is its one change.
+  const cancel = () => {
     const giveBack =
       holding === 1
         ? " The part taken from stock goes back to Inventory."
         : holding > 1
           ? ` The ${holding} parts taken from stock go back to Inventory.`
           : "";
-    if (status === "Cancelled" && !window.confirm(`Cancel ${jobOrder.ref}? This cannot be undone.${giveBack}`)) return;
+    if (!window.confirm(`Cancel ${jobOrder.ref}? This cannot be undone.${giveBack}`)) return;
     startTransition(async () => {
-      const result = await setJobOrderStatusAction(jobOrder.ref, status);
+      const result = await cancelJobOrderAction(jobOrder.ref);
       if (!result.ok) {
-        toast({ tone: "error", title: "Status not changed", description: result.error, key: "job-status" });
+        toast({ tone: "error", title: "Not cancelled", description: result.error, key: "job-status" });
         return;
       }
       toast({
         tone: "success",
-        title: `${jobOrder.ref}: ${status}`,
-        description: [result.bookingNote, result.stockNote].filter(Boolean).join(" ") || undefined,
+        title: `${jobOrder.ref} cancelled`,
+        description: result.stockNote ?? undefined,
         key: "job-status",
       });
       router.refresh();
@@ -123,29 +120,26 @@ export function JobOrderView({
         <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "22px", lineHeight: "28px", fontWeight: 700, letterSpacing: "-.02em" }}>
           {jobOrder.ref}
         </h2>
-        <Badge tone={jobStatusTone(jobOrder.status)}>{jobOrder.status}</Badge>
+        <Badge tone={jobStatusTone(jobOrder.status)}>{jobOrderLabel(jobOrder.status)}</Badge>
+        {photo && <SideBySideToggle on={sideBySide} onChange={setSideBySide} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          {jobOrder.status !== "Cancelled" && jobOrder.status !== "Completed" && (
-            <Button variant="ghost" disabled={pending} onClick={() => move("Cancelled")}>
+          {!cancelled && (
+            <Link
+              href={`/quotations/${encodeURIComponent(jobOrder.quotationRef)}`}
+              className="inline-flex items-center gap-1.5"
+              style={{ fontSize: "12.5px", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600, marginRight: 4 }}
+            >
+              <Icon name="pen-line" size={14} />
+              Change on {jobOrder.quotationRef}
+            </Link>
+          )}
+          {!cancelled && (
+            <Button variant="ghost" disabled={pending} onClick={cancel}>
               Cancel job
             </Button>
           )}
-          {NEXT[jobOrder.status].map((step) => (
-            <Button
-              key={step.status}
-              variant={step.quiet ? "secondary" : "primary"}
-              icon={step.icon}
-              disabled={pending || (step.status === "In progress" && startBlocked !== null)}
-              title={step.status === "In progress" ? (startBlocked ?? undefined) : undefined}
-              onClick={() => move(step.status)}
-            >
-              {step.label}
-            </Button>
-          ))}
         </div>
       </div>
-
-      {startBlocked && <Notice tone="warning">{startBlocked}</Notice>}
 
       {inventoryEnabled && !cancelled && jobOrder.waitingLines > 0 && (
         <Notice tone="warning">
@@ -176,7 +170,11 @@ export function JobOrderView({
         </Notice>
       )}
 
-      <section className="grid grid-cols-2 gap-x-6 gap-y-3 wide:grid-cols-4" style={{ ...CARD, padding: "14px 16px" }}>
+      <ScanBeside photoRef={photo?.ref ?? null} note={photo?.note} on={sideBySide}>
+      <section
+        className={photo && sideBySide ? "grid grid-cols-2 gap-x-6 gap-y-3" : "grid grid-cols-2 gap-x-6 gap-y-3 wide:grid-cols-4"}
+        style={{ ...CARD, padding: "14px 16px" }}
+      >
         <Fact label="Customer" value={jobOrder.billTo.name || jobOrder.billTo.company || "—"} sub={jobOrder.billTo.phone} />
         <Fact label="Vehicle" value={vehicle || "—"} />
         <Fact label="Approved" value={formatPeso(jobOrder.approvedTotalCents)} sub={`${jobOrder.approvedByCustomer} · ${jobOrder.approvedAt}`} />
@@ -271,6 +269,10 @@ export function JobOrderView({
           Booking {booking.ref} follows this job order, and its sale is counted once, at the approved amount.
         </span>
       )}
+      <JobHistory events={events} created={`${jobOrder.created} · ${jobOrder.createdBy}`} quotationRef={jobOrder.quotationRef} />
+      </ScanBeside>
+
+      {photo && !sideBySide && <ScanPane photoRef={photo.ref} note={photo.note} />}
     </div>
   );
 }
@@ -348,6 +350,38 @@ function CostRow({
         {percent === null ? "" : ` (${percent.toFixed(1)}%)`}
       </span>
     </div>
+  );
+}
+
+/**
+ * What happened to the job order since it was made, newest first: changes
+ * made on its quotation, stock taken and put back, cancelling. Job orders
+ * made before the history was kept show only when they were made.
+ */
+function JobHistory({ events, created, quotationRef }: { events: JobOrderEvent[]; created: string; quotationRef: string }) {
+  // Job orders made before the history was kept still show where they began.
+  const made = { kind: "created" as const, detail: `Made from ${quotationRef}.`, by: created.split(" · ").pop() ?? "", at: created.split(" · ").slice(0, 2).join(" · ") };
+  const rows = events.some((event) => event.kind === "created") ? events : [...events, made];
+  return (
+    <section style={{ ...CARD, padding: "12px 16px" }}>
+      <h3 className="flex items-center gap-2" style={{ margin: "0 0 10px", fontSize: "13px", fontWeight: 700 }}>
+        <Icon name="clock" size={14} />
+        History
+      </h3>
+      <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 9 }}>
+        {rows.map((event, index) => (
+          <li key={index} className="flex gap-2.5" style={{ fontSize: "12.5px" }}>
+            <span aria-hidden style={{ width: 7, height: 7, marginTop: 6, flex: "0 0 auto", borderRadius: "var(--radius-pill)", background: "var(--gray-400)" }} />
+            <span className="flex min-w-0 flex-col">
+              <span style={{ textWrap: "pretty" }}>{event.detail}</span>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                {event.at} · {event.by}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

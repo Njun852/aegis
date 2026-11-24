@@ -5,24 +5,19 @@ import { useMemo, useState } from "react";
 import { Badge, Icon } from "@/components/ui";
 import { ColumnLabel } from "@/components/forms/form-kit";
 import { activateOnKey } from "@/lib/interaction";
-import { JOB_ORDER_STATUSES, filterJobOrders, formatPeso } from "@/lib/quotations";
+import { jobOrderLabel } from "@/lib/job-orders";
+import { filterJobOrders, formatPeso } from "@/lib/quotations";
 import type { JobOrderStatus, JobOrderSummary } from "@/types";
 
 const GRID =
   "grid gap-3 items-center grid-cols-[92px_minmax(150px,1.3fr)_110px_20px] wide:grid-cols-[92px_minmax(170px,1.4fr)_minmax(0,1fr)_120px_110px_130px_22px]";
 
-export function jobStatusTone(status: JobOrderStatus): "positive" | "warning" | "accent" | "neutral" | "negative" {
-  switch (status) {
-    case "Completed":
-      return "positive";
-    case "In progress":
-      return "accent";
-    case "Cancelled":
-      return "negative";
-    default:
-      return "warning";
-  }
+/** A job order is recorded or cancelled; it has no progress of its own. */
+export function jobStatusTone(status: JobOrderStatus): "positive" | "negative" {
+  return status === "Cancelled" ? "negative" : "positive";
 }
+
+const LABELS = ["Recorded", "Cancelled"] as const;
 
 /**
  * Every job order, newest activity first, narrowed by status and by the search
@@ -30,8 +25,11 @@ export function jobStatusTone(status: JobOrderStatus): "positive" | "warning" | 
  */
 export function JobOrdersPanel({ jobOrders, search }: { jobOrders: JobOrderSummary[]; search: string }) {
   const router = useRouter();
-  const [status, setStatus] = useState<JobOrderStatus | "All">("All");
-  const visible = useMemo(() => filterJobOrders(jobOrders, { status, search }), [jobOrders, status, search]);
+  const [status, setStatus] = useState<(typeof LABELS)[number] | "All">("All");
+  const visible = useMemo(
+    () => filterJobOrders(jobOrders, { status: "All", search }).filter((job) => status === "All" || jobOrderLabel(job.status) === status),
+    [jobOrders, status, search],
+  );
   return (
     <section
       style={{
@@ -47,9 +45,9 @@ export function JobOrdersPanel({ jobOrders, search }: { jobOrders: JobOrderSumma
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
-        {(["All", ...JOB_ORDER_STATUSES] as const).map((filter) => {
+        {(["All", ...LABELS] as const).map((filter) => {
           const active = status === filter;
-          const count = filter === "All" ? jobOrders.length : jobOrders.filter((job) => job.status === filter).length;
+          const count = filter === "All" ? jobOrders.length : jobOrders.filter((job) => jobOrderLabel(job.status) === filter).length;
           // Like the quotation chips: a status with nothing in it is not offered.
           if (filter !== "All" && count === 0 && !active) return null;
           return (
@@ -125,7 +123,7 @@ export function JobOrdersPanel({ jobOrders, search }: { jobOrders: JobOrderSumma
                 <Cell muted>{job.bookingRef ?? "No booking"}</Cell>
               </span>
               <span className="hidden wide:block">
-                <Badge tone={jobStatusTone(job.status)}>{job.status}</Badge>
+                <Badge tone={jobStatusTone(job.status)}>{jobOrderLabel(job.status)}</Badge>
               </span>
               <span className="flex justify-end">
                 <Cell strong>{formatPeso(job.approvedTotalCents)}</Cell>

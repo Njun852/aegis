@@ -2,6 +2,11 @@ import type { BookingStatus, JobLineStockState, JobOrderLine, JobOrderStatus } f
 
 // ---- Stock and costing --------------------------------------------------------------
 
+/** Who a job's parts were used for, as Inventory records it: "Juan Cruz · ABC 123". */
+export function usedForLabel(job: { billTo: { name: string; company: string }; vehicle: { plate: string } }): string {
+  return [job.billTo.name.trim() || job.billTo.company.trim(), job.vehicle.plate.trim()].filter(Boolean).join(" · ");
+}
+
 /**
  * A part line takes its stock from Inventory when the job order is made: the
  * customer has approved it, so the part is really going on the car. A
@@ -94,12 +99,10 @@ export function jobOrderCosting(
 }
 
 /**
- * How a booking and its job orders share one job without tracking it twice.
- *
- * The booking owns the appointment: Pending, then Confirmed. Once a job order
- * exists for it, the job order owns the work, Open, In progress, Completed,
- * and the booking follows. Pure, so the drawer, the actions and the check
- * script agree.
+ * Bookings and job orders. Since 20 Nov 2026 a job order is the record of the
+ * agreed work, with no progress of its own: the booking owns the appointment
+ * and moves itself from Pending to Completed. Pure, so the drawer, the
+ * actions and the check script agree.
  */
 
 /** A job order as the booking side needs to see it. */
@@ -112,56 +115,24 @@ export function activeJobs<T extends { status: JobOrderStatus }>(jobs: T[]): T[]
   return jobs.filter((job) => job.status !== "Cancelled");
 }
 
-/**
- * The booking status its job orders call for, or null when the booking keeps
- * its own because no work has started. A booking with several job orders is
- * In progress until every one still standing is Completed.
- */
-export function bookingStatusFromJobs(statuses: JobOrderStatus[]): BookingStatus | null {
-  const active = statuses.filter((status) => status !== "Cancelled");
-  if (active.length === 0) return null;
-  if (active.every((status) => status === "Completed")) return "Completed";
-  if (active.some((status) => status !== "Open")) return "In progress";
-  return null;
-}
-
-/**
- * What the booking should become after a job order changed. Work undone or
- * cancelled leaves the appointment standing as Confirmed: the customer still
- * came in, and whether to cancel the booking is a person's call.
- */
-export function syncedBookingStatus(current: BookingStatus, jobStatuses: JobOrderStatus[]): BookingStatus | null {
-  if (current === "Cancelled") return null;
-  const target = bookingStatusFromJobs(jobStatuses);
-  const next = target ?? (current === "In progress" || current === "Completed" ? "Confirmed" : null);
-  return next && next !== current ? next : null;
-}
-
 function names(jobs: BookingJob[]): string {
   return jobs.map((job) => job.ref).join(", ");
 }
 
-/** Why the booking side may not make this move while it has job orders, or null when it may. */
+/**
+ * Why the booking side may not make this move while it has job orders, or
+ * null when it may. A job order is a record of the agreed work, with no
+ * progress of its own (20 Nov 2026), so the booking keeps moving itself
+ * through Start and Complete. It only may not be cancelled under a recorded
+ * job order, whose sale it carries.
+ */
 export function bookingMoveRefusal(next: BookingStatus, jobs: BookingJob[]): string | null {
   const active = activeJobs(jobs);
-  if (active.length === 0) return null;
-  if (next === "Cancelled") {
-    return `This booking has open work on ${names(active)}. Cancel the job order first.`;
-  }
-  if (next === "In progress" || next === "Completed") {
-    return `The work is tracked on ${names(active)}. Start and complete it there; this booking follows.`;
-  }
-  if (active.some((job) => job.status !== "Open")) {
-    return `Work has started on ${names(active)}. Move the job order back to Open first.`;
-  }
-  return null;
+  if (active.length === 0 || next !== "Cancelled") return null;
+  return `This booking has job order ${names(active)} recorded. Cancel the job order first.`;
 }
 
-/** Why a job order may not start yet, or null. Starting work on an unconfirmed booking would skip staff confirmation. */
-export function jobStartRefusal(next: JobOrderStatus, booking: { ref: string; status: BookingStatus } | null): string | null {
-  if (!booking || (next !== "In progress" && next !== "Completed")) return null;
-  if (booking.status === "Pending") {
-    return `Booking ${booking.ref} is still Pending. Confirm it in Bookings before starting the work.`;
-  }
-  return null;
+/** What a job order shows: it is recorded, or it was cancelled. Older ones stored Open, In progress or Completed. */
+export function jobOrderLabel(status: JobOrderStatus): "Recorded" | "Cancelled" {
+  return status === "Cancelled" ? "Cancelled" : "Recorded";
 }

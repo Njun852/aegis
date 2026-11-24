@@ -35,11 +35,13 @@ import {
 import { activateOnKey } from "@/lib/interaction";
 import { ItemDrawer } from "./item-drawer";
 import { PO_GRID, PoLinesList } from "./po-lines-list";
+import { JobUsesList, filterJobUses } from "./job-uses-list";
 import { StockMoveModal } from "./stock-move-modal";
 import type {
   InventoryItem,
   InventoryPeriod,
   InventoryStatusFilter,
+  JobPartUse,
   StockBatch,
   StockMove,
   StockMoveKind,
@@ -99,6 +101,8 @@ export interface InventoryWorkspaceProps {
   moves: StockMove[];
   /** Every batch, newest first. The drawer shows the selected item's. */
   batches: StockBatch[];
+  /** Parts taken from stock for job orders, with the customer and car each went to. */
+  jobUses: JobPartUse[];
   /**
    * "Now" as the server saw it. Passed in rather than read from the client
    * clock so the date maths that runs during SSR and after hydration agree.
@@ -110,6 +114,7 @@ export function InventoryWorkspace({
   items,
   moves,
   batches,
+  jobUses,
   todayIso,
 }: InventoryWorkspaceProps) {
   const router = useRouter();
@@ -120,7 +125,7 @@ export function InventoryWorkspace({
     DEFAULT_INVENTORY_PERIOD,
   );
   /** By PO lists each delivery still on the shelf, as the costing sheet does; by item totals them. */
-  const [view, setView] = useState<"po" | "item">("po");
+  const [view, setView] = useState<"po" | "item" | "jobs">("po");
   const [openSku, setOpenSku] = useState<string | null>(null);
   const today = useMemo(() => new Date(todayIso), [todayIso]);
   const [move, setMove] = useState<{
@@ -150,6 +155,12 @@ export function InventoryWorkspace({
   const windowMoves = useMemo(
     () => movesInPeriod(moves, period, today),
     [moves, period, today],
+  );
+
+  /** Used on jobs: the parts taken for job orders in the period, matching the search. */
+  const visibleUses = useMemo(
+    () => filterJobUses(movesInPeriod(jobUses, period, today), search),
+    [jobUses, period, today, search],
   );
 
   const selected = items.find((item) => item.sku === openSku) ?? null;
@@ -305,7 +316,7 @@ export function InventoryWorkspace({
           }}
         >
           <div className="flex flex-wrap items-center gap-2">
-            {filters.map((filter) => {
+            {view !== "jobs" && filters.map((filter) => {
               const active = status === filter;
               const dot =
                 filter === "All"
@@ -357,6 +368,7 @@ export function InventoryWorkspace({
                 </button>
               );
             })}
+            {view !== "jobs" && (
             <button
               type="button"
               aria-pressed={todayOnly}
@@ -388,9 +400,12 @@ export function InventoryWorkspace({
                 {view === "po" ? linesToday.length : itemsToday.length}
               </span>
             </button>
+            )}
             <span className="ml-auto flex flex-wrap items-center gap-2.5">
               <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
-                {view === "po"
+                {view === "jobs"
+                  ? `${visibleUses.length} ${visibleUses.length === 1 ? "part" : "parts"} used`
+                  : view === "po"
                   ? `${visibleLines.length} of ${lines.length} lines`
                   : `${visible.length} of ${items.length} shown`}
               </span>
@@ -409,6 +424,7 @@ export function InventoryWorkspace({
                   [
                     { key: "po", label: "By PO" },
                     { key: "item", label: "By item" },
+                    { key: "jobs", label: "Used on jobs" },
                   ] as const
                 ).map((option) => {
                   const active = view === option.key;
@@ -447,7 +463,9 @@ export function InventoryWorkspace({
             </span>
           </div>
 
-          {view === "po" ? (
+          {view === "jobs" ? (
+            <JobUsesList uses={visibleUses} total={jobUses.length} />
+          ) : view === "po" ? (
             <>
               <div
                 className={PO_GRID}

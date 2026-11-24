@@ -8,7 +8,7 @@ import {
   type AskProposal,
   type AskScreen,
 } from "@/lib/ask";
-import { bookingMoveRefusal, jobStartRefusal } from "@/lib/job-orders";
+import { bookingMoveRefusal } from "@/lib/job-orders";
 import {
   MAX_AMOUNT_CENTS,
   MAX_QTY,
@@ -21,7 +21,7 @@ import {
 import { getBooking } from "./bookings";
 import { findJobOrder, listJobsForBooking } from "./job-orders";
 import { findQuotation } from "./quotations";
-import type { BookingStatus, Business, JobOrderStatus } from "@/types";
+import type { BookingStatus, Business } from "@/types";
 
 /**
  * Turns what the model proposed into cards a person can confirm. Each
@@ -37,7 +37,6 @@ export interface RawAskAction {
   ref: string;
   screen: string;
   status: string;
-  outcome: string;
   customer: string;
   how: string;
   lines: { section: string; description: string; qty: number; unit_price: number }[];
@@ -48,14 +47,13 @@ export function actionsFor(business: Business, isAdmin: boolean): AskActionKind[
   const kinds: AskActionKind[] = ["open"];
   if (has("bookings")) kinds.push("booking_status");
   if (has("quotes")) {
-    kinds.push("draft_quotation", "quote_mark_given", "quote_answer", "make_job_order", "job_status");
+    kinds.push("draft_quotation", "quote_mark_given", "make_job_order", "job_status");
     if (isAdmin) kinds.push("approve_pricing");
   }
   return kinds;
 }
 
 const BOOKING_STATUSES: BookingStatus[] = ["Pending", "Confirmed", "In progress", "Completed", "Cancelled"];
-const JOB_STATUSES: JobOrderStatus[] = ["Open", "In progress", "Completed", "Cancelled"];
 const MAX_DRAFT_LINES = 20;
 
 const blocked = (proposal: Omit<AskProposal, "blocked">, reason: string): AskProposal => ({ ...proposal, blocked: reason });
@@ -91,7 +89,6 @@ async function propose(raw: RawAskAction, id: string, allowed: AskActionKind[]):
     }
 
     case "quote_mark_given":
-    case "quote_answer":
     case "approve_pricing":
     case "make_job_order": {
       const quote = ref ? await findQuotation(ref) : null;
@@ -113,23 +110,6 @@ async function propose(raw: RawAskAction, id: string, allowed: AskActionKind[]):
         return { ...proposal, blocked: null };
       }
 
-      if (kind === "quote_answer") {
-        const said = raw.outcome.trim().toLowerCase();
-        const outcome: "Approved" | "Declined" | null = said === "declined" ? "Declined" : said === "approved" ? "Approved" : null;
-        const customerName = raw.customer.trim().slice(0, 120) || who;
-        const proposal = {
-          ...base,
-          title: outcome === "Declined" ? `Record that ${quote.ref} was declined` : `Record that ${quote.ref} was approved`,
-          details: [about, `Answered by ${customerName}, in person, now`],
-          params: { ref: quote.ref, outcome: outcome ?? undefined, customerName },
-        };
-        if (!outcome) return blocked(proposal, "Only a full approval or a decline can be recorded here. Tick the lines for a partial approval on the quotation.");
-        if (quote.status !== "Sent" && quote.status !== "Expired") {
-          return blocked(proposal, quote.status === "Draft" ? "It has not been sent or given to the customer yet." : `An answer is already recorded (${quote.status}).`);
-        }
-        return { ...proposal, blocked: null };
-      }
-
       if (kind === "approve_pricing") {
         const key = specialPricingKey(quote.lines, quote.discountCents);
         const proposal = {
@@ -146,32 +126,36 @@ async function propose(raw: RawAskAction, id: string, allowed: AskActionKind[]):
       const proposal = {
         ...base,
         title: `Make a job order from ${quote.ref}`,
-        details: [about, quote.response ? `Approved ${formatPeso(quote.response.approvedTotalCents)} by ${quote.response.customerName}` : "", quote.bookingRef ? `Booking ${quote.bookingRef} takes the approved amount as its value` : ""].filter(Boolean),
+        details: [
+          about,
+          quote.response
+            ? `Approved ${formatPeso(quote.response.approvedTotalCents)} by ${quote.response.customerName}`
+            : "Records the customer's approval of the whole quotation",
+          quote.bookingRef ? `Booking ${quote.bookingRef} takes the approved amount as its value` : "",
+        ].filter(Boolean),
         params: { ref: quote.ref },
       };
       if (quote.jobOrderRef) return blocked(proposal, `It is already job order ${quote.jobOrderRef}.`);
-      if (quote.status !== "Approved" && quote.status !== "Partially Approved") {
-        return blocked(proposal, "The customer's approval is not recorded yet.");
-      }
+      if (quote.status === "Draft") return blocked(proposal, "It has not been sent or given to the customer yet.");
+      if (quote.status === "Declined") return blocked(proposal, "The customer declined it.");
       return { ...proposal, blocked: null };
     }
 
     case "job_status": {
-      const status = JOB_STATUSES.find((entry) => entry.toLowerCase() === raw.status.trim().toLowerCase());
+      // A job order is a record with no progress of its own; cancelling is its one change.
       const job = ref ? await findJobOrder(ref) : null;
       if (!job) return blocked({ ...base, title: `Job order ${ref || "?"}` }, "That job order is not on file.");
       const proposal = {
         ...base,
-        title: status === "Cancelled" ? `Cancel job order ${job.ref}` : `Move job order ${job.ref} to ${status ?? "?"}`,
-        details: [`${job.billTo.name || job.billTo.company} · ${formatPeso(job.approvedTotalCents)}`, `${job.status} → ${status ?? "?"}`, job.bookingRef ? `Booking ${job.bookingRef} follows it` : ""].filter(Boolean),
-        params: { ref: job.ref, status },
+        title: `Cancel job order ${job.ref}`,
+        details: [`${job.billTo.name || job.billTo.company} · ${formatPeso(job.approvedTotalCents)}`, "Parts it took go back into Inventory"],
+        params: { ref: job.ref, status: "Cancelled" },
       };
-      if (!status) return blocked(proposal, "That is not a job order status.");
-      if (status === job.status) return blocked(proposal, `It is already ${status}.`);
-      if (job.status === "Cancelled") return blocked(proposal, "A cancelled job order stays cancelled.");
-      const booking = job.bookingRef ? await getBooking(job.bookingRef) : null;
-      const refusal = jobStartRefusal(status, booking ? { ref: booking.ref, status: booking.status } : null);
-      return refusal ? blocked(proposal, refusal) : { ...proposal, blocked: null };
+      if (raw.status.trim().toLowerCase() !== "cancelled") {
+        return blocked(proposal, "Job orders are records now, with nothing to start or complete. Only cancelling one can be done here.");
+      }
+      if (job.status === "Cancelled") return blocked(proposal, "It was cancelled already.");
+      return { ...proposal, blocked: null };
     }
 
     case "draft_quotation": {

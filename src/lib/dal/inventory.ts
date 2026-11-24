@@ -477,7 +477,8 @@ export async function recordStockMove(
     reason: input.reason,
     documentRef: input.documentRef.trim(),
     poNumber,
-    party: meta.transaction ? input.party.trim() : "",
+    // A job's parts name who they were used for (customer and car), for costing.
+    party: meta.transaction || meta.jobOnly ? input.party.trim() : "",
     unitAmountCents: meta.transaction ? input.unitAmountCents : 0,
     amountCents,
     createdItem,
@@ -592,6 +593,8 @@ export async function returnJobStock(input: {
   costCents: number;
   batches: BatchDraw[];
   jobOrderRef: string;
+  /** Who the units had been taken for, as on the movement that took them. */
+  party: string;
 }): Promise<string> {
   await ensureOpeningBatches();
   const itemsCollection = await items();
@@ -608,7 +611,7 @@ export async function returnJobStock(input: {
     reason: "Returned from job order",
     documentRef: input.jobOrderRef,
     poNumber: "",
-    party: "",
+    party: input.party,
     unitAmountCents: 0,
     amountCents: 0,
     createdItem: false,

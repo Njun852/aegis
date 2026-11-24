@@ -20,6 +20,7 @@ import {
   quoteTotals,
   signerKey,
   specialPricingKey,
+  specialPricingReason,
 } from "@/lib/quotations";
 import { businessesCollection } from "./db";
 import { InputError, insertWithRef, isDuplicateKey } from "./refs";
@@ -51,6 +52,7 @@ import type {
   QuoteResponseDocument,
   QuoteSection,
   QuoteSource,
+  ScanRecord,
   UserRole,
 } from "@/types";
 
@@ -113,6 +115,7 @@ function toQuotation(doc: QuotationDocument): Quotation {
     notes: doc.notes,
     source: doc.source,
     photoRef: doc.photoRef ?? null,
+    paperJobOrder: doc.paperJobOrder === true,
     totals: quoteTotals(doc.lines, doc.discountCents),
     sent: doc.sentAt ? formatStamp(doc.sentAt) : null,
     sentTo: doc.sentTo ?? null,
@@ -275,7 +278,7 @@ function totalChange(beforeCents: number, afterCents: number): string {
 
 export async function createQuotation(
   input: QuotationInput,
-  options: { source?: QuoteSource; photoRef?: string } = {},
+  options: { source?: QuoteSource; photoRef?: string; paperJobOrder?: boolean } = {},
 ): Promise<string> {
   const actor = await currentQuoteActor();
   const collection = await quotations();
@@ -302,6 +305,7 @@ export async function createQuotation(
       notes: input.notes,
       source: options.source ?? "manual",
       ...(options.photoRef ? { photoRef: options.photoRef } : {}),
+      ...(options.paperJobOrder ? { paperJobOrder: true } : {}),
       createdBy: actor.userId,
       preparedBy: actorOf(actor),
       createdAt: now,
@@ -314,7 +318,13 @@ export async function createQuotation(
     ref,
     1,
     "created",
-    `Prepared by ${actor.name}${options.source === "photo" ? " from a photo" : ""}${
+    `Prepared by ${actor.name}${
+      options.paperJobOrder
+        ? ` from a scan of the paper job order (${options.photoRef})`
+        : options.source === "photo"
+          ? " from a photo"
+          : ""
+    }${
       input.bookingRef ? ` for booking ${input.bookingRef}` : ""
     }; total ${formatPeso(total)}.`,
     actor,
@@ -335,12 +345,11 @@ export async function createQuotation(
 export async function updateQuotation(
   ref: string,
   input: QuotationInput,
-): Promise<{ revision: number; revised: boolean }> {
+  options: { canApprovePricing: boolean } = { canApprovePricing: false },
+): Promise<{ revision: number; revised: boolean; jobOrderRef: string | null }> {
   const actor = await currentQuoteActor();
   const doc = await requireDocument(ref);
-  if (doc.jobOrderRef) {
-    throw new InputError(`${ref} became job order ${doc.jobOrderRef} and can no longer be changed.`);
-  }
+  if (doc.jobOrderRef) return reviseRecordedJob(doc, input, actor, options);
 
   const collection = await quotations();
   const lines = storedLines(input.lines);
@@ -352,7 +361,7 @@ export async function updateQuotation(
 
   // Saving what is already stored changes nothing and logs nothing.
   if (JSON.stringify(contentOf(doc)) === JSON.stringify(content)) {
-    return { revision, revised: false };
+    return { revision, revised: false, jobOrderRef: null };
   }
 
   let next = revision;
@@ -405,7 +414,116 @@ export async function updateQuotation(
   if (discount) await logEvent(ref, next, "discount", discount, actor);
 
   await rememberLines(lines);
-  return { revision: next, revised: next !== revision };
+  return { revision: next, revised: next !== revision, jobOrderRef: null };
+}
+
+/**
+ * A quotation already recorded as a job order is changed (owner's choice,
+ * 20 Nov 2026: the job order follows it rather than locking it). The version
+ * the job order was made from is kept as a revision, the quotation stays
+ * Approved for the whole of the new version, and the caller brings the job
+ * order in line (`syncJobOrderWithQuotation`). Every line must keep a price,
+ * and new special pricing needs someone who can approve it, who approves it
+ * by saving.
+ */
+async function reviseRecordedJob(
+  doc: QuotationDocument,
+  input: QuotationInput,
+  actor: QuoteActor,
+  options: { canApprovePricing: boolean },
+): Promise<{ revision: number; revised: boolean; jobOrderRef: string | null }> {
+  const jobRef = doc.jobOrderRef as string;
+  const job = await (await jobOrders()).findOne({ ref: jobRef });
+  if (job?.status === "Cancelled") {
+    throw new InputError(`${jobRef} was cancelled, so ${doc.ref} can no longer change. Start a new quotation for new work.`);
+  }
+
+  const lines = storedLines(input.lines);
+  const content = contentFromInput(input, lines);
+  const revision = doc.revision ?? 1;
+  if (JSON.stringify(contentOf(doc)) === JSON.stringify(content)) {
+    return { revision, revised: false, jobOrderRef: jobRef };
+  }
+  if (lines.some((line) => line.unitPriceCents === null)) {
+    throw new InputError(`Price every line: ${doc.ref} is recorded as job order ${jobRef}.`);
+  }
+
+  const now = new Date();
+  const key = specialPricingKey(lines, input.discountCents);
+  let pricingApproval = doc.pricingApproval ?? null;
+  if (key && pricingApproval?.key !== key) {
+    if (!options.canApprovePricing) {
+      throw new InputError(
+        `${specialPricingReason(lines, input.discountCents) ?? "This pricing"} needs an owner or administrator: ${doc.ref} is recorded as job order ${jobRef}, so it cannot wait for approval.`,
+      );
+    }
+    pricingApproval = {
+      key,
+      by: actorOf(actor),
+      at: now,
+      discountCents: input.discountCents,
+      belowCostLines: belowCostLines(lines).length,
+    };
+  }
+
+  const history = await revisions();
+  try {
+    await history.insertOne({
+      quotationRef: doc.ref,
+      revision,
+      content: contentOf(doc),
+      status: doc.status,
+      ...(doc.sentAt ? { sentAt: doc.sentAt } : {}),
+      ...(doc.sentTo ? { sentTo: doc.sentTo } : {}),
+      ...(doc.preparedBy ? { preparedBy: doc.preparedBy } : {}),
+      pricingApproval: doc.pricingApproval ?? null,
+      response: doc.response ?? null,
+      supersededAt: now,
+      supersededBy: actorOf(actor),
+    });
+  } catch (error) {
+    if (isDuplicateKey(error)) throw new InputError(RACE);
+    throw error;
+  }
+
+  const before = quoteTotals(doc.lines, doc.discountCents).totalCents;
+  const totals = quoteTotals(lines, input.discountCents);
+  const next = revision + 1;
+  const response: QuoteResponseDocument | undefined = doc.response
+    ? {
+        ...doc.response,
+        outcome: "Approved",
+        approvedLineIds: lines.map((line) => line.id),
+        approvedDiscountCents: input.discountCents,
+        approvedTotalCents: totals.totalCents,
+      }
+    : undefined;
+  const result = await (await quotations()).updateOne(atRevision(doc), {
+    $set: {
+      ...content,
+      revision: next,
+      status: "Approved",
+      ...(response ? { response } : {}),
+      pricingApproval,
+      updatedAt: now,
+    },
+  });
+  if (result.matchedCount === 0) throw new InputError(RACE);
+
+  await logEvent(
+    doc.ref,
+    next,
+    "revised",
+    `Revision ${next} saved after job order ${jobRef}, which follows it; revision ${revision} kept as it was. ${capitalise(totalChange(before, totals.totalCents))}.`,
+    actor,
+  );
+  const discount = describeDiscountChange(
+    { cents: doc.discountCents, reason: doc.discountReason ?? "" },
+    { cents: input.discountCents, reason: input.discountReason },
+  );
+  if (discount) await logEvent(doc.ref, next, "discount", discount, actor);
+  await rememberLines(lines);
+  return { revision: next, revised: true, jobOrderRef: jobRef };
 }
 
 function capitalise(text: string): string {
@@ -433,7 +551,7 @@ export async function deleteQuotation(ref: string): Promise<void> {
  * says they handed it over. A quotation the customer has already answered
  * keeps its answer: sending them a copy does not reopen it.
  */
-export async function markQuotationSent(ref: string, to: string, how: "email" | "hand"): Promise<void> {
+export async function markQuotationSent(ref: string, to: string, how: "email" | "hand" | "paper"): Promise<void> {
   const actor = await currentQuoteActor();
   const doc = await requireDocument(ref);
   const collection = await quotations();
@@ -447,7 +565,11 @@ export async function markQuotationSent(ref: string, to: string, how: "email" | 
     ref,
     doc.revision ?? 1,
     "sent",
-    how === "email" ? `Emailed to ${to} with the PDF; total ${total}.` : `Given to the customer: ${to}; total ${total}.`,
+    how === "email"
+      ? `Emailed to ${to} with the PDF; total ${total}.`
+      : how === "paper"
+        ? `Checked against the scan and recorded as the paper job order; total ${total}.`
+        : `Given to the customer: ${to}; total ${total}.`,
     actor,
   );
 }
@@ -599,27 +721,6 @@ export async function recordQuoteResponse(ref: string, input: ResponseInput): Pr
   );
 }
 
-/** Undoes an answer recorded by mistake, while nothing has been made from it. */
-export async function clearQuoteResponse(ref: string): Promise<void> {
-  const actor = await currentQuoteActor();
-  const doc = await requireDocument(ref);
-  if (doc.jobOrderRef) throw new InputError(`${ref} is already job order ${doc.jobOrderRef}; its approval stands.`);
-  if (!doc.response) throw new InputError("No answer is recorded for this revision.");
-  const collection = await quotations();
-  const result = await collection.updateOne(atRevision(doc), {
-    $set: { status: "Sent", updatedAt: new Date() },
-    $unset: { response: "" },
-  });
-  if (result.matchedCount === 0) throw new InputError(RACE);
-  await logEvent(
-    ref,
-    doc.revision ?? 1,
-    "response-cleared",
-    `Recorded answer cleared (was ${doc.response.outcome} by ${doc.response.customerName}, recorded by ${doc.response.recordedBy.name}).`,
-    actor,
-  );
-}
-
 // ---- Revisions -------------------------------------------------------------------
 
 export async function listRevisionSummaries(quotationRef: string): Promise<QuotationRevisionSummary[]> {
@@ -689,16 +790,38 @@ export async function listQuotationsByBooking(): Promise<Record<string, BookingQ
  * Makes the job order from the approved lines of the current revision. Safe
  * to repeat: the unique index allows one job order per quotation, and a
  * second request gets the first one back.
+ *
+ * The shop does not record the customer's answer as a separate step (owner's
+ * choice, 20 Nov 2026): making the job order from a quotation that was given
+ * is the approval. It is recorded first, as a full approval by the Bill To
+ * name at that moment, so the job order, the booking value and History read
+ * as before. Answers recorded on older quotations still count as they were.
  */
 export async function convertToJobOrder(ref: string): Promise<{ jobOrderRef: string; created: boolean; doc: QuotationDocument }> {
   const actor = await currentQuoteActor();
-  const doc = await requireDocument(ref);
+  let doc = await requireDocument(ref);
   const orders = await jobOrders();
 
   const existing = doc.jobOrderRef ? { ref: doc.jobOrderRef } : await orders.findOne({ quotationRef: ref });
   if (existing) {
     if (!doc.jobOrderRef) await (await quotations()).updateOne({ ref }, { $set: { jobOrderRef: existing.ref } });
     return { jobOrderRef: existing.ref, created: false, doc };
+  }
+
+  if (doc.status === "Draft") {
+    throw new InputError("Email the quotation or mark it as given to the customer before making the job order.");
+  }
+  if (doc.status === "Sent" && !doc.response) {
+    await recordQuoteResponse(ref, {
+      outcome: "Approved",
+      at: new Date(),
+      customerName: doc.billTo.name.trim() || doc.billTo.company.trim() || "Customer",
+      method: "Job order made",
+      note: "",
+      approvedLineIds: [],
+      approvedDiscountCents: 0,
+    });
+    doc = await requireDocument(ref);
   }
 
   if (doc.status !== "Approved" && doc.status !== "Partially Approved") {
@@ -739,6 +862,7 @@ export async function convertToJobOrder(ref: string): Promise<{ jobOrderRef: str
         approvedAt: response.at,
         approvedByCustomer: response.customerName,
         invoiceRef: null,
+        photoRef: doc.photoRef ?? null,
         createdBy: actorOf(actor),
         createdAt: now,
         updatedAt: now,
@@ -898,6 +1022,71 @@ export async function readPhotoImage(ref: string): Promise<{ dataUrl: string } |
   const collection = await photos();
   const doc = await collection.findOne({ ref });
   return doc ? { dataUrl: doc.dataUrl } : null;
+}
+
+const READ_AS: Record<QuotePhotoKind, string> = {
+  written_estimate: "Job order or written estimate",
+  service_request: "Service request",
+  supplier_document: "Supplier document",
+  vehicle_photo: "Photo of the car",
+  other: "Not a job order",
+};
+
+/**
+ * The scan history: every document scanned, newest first, with who scanned
+ * it, what the AI read, the quotation and job order that came of it, and the
+ * quotation's history. Images are left out; the list loads them by ref.
+ */
+export async function listScans(limit = 100): Promise<ScanRecord[]> {
+  const docs = await (await photos())
+    .find()
+    .project<Omit<QuotePhotoDocument, "dataUrl">>({ dataUrl: 0 })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .toArray();
+
+  const quoteRefs = [...new Set(docs.map((doc) => doc.quotationRef).filter((ref): ref is string => Boolean(ref)))];
+  const [quoteDocs, eventDocs, jobDocs] = quoteRefs.length
+    ? await Promise.all([
+        (await quotations()).find({ ref: { $in: quoteRefs } }).toArray(),
+        (await events()).find({ quotationRef: { $in: quoteRefs } }).sort({ at: 1 }).toArray(),
+        (await jobOrders()).find({ quotationRef: { $in: quoteRefs } }).toArray(),
+      ])
+    : [[], [], []];
+
+  const names = new Map<string, string>();
+  for (const userId of new Set(docs.map((doc) => doc.createdBy))) {
+    const user = await findUserById(userId);
+    names.set(userId, user?.name || user?.username || "Unknown user");
+  }
+
+  return docs.map((doc) => {
+    const quote = doc.quotationRef ? quoteDocs.find((entry) => entry.ref === doc.quotationRef) : undefined;
+    const job = quote ? jobDocs.find((entry) => entry.quotationRef === quote.ref) : undefined;
+    return {
+      ref: doc.ref,
+      when: formatStamp(doc.createdAt),
+      at: doc.createdAt.toISOString(),
+      by: names.get(doc.createdBy) ?? "Unknown user",
+      readAs: doc.kind ? READ_AS[doc.kind] : null,
+      note: doc.note,
+      quotation: quote
+        ? {
+            ref: quote.ref,
+            status: effectiveStatus(quote.status, validUntilOf(quote), todayKey()),
+            totalCents: quoteTotals(quote.lines, quote.discountCents).totalCents,
+            customer: quote.billTo.name || quote.billTo.company,
+            plate: quote.vehicle.plate,
+          }
+        : null,
+      jobOrder: job ? { ref: job.ref, status: job.status } : null,
+      events: quote
+        ? eventDocs
+            .filter((event) => event.quotationRef === quote.ref)
+            .map((event) => ({ revision: event.revision, kind: event.kind, detail: event.detail, by: event.by.name, at: formatStamp(event.at) }))
+        : [],
+    };
+  });
 }
 
 export async function findPhotoView(ref: string): Promise<QuotePhotoView | null> {

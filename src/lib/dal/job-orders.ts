@@ -1,26 +1,26 @@
 import "server-only";
 
 import { formatStamp } from "@/lib/format";
-import {
-  jobOrderCosting,
-  jobStartRefusal,
-  linesToTake,
-  stockStateOf,
-  syncedBookingStatus,
-  type BookingJob,
-} from "@/lib/job-orders";
-import { formatManilaStamp, formatPeso } from "@/lib/quotations";
-import { getBooking, setBookingStatus } from "./bookings";
+import { jobOrderCosting, linesToTake, stockStateOf, usedForLabel, type BookingJob } from "@/lib/job-orders";
+import { formatManilaStamp, formatPeso, priceItemKey } from "@/lib/quotations";
 import { recordStockMove, returnJobStock } from "./inventory";
+import { currentQuoteActor } from "./quotations";
 import { InputError } from "./refs";
 import { tenantScope } from "./tenant";
 import type {
   JobOrder,
   JobOrderDocument,
+  JobOrderEvent,
+  JobOrderEventDocument,
+  JobOrderEventKind,
   JobOrderLine,
   JobOrderLineView,
-  JobOrderStatus,
   JobOrderSummary,
+  JobPartUse,
+  PriceItemUse,
+  QuoteBillTo,
+  QuoteLine,
+  QuoteVehicle,
 } from "@/types";
 
 /**
@@ -32,9 +32,10 @@ import type {
  * yet, which is for invoicing to do. That is what keeps a converted
  * quotation from counting twice.
  *
- * Nor does it keep a second copy of the booking's progress: once a booking
- * has a job order, the work is moved on here and the booking follows (rules
- * in `src/lib/job-orders.ts`).
+ * Nor does it have progress of its own (20 Nov 2026): it is the record of
+ * the agreed work, with no start or complete; the booking moves itself. When
+ * its quotation is changed afterwards, the job order follows it and its
+ * history says what changed (`syncJobOrderWithQuotation`).
  *
  * Its parts do leave Inventory: each line linked to an Inventory item takes
  * its units when the job order is made, oldest batch first, and the cost of
@@ -93,6 +94,7 @@ function toJobOrder(doc: JobOrderDocument): JobOrder {
     actualMarginPercent: costing.actual.marginPercent,
     stockLines: costing.stockLines,
     waitingLines: lines.filter((line) => line.stockState === "waiting").length,
+    photoRef: doc.photoRef ?? null,
     createdBy: doc.createdBy.name,
     created: formatStamp(doc.createdAt),
     updatedAt: doc.updatedAt.toISOString(),
@@ -140,6 +142,44 @@ export async function listJobsByBooking(): Promise<Record<string, BookingJob[]>>
 }
 
 // ---- Stock ------------------------------------------------------------------------
+
+/**
+ * Every part taken from stock for a job, newest first, with the customer and
+ * car it went to: Inventory's "Used on jobs" list, the costing record of who
+ * each unit was used for and what it cost.
+ */
+export async function listPartsUsedOnJobs(limit = 500): Promise<JobPartUse[]> {
+  const collection = await jobOrders();
+  const docs = await collection
+    .find({ lines: { $elemMatch: { stock: { $type: "object" } } } })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .toArray();
+  const uses: JobPartUse[] = [];
+  for (const doc of docs) {
+    for (const line of doc.lines) {
+      const stock = line.stock;
+      if (!stock || !line.sku) continue;
+      uses.push({
+        moveRef: stock.moveRef,
+        sku: line.sku,
+        description: line.description,
+        quantity: stock.quantity,
+        unit: line.unit,
+        costCents: stock.costCents,
+        occurredAt: stock.takenAt.toISOString(),
+        when: formatStamp(stock.takenAt),
+        jobOrderRef: doc.ref,
+        jobStatus: doc.status,
+        customer: doc.billTo.name || doc.billTo.company,
+        plate: doc.vehicle.plate,
+        makeModel: doc.vehicle.makeModel,
+        returned: Boolean(stock.returnMoveRef),
+      });
+    }
+  }
+  return uses.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+}
 
 export interface StockTakeResult {
   taken: { description: string; quantity: number; unit: string; costCents: number }[];
@@ -203,7 +243,7 @@ export async function takeJobStock(ref: string): Promise<StockTakeResult> {
         reason: "Used on job order",
         documentRef: ref,
         poNumber: "",
-        party: "",
+        party: usedForLabel(doc),
         unitAmountCents: 0,
       });
       await collection.updateOne(
@@ -231,14 +271,79 @@ export async function takeJobStock(ref: string): Promise<StockTakeResult> {
       result.waiting.push(`${line.description}: ${reason}`);
     }
   }
+  const summary = stockTakeSummary(result);
+  if (summary) await logJobEvent(ref, "stock", summary);
   return result;
+}
+
+
+// ---- History ------------------------------------------------------------------------
+
+const jobEvents = () => tenantScope<JobOrderEventDocument>("jobOrderEvents");
+
+/** Adds a line to the job order's history, by the signed-in person. */
+export async function logJobEvent(ref: string, kind: JobOrderEventKind, detail: string): Promise<void> {
+  const actor = await currentQuoteActor();
+  const collection = await jobEvents();
+  await collection.insertOne({
+    jobOrderRef: ref,
+    kind,
+    detail,
+    by: { userId: actor.userId, name: actor.name },
+    at: new Date(),
+  } as JobOrderEventDocument);
+}
+
+/** The job order's history, newest first. */
+export async function listJobOrderEvents(ref: string): Promise<JobOrderEvent[]> {
+  const collection = await jobEvents();
+  const docs = await collection.find({ jobOrderRef: ref }).sort({ at: -1 }).limit(200).toArray();
+  return docs.map((doc) => ({ kind: doc.kind, detail: doc.detail, by: doc.by.name, at: formatStamp(doc.at) }));
+}
+
+// ---- Putting stock back -------------------------------------------------------------
+
+/**
+ * Puts back what one line took, into the batches it came from. The line is
+ * claimed first, so a part is never put back twice. Returns the movement, or
+ * null when there was nothing to put back; throws with the reason on failure.
+ */
+async function returnLineStock(doc: JobOrderDocument, line: JobOrderLine): Promise<string | null> {
+  const collection = await jobOrders();
+  const stock = line.stock;
+  if (!stock || stock.returnMoveRef || !line.sku) return null;
+
+  const claimed = await collection.updateOne(
+    { ref: doc.ref, lines: { $elemMatch: { id: line.id, "stock.moveRef": stock.moveRef, "stock.returnMoveRef": null } } },
+    { $set: { "lines.$.stock.returnMoveRef": "returning" } },
+  );
+  if (claimed.matchedCount === 0) return null;
+
+  try {
+    const moveRef = await returnJobStock({
+      sku: line.sku,
+      quantity: stock.quantity,
+      costCents: stock.costCents,
+      batches: stock.batches,
+      jobOrderRef: doc.ref,
+      party: usedForLabel(doc),
+    });
+    await collection.updateOne(
+      { ref: doc.ref, "lines.id": line.id },
+      { $set: { "lines.$.stock.returnMoveRef": moveRef, updatedAt: new Date() } },
+    );
+    return moveRef;
+  } catch (error) {
+    await collection.updateOne({ ref: doc.ref, "lines.id": line.id }, { $set: { "lines.$.stock.returnMoveRef": null } });
+    console.error(`[job-orders] putting back stock for ${doc.ref} failed`, error);
+    throw error;
+  }
 }
 
 /**
  * Puts back every part a job order took and has not returned, into the
- * batches it came from. For a cancelled job order. Each line is claimed
- * first, so a part is never put back twice. Returns one sentence per part
- * that could not be put back.
+ * batches it came from. For a cancelled job order. Returns one sentence per
+ * part that could not be put back.
  */
 export async function returnJobOrderStock(ref: string): Promise<{ returned: number; failed: string[] }> {
   const collection = await jobOrders();
@@ -247,83 +352,210 @@ export async function returnJobOrderStock(ref: string): Promise<{ returned: numb
 
   let returned = 0;
   const failed: string[] = [];
+  const back: string[] = [];
   for (const line of doc.lines) {
-    const stock = line.stock;
-    if (!stock || stock.returnMoveRef || !line.sku) continue;
-
-    const claimed = await collection.updateOne(
-      { ref, lines: { $elemMatch: { id: line.id, "stock.moveRef": stock.moveRef, "stock.returnMoveRef": null } } },
-      { $set: { "lines.$.stock.returnMoveRef": "returning" } },
-    );
-    if (claimed.matchedCount === 0) continue;
-
     try {
-      const moveRef = await returnJobStock({
-        sku: line.sku,
-        quantity: stock.quantity,
-        costCents: stock.costCents,
-        batches: stock.batches,
-        jobOrderRef: ref,
-      });
-      await collection.updateOne(
-        { ref, "lines.id": line.id },
-        { $set: { "lines.$.stock.returnMoveRef": moveRef, updatedAt: new Date() } },
-      );
-      returned += 1;
+      if (await returnLineStock(doc, line)) {
+        returned += 1;
+        back.push(`${line.description} × ${line.stock?.quantity ?? line.qty}`);
+      }
     } catch (error) {
-      await collection.updateOne({ ref, "lines.id": line.id }, { $set: { "lines.$.stock.returnMoveRef": null } });
-      console.error(`[job-orders] putting back stock for ${ref} failed`, error);
       failed.push(`${line.description}: ${error instanceof Error ? error.message : "Inventory could not be updated."}`);
     }
   }
+  if (back.length) await logJobEvent(ref, "stock", `Put back in Inventory: ${back.join(", ")}.`);
   return { returned, failed };
 }
 
-/**
- * Brings the booking in line with its job orders, through the booking's own
- * status change so the ledger and the car's service history move with it.
- * Returns what changed, for the person's toast, or null.
- */
-async function syncBooking(bookingRef: string): Promise<string | null> {
-  const booking = await getBooking(bookingRef);
-  if (!booking) return null;
-  const jobs = await listJobsForBooking(bookingRef);
-  const next = syncedBookingStatus(booking.status, jobs.map((job) => job.status));
-  if (!next) return null;
-  await setBookingStatus(bookingRef, next);
-  return `Booking ${bookingRef} moved to ${next}.`;
-}
+// ---- Cancelling ---------------------------------------------------------------------
 
 /**
- * Moves the work on. Cancelled is final: the approval it came from stays on
- * the quotation, and new work is a new quotation; the parts it took go back
- * into Inventory. With Bookings on, the linked booking follows; work cannot
- * start on a booking nobody confirmed.
+ * A job order is a record of the agreed work with no progress of its own
+ * (20 Nov 2026): nothing to start or complete. Cancelling is the one change:
+ * final, the parts it took go back into Inventory, and new work is a new
+ * quotation. The booking is left as it is, for staff to move.
  */
-export async function setJobOrderStatus(
-  ref: string,
-  status: JobOrderStatus,
-  options: { bookingsEnabled: boolean },
-): Promise<{ bookingNote: string | null; stockNote: string | null }> {
+export async function cancelJobOrder(ref: string): Promise<{ stockNote: string | null }> {
   const collection = await jobOrders();
   const doc = await collection.findOne({ ref });
   if (!doc) throw new InputError(`${ref} is no longer on file.`);
-  if (doc.status === "Cancelled") throw new InputError(`${ref} was cancelled and stays cancelled.`);
-  if (doc.status === status) return { bookingNote: null, stockNote: null };
+  if (doc.status === "Cancelled") throw new InputError(`${ref} was cancelled already.`);
 
-  const booking = options.bookingsEnabled && doc.bookingRef ? await getBooking(doc.bookingRef) : null;
-  const refusal = jobStartRefusal(status, booking);
-  if (refusal) throw new InputError(refusal);
+  await collection.updateOne({ ref }, { $set: { status: "Cancelled", updatedAt: new Date() } });
+  await logJobEvent(ref, "cancelled", `${ref} cancelled.`);
 
-  await collection.updateOne({ ref }, { $set: { status, updatedAt: new Date() } });
+  const { returned, failed } = await returnJobOrderStock(ref);
+  let stockNote: string | null = returned ? `${returned} ${returned === 1 ? "part" : "parts"} put back in Inventory.` : null;
+  if (failed.length) stockNote = `${stockNote ?? ""} Not put back: ${failed.join(" ")}`.trim();
+  return { stockNote };
+}
 
-  let stockNote: string | null = null;
-  if (status === "Cancelled") {
-    const { returned, failed } = await returnJobOrderStock(ref);
-    if (returned) stockNote = `${returned} ${returned === 1 ? "part" : "parts"} put back in Inventory.`;
-    if (failed.length) stockNote = `${stockNote ?? ""} Not put back: ${failed.join(" ")}`.trim();
+// ---- Following the quotation ----------------------------------------------------------
+
+/** The quotation as it stands after a save, for its job order to follow. */
+export interface QuotationForJob {
+  ref: string;
+  revision: number;
+  billTo: QuoteBillTo;
+  vehicle: QuoteVehicle;
+  serviceAdvisor: string;
+  technician: string;
+  lines: QuoteLine[];
+  discountCents: number;
+  approvedTotalCents: number;
+}
+
+function lineChanges(before: JobOrderLine, after: JobOrderLine): string | null {
+  const parts: string[] = [];
+  if (before.description !== after.description) parts.push(`now "${after.description}"`);
+  if (before.qty !== after.qty) parts.push(`qty ${before.qty} → ${after.qty}`);
+  if (before.unitPriceCents !== after.unitPriceCents) {
+    parts.push(`price ${formatPeso(before.unitPriceCents)} → ${formatPeso(after.unitPriceCents)}`);
+  }
+  if ((before.sku ?? null) !== (after.sku ?? null)) parts.push(after.sku ? "linked to a different stock item" : "no longer linked to stock");
+  return parts.length ? `${before.description}: ${parts.join(", ")}` : null;
+}
+
+/**
+ * The quotation was changed after its job order was recorded: the job order
+ * follows it (lines, discount, total, customer and car) and its history says
+ * what changed. A part whose quantity or stock item changed, or that was
+ * removed, goes back into Inventory first; then every linked part not yet
+ * taken is taken, so stock and the job's actual cost stay true.
+ */
+export async function syncJobOrderWithQuotation(
+  ref: string,
+  quote: QuotationForJob,
+  options: { inventory: boolean },
+): Promise<{ summary: string | null; stockNote: string | null }> {
+  const collection = await jobOrders();
+  const doc = await collection.findOne({ ref });
+  if (!doc) throw new InputError(`${ref} is no longer on file.`);
+  if (doc.status === "Cancelled") throw new InputError(`${ref} was cancelled; it no longer follows ${quote.ref}.`);
+
+  const oldById = new Map(doc.lines.map((line) => [line.id, line]));
+  const priced = quote.lines.filter((line) => line.unitPriceCents !== null);
+  const next: JobOrderLine[] = [];
+  const toReturn: JobOrderLine[] = [];
+  const changes: string[] = [];
+
+  for (const line of priced) {
+    const built: JobOrderLine = {
+      id: line.id,
+      section: line.section,
+      description: line.description,
+      qty: line.qty,
+      unit: line.unit,
+      unitPriceCents: line.unitPriceCents ?? 0,
+      quotedCostCents: line.costCents,
+      sku: line.sku ?? null,
+      stock: null,
+    };
+    const old = oldById.get(line.id);
+    if (!old) {
+      changes.push(`Added ${built.description} × ${built.qty} (${formatPeso(Math.round(built.qty * built.unitPriceCents))})`);
+    } else {
+      const changed = lineChanges(old, built);
+      if (changed) changes.push(changed);
+      const holding = old.stock && !old.stock.returnMoveRef;
+      // The stock stays with the line while it still names the same units.
+      if (holding && old.sku === built.sku && old.qty === built.qty) built.stock = old.stock;
+      else if (holding) toReturn.push(old);
+    }
+    next.push(built);
+  }
+  for (const old of doc.lines) {
+    if (next.some((line) => line.id === old.id)) continue;
+    changes.push(`Removed ${old.description}`);
+    if (old.stock && !old.stock.returnMoveRef) toReturn.push(old);
   }
 
-  const bookingNote = booking ? await syncBooking(booking.ref) : null;
-  return { bookingNote, stockNote };
+  if (doc.discountCents !== quote.discountCents) {
+    changes.push(`Discount ${formatPeso(doc.discountCents)} → ${formatPeso(quote.discountCents)}`);
+  }
+  if (usedForLabel(doc) !== usedForLabel(quote)) changes.push(`Customer and car now ${usedForLabel(quote) || "not given"}`);
+  if (doc.approvedTotalCents !== quote.approvedTotalCents) {
+    changes.push(`Total ${formatPeso(doc.approvedTotalCents)} → ${formatPeso(quote.approvedTotalCents)}`);
+  }
+
+  // Back into Inventory before the lines that held them are replaced.
+  const back: string[] = [];
+  const failed: string[] = [];
+  for (const old of toReturn) {
+    try {
+      if (await returnLineStock(doc, old)) back.push(`${old.description} × ${old.stock?.quantity ?? old.qty}`);
+    } catch (error) {
+      failed.push(`${old.description}: ${error instanceof Error ? error.message : "Inventory could not be updated."}`);
+    }
+  }
+  if (failed.length) {
+    throw new InputError(`The job order was not changed, because some parts could not go back into Inventory. ${failed.join(" ")}`);
+  }
+
+  await collection.updateOne(
+    { ref },
+    {
+      $set: {
+        lines: next,
+        discountCents: quote.discountCents,
+        approvedTotalCents: quote.approvedTotalCents,
+        billTo: quote.billTo,
+        vehicle: quote.vehicle,
+        serviceAdvisor: quote.serviceAdvisor,
+        technician: quote.technician,
+        quotationRevision: quote.revision,
+        updatedAt: new Date(),
+      },
+    },
+  );
+
+  const summary = changes.length ? `${quote.ref} rev ${quote.revision} saved. ${changes.join("; ")}.` : null;
+  if (summary) await logJobEvent(ref, "quotation-changed", summary);
+  if (back.length) await logJobEvent(ref, "stock", `Put back in Inventory: ${back.join(", ")}.`);
+
+  const notes: string[] = [];
+  if (back.length) notes.push(`Put back in Inventory: ${back.join(", ")}.`);
+  if (options.inventory) {
+    const taken = stockTakeSummary(await takeJobStock(ref));
+    if (taken) notes.push(taken);
+  }
+  return { summary, stockNote: notes.length ? notes.join(" ") : null };
+}
+
+// ---- Price list: where each line was used ----------------------------------------
+
+/**
+ * Every job each price list line was used on, newest first, keyed by
+ * `priceItemKey`: the customer and car, quantity, what it sold for and what
+ * it cost (the stock it took, else its quoted cost). Cancelled job orders are
+ * left out; their work did not happen.
+ */
+export async function listPriceItemUses(): Promise<Record<string, PriceItemUse[]>> {
+  const collection = await jobOrders();
+  const docs = await collection.find({ status: { $ne: "Cancelled" } }).sort({ createdAt: -1 }).limit(1000).toArray();
+  const uses: Record<string, PriceItemUse[]> = {};
+  for (const doc of docs) {
+    for (const line of doc.lines) {
+      const stock = line.stock && !line.stock.returnMoveRef ? line.stock : null;
+      const costCents = stock
+        ? stock.costCents
+        : line.quotedCostCents !== null
+          ? Math.round(line.qty * line.quotedCostCents)
+          : null;
+      (uses[priceItemKey(line.section, line.description)] ??= []).push({
+        jobOrderRef: doc.ref,
+        when: formatStamp(doc.createdAt),
+        at: doc.createdAt.toISOString(),
+        customer: doc.billTo.name || doc.billTo.company,
+        plate: doc.vehicle.plate,
+        makeModel: doc.vehicle.makeModel,
+        qty: line.qty,
+        unit: line.unit,
+        amountCents: Math.round(line.qty * line.unitPriceCents),
+        costCents,
+        costSource: stock ? "stock" : costCents !== null ? "quoted" : null,
+      });
+    }
+  }
+  return uses;
 }

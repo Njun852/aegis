@@ -2,10 +2,10 @@ import { redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
 import { QuotationsWorkspace, type QuotationsTab } from "@/components/quotations/quotations-workspace";
 import { getActiveBusiness } from "@/lib/dal/businesses";
-import { listJobOrderSummaries } from "@/lib/dal/job-orders";
-import { listPriceItems, listQuotationSummaries, readQuotationSettings } from "@/lib/dal/quotations";
+import { listJobOrderSummaries, listPriceItemUses } from "@/lib/dal/job-orders";
+import { listPriceItems, listQuotationSummaries, listScans, readQuotationSettings } from "@/lib/dal/quotations";
 
-const TABS: QuotationsTab[] = ["quotations", "jobs", "prices"];
+const TABS: QuotationsTab[] = ["quotations", "jobs", "scans", "prices"];
 
 export default async function QuotationsPage(props: PageProps<"/quotations">) {
   const business = await getActiveBusiness();
@@ -19,11 +19,15 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
 
   const requested = (await props.searchParams).tab;
   const tab = TABS.find((entry) => entry === requested) ?? "quotations";
-  const [quotations, jobOrders, priceItems, settings] = await Promise.all([
+  const [quotations, jobOrders, priceItems, settings, scans, priceUses] = await Promise.all([
     listQuotationSummaries(),
     listJobOrderSummaries(),
     listPriceItems(),
     readQuotationSettings(),
+    // The history reads every scan's trail, so only when it is looked at.
+    tab === "scans" ? listScans() : Promise.resolve([]),
+    // Where each price list line was used: only for the Price list tab.
+    tab === "prices" ? listPriceItemUses() : Promise.resolve({}),
   ]);
 
   return (
@@ -31,6 +35,8 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
       quotations={quotations}
       jobOrders={jobOrders}
       priceItems={priceItems}
+      scans={scans}
+      priceUses={priceUses}
       settings={settings}
       tab={tab}
       businessName={business.name}

@@ -12,17 +12,18 @@ import { findCustomer, findDuplicates } from "@/lib/dal/customers";
 import { findVehicleByPlate, findVehicleOption } from "@/lib/dal/fleet";
 import { getBooking, updateBookingDetails } from "@/lib/dal/bookings";
 import {
+  cancelJobOrder,
   findJobOrder,
+  logJobEvent,
   returnJobOrderStock,
-  setJobOrderStatus,
   stockTakeSummary,
+  syncJobOrderWithQuotation,
   takeJobStock,
 } from "@/lib/dal/job-orders";
 import { notifyOwner } from "@/lib/dal/owner-alerts";
 import { approvalNeededText, jobText, quoteAnsweredText, quoteSentText } from "@/lib/owner-alerts";
 import {
   approveSpecialPricing,
-  clearQuoteResponse,
   convertToJobOrder,
   countBilledPhotosToday,
   createQuotation,
@@ -35,7 +36,6 @@ import {
   markQuotationSent,
   noteOnQuotation,
   readQuotationSettings,
-  recordQuoteResponse,
   savePhoto,
   removeQuoteSigner,
   saveQuoteSigner,
@@ -52,21 +52,18 @@ import { describeRead, draftLinesFromRead } from "@/lib/quote-photo";
 import { applyCostSources } from "@/lib/quote-costing";
 import { listCostSources } from "@/lib/dal/quote-costing";
 import {
-  JOB_ORDER_STATUSES,
   MAX_AMOUNT_CENTS,
   MAX_LINES,
   MAX_QTY,
   MAX_SIGNATURE_CHARS,
   MAX_VALID_DAYS,
   QUOTE_HANDOVER_METHODS,
-  QUOTE_RESPONSE_METHODS,
   addDays,
   discountFromPercent,
   formatPeso,
   isBlankLine,
   isDateKey,
   manilaDateKey,
-  parseManilaDateTime,
   pricingCleared,
   quoteTotals,
   specialPricingKey,
@@ -78,7 +75,6 @@ import type {
   QuoteBillTo,
   QuoteLine,
   QuoteLineOrigin,
-  QuoteResponseOutcome,
   QuoteSection,
   QuoteVehicle,
 } from "@/types";
@@ -272,7 +268,7 @@ async function guard<T>(work: () => Promise<Result<T>>): Promise<Result<T>> {
 export async function saveQuotationAction(
   ref: string | null,
   raw: QuotationInput,
-): Promise<Result<{ ref: string; revision: number; revised: boolean }>> {
+): Promise<Result<{ ref: string; revision: number; revised: boolean; jobNote: string | null }>> {
   const business = await requireModule("quotes");
   return guard(async () => {
     const input = await readInput(raw, {
@@ -288,16 +284,66 @@ export async function saveQuotationAction(
     }
 
     if (ref) {
-      const { revision, revised } = await updateQuotation(ref, input);
+      const { revision, revised, jobOrderRef } = await updateQuotation(ref, input, {
+        canApprovePricing: await hasCapability("approvePricing"),
+      });
       await alertIfApprovalNeeded(business.name, ref);
+      let jobNote: string | null = null;
+      if (jobOrderRef) jobNote = await followQuotation(ref, jobOrderRef, business);
       refresh(ref);
-      return { ok: true, ref, revision, revised };
+      return { ok: true, ref, revision, revised, jobNote };
     }
     const created = await createQuotation(input);
     await alertIfApprovalNeeded(business.name, created);
     refresh(created);
-    return { ok: true, ref: created, revision: 1, revised: false };
+    return { ok: true, ref: created, revision: 1, revised: false, jobNote: null };
   });
+}
+
+/**
+ * The quotation was saved after its job order was recorded: the job order
+ * takes the new lines, total, customer and car, its stock is put back or
+ * taken to match, the booking's value follows the total, and the job order's
+ * history says what changed. Returns a line for the toast.
+ */
+async function followQuotation(ref: string, jobOrderRef: string, business: Awaited<ReturnType<typeof requireModule>>): Promise<string | null> {
+  const quote = await findQuotation(ref);
+  if (!quote?.response) return null;
+  const { summary, stockNote } = await syncJobOrderWithQuotation(
+    jobOrderRef,
+    {
+      ref,
+      revision: quote.revision,
+      billTo: quote.billTo,
+      vehicle: quote.vehicle,
+      serviceAdvisor: quote.serviceAdvisor,
+      technician: quote.technician,
+      lines: quote.lines,
+      discountCents: quote.discountCents,
+      approvedTotalCents: quote.response.approvedTotalCents,
+    },
+    { inventory: business.modules.includes("inventory") },
+  );
+
+  let bookingNote: string | null = null;
+  if (quote.bookingRef && business.modules.includes("bookings")) {
+    const booking = await getBooking(quote.bookingRef);
+    if (booking && booking.status !== "Cancelled" && booking.valueCents !== quote.response.approvedTotalCents) {
+      await updateBookingDetails(quote.bookingRef, {
+        staff: booking.staff,
+        durationMinutes: booking.durationMinutes,
+        valueCents: quote.response.approvedTotalCents,
+      });
+      bookingNote = `Booking ${quote.bookingRef} value now ${formatPeso(quote.response.approvedTotalCents)}.`;
+      await logJobEvent(jobOrderRef, "quotation-changed", bookingNote);
+      revalidatePath("/bookings");
+      revalidatePath("/dashboard");
+    }
+  }
+  revalidatePath(`/quotations/jobs/${jobOrderRef}`);
+  if (stockNote) revalidatePath("/inventory");
+  const parts = [summary ? `${jobOrderRef} updated.` : null, stockNote, bookingNote].filter(Boolean);
+  return parts.length ? parts.join(" ") : null;
 }
 
 /**
@@ -427,67 +473,6 @@ export async function approveSpecialPricingAction(ref: string, key: string): Pro
   });
 }
 
-const OUTCOMES: QuoteResponseOutcome[] = ["Approved", "Partially Approved", "Declined"];
-
-export async function recordQuoteResponseAction(
-  ref: string,
-  raw: {
-    outcome: string;
-    at: string;
-    customerName: string;
-    method: string;
-    note: string;
-    approvedLineIds: string[];
-    approvedDiscountCents: number;
-  },
-): Promise<Result> {
-  const business = await requireModule("quotes");
-  return guard(async () => {
-    const outcome = OUTCOMES.find((entry) => entry === raw.outcome);
-    if (!outcome) throw new InputError("Choose whether the customer approved, partly approved or declined.");
-    const method = QUOTE_RESPONSE_METHODS.find((entry) => entry === raw.method);
-    if (!method) throw new InputError("Say how the customer gave their answer.");
-    const at = parseManilaDateTime(text(raw.at, 16));
-    if (!at) throw new InputError("Enter the date and time the customer answered.");
-    const customerName = text(raw.customerName, 120);
-    if (!customerName) throw new InputError("Who gave the answer for the customer?");
-    const discount = cents(raw.approvedDiscountCents ?? 0);
-    if (discount === undefined || discount === null) throw new InputError("The discount is not a valid amount.");
-    const ids = Array.isArray(raw.approvedLineIds)
-      ? raw.approvedLineIds.filter((id): id is string => typeof id === "string").slice(0, MAX_LINES)
-      : [];
-
-    await recordQuoteResponse(ref, {
-      outcome,
-      at,
-      customerName,
-      method,
-      note: text(raw.note, 400),
-      approvedLineIds: ids,
-      approvedDiscountCents: discount,
-    });
-    const answered = await findQuotation(ref);
-    if (answered?.response) {
-      await notifyOwner(
-        "quotes",
-        `quote-answer:${ref}:${answered.revision}:${outcome}`,
-        quoteAnsweredText(business.name, ref, outcome, customerName, answered.response.approvedTotalCents),
-      );
-    }
-    refresh(ref);
-    return { ok: true };
-  });
-}
-
-export async function clearQuoteResponseAction(ref: string): Promise<Result> {
-  await requireModule("quotes");
-  return guard(async () => {
-    await clearQuoteResponse(ref);
-    refresh(ref);
-    return { ok: true };
-  });
-}
-
 // ---- Job orders -------------------------------------------------------------------
 
 /**
@@ -505,6 +490,25 @@ export async function convertToJobOrderAction(
     const { jobOrderRef, created, doc } = await convertToJobOrder(ref);
     let bookingNote: string | null = null;
     let stockNote: string | null = null;
+
+    // Making the job order was the approval, so the owner hears of it the way
+    // a recorded answer used to tell them.
+    if (created && doc.response?.method === "Job order made") {
+      await notifyOwner(
+        "quotes",
+        `quote-answer:${ref}:${doc.revision ?? 1}:Approved`,
+        quoteAnsweredText(business.name, ref, "Approved", doc.response.customerName, doc.response.approvedTotalCents),
+      );
+    }
+
+    if (created) {
+      const quote = await findQuotation(ref);
+      await logJobEvent(
+        jobOrderRef,
+        "created",
+        `${quote?.paperJobOrder ? `Recorded from the paper job order (scan ${quote.photoRef}) as ` : "Made from "}${ref} rev ${doc.revision ?? 1}; ${formatPeso(doc.response?.approvedTotalCents ?? 0)}.`,
+      );
+    }
 
     if (created && business.modules.includes("inventory")) {
       stockNote = stockTakeSummary(await takeJobStock(jobOrderRef));
@@ -544,6 +548,30 @@ export async function convertToJobOrderAction(
 }
 
 /**
+ * Records a scanned paper job order: the job exists already on paper, so
+ * there is no handing over and no customer answer to wait for. The checked
+ * quotation is marked as given ("Paper job order") and made into the job
+ * order at once, with every rule the two steps have on their own: every line
+ * priced, special pricing approved, parts taken from stock.
+ */
+export async function recordPaperJobOrderAction(
+  ref: string,
+): Promise<Result<{ jobOrderRef: string; created: boolean; bookingNote: string | null; stockNote: string | null }>> {
+  await requireModule("quotes");
+  const quotation = await findQuotation(ref);
+  if (!quotation) return { ok: false, error: `${ref} is no longer on file.` };
+  if (!quotation.paperJobOrder) {
+    return { ok: false, error: "Only a quotation read from a scanned job order is recorded this way. Give it to the customer first." };
+  }
+  if (quotation.status === "Draft") {
+    const blocked = blockedFromSending(quotation);
+    if (blocked) return { ok: false, error: blocked.replace("before sending this quotation", "before recording the job order") };
+    await markQuotationSent(ref, "Paper job order", "paper");
+  }
+  return convertToJobOrderAction(ref);
+}
+
+/**
  * Takes a job order's waiting parts from Inventory: the ones short of stock
  * when it was made (once the goods are in), or a job order made before parts
  * were taken automatically.
@@ -579,35 +607,24 @@ export async function returnJobStockAction(ref: string): Promise<Result<{ return
   });
 }
 
-export async function setJobOrderStatusAction(
-  ref: string,
-  status: string,
-): Promise<Result<{ bookingNote: string | null; stockNote: string | null }>> {
+/**
+ * Cancels a job order: the one change a recorded job order has. The parts it
+ * took go back into Inventory; the booking is left for staff to move.
+ */
+export async function cancelJobOrderAction(ref: string): Promise<Result<{ stockNote: string | null }>> {
   const business = await requireModule("quotes");
   return guard(async () => {
-    const next = JOB_ORDER_STATUSES.find((entry) => entry === status);
-    if (!next) throw new InputError("Unknown job order status.");
-    const { bookingNote, stockNote } = await setJobOrderStatus(ref, next, {
-      bookingsEnabled: business.modules.includes("bookings"),
-    });
+    const { stockNote } = await cancelJobOrder(ref);
     revalidatePath("/quotations");
     revalidatePath(`/quotations/jobs/${ref}`);
     if (stockNote) revalidatePath("/inventory");
-    if (bookingNote) {
-      // The booking moved with it: its screen, the ads counts and the car's history.
-      revalidatePath("/bookings");
-      revalidatePath("/ads");
-      revalidatePath("/crm");
-    }
-    if (next === "Completed" || next === "Cancelled") {
-      const job = await findJobOrder(ref);
-      await notifyOwner(
-        "jobs",
-        `job:${ref}:${next}`,
-        jobText(business.name, ref, next, job ? job.billTo.name || job.billTo.company : ""),
-      );
-    }
-    return { ok: true, bookingNote, stockNote };
+    const job = await findJobOrder(ref);
+    await notifyOwner(
+      "jobs",
+      `job:${ref}:Cancelled`,
+      jobText(business.name, ref, "Cancelled", job ? job.billTo.name || job.billTo.company : ""),
+    );
+    return { ok: true, stockNote };
   });
 }
 
@@ -702,10 +719,14 @@ export async function createQuotationFromPhotoAction(
       makeModel: read.makeModel,
       odometerKm: read.odometerKm,
     };
+    // A paper job order carries the shop's own letterhead, which is not the
+    // customer's company.
+    const plain = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const ownName = Boolean(read.company) && plain(read.company) === plain(business.name);
     const billTo: QuoteBillTo = {
       customerRef: null,
       name: read.customerName,
-      company: read.company,
+      company: ownName ? "" : read.company,
       address: "",
       phone: read.customerPhone,
       email: "",
@@ -754,7 +775,9 @@ export async function createQuotationFromPhotoAction(
         discountReason: "",
         notes: settings.notes,
       },
-      { source: "photo", photoRef },
+      // The scan box is for the shop's paper job orders: the work is already
+      // agreed, so this quotation is recorded straight as a job order.
+      { source: "photo", photoRef, paperJobOrder: true },
     );
     await linkPhoto(photoRef, ref);
     refresh(ref);

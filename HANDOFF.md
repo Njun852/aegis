@@ -1376,6 +1376,57 @@ took Oil Filter × 3 (₱600, PO 1200) by the button; test QT-1002 / JO-1002
 took Wiper blade × 2 on conversion and gave both back to batch
 OPEN-SKU-4610 on cancel.
 
+## No customer-answer step; scanned paper job orders (20 Nov 2026)
+
+Owner's choices, outside the frozen checklist (section 6 asked for recorded
+customer approval; the owner should sign this off).
+
+- **No Record answer.** Quotations go Draft → Sent → Job order. Making the
+  job order records a full approval by the Bill To name (`convertToJobOrder`,
+  method "Job order made"), and the owner's "approved" text alert fires then.
+  Ask AEGIS lost `quote_answer`; its `make_job_order` takes a sent
+  quotation. Answers recorded before (partial, declined) still count.
+- **Scan = the paper job order.** "Scan a job order" on New quotation reads
+  the photo as before and marks the quotation `paperJobOrder`. Its strip is
+  Scanned → Job order and its one button is **Record job order**
+  (`recordPaperJobOrderAction`): every line priced and special pricing
+  approved, then marked given ("recorded as the paper job order") and made
+  into the job order, parts taken from stock. The shop's own letterhead is
+  not taken as the customer's company.
+- **Side by side.** The scan sits left (sticky) of the quotation and the job
+  order (`scan-beside.tsx`), a per-browser toggle, on by default. Job orders
+  keep `photoRef`; older ones find it on their quotation.
+- **Who a part was used for.** "Used on job order" / "Returned from job
+  order" movements carry the customer and plate as `party`
+  (`usedForLabel`). Inventory has a third view, **Used on jobs**
+  (`listPartsUsedOnJobs`, read from job order lines so older jobs show too):
+  part, customer and car, qty, cost from its batches, job order.
+- **Scans tab** on Quotations (`listScans`): every scan with who and when,
+  what the AI read, its quotation and job order, and the trail from scan to
+  stock taken.
+
+Browser-checked 20 Nov 2026 with a drawn job order (QP-1001 → QT-1009 →
+JO-1007, wiper blade taken then put back on cancel); one real AI read.
+
+**Job orders are records (20 Nov 2026, later).** No Start, Complete or
+Reopen: the page shows Recorded or Cancelled (`jobOrderLabel`; older stored
+statuses read as Recorded) and Cancel is the one change (`cancelJobOrder`,
+parts back to stock). Bookings move themselves again; only cancelling one
+under a recorded job order is refused (`bookingMoveRefusal`). Ask AEGIS can
+only cancel a job order.
+
+**The quotation stays editable after the job order** (until the job order
+is cancelled). Saving (`reviseRecordedJob` in `src/lib/dal/quotations.ts`)
+keeps the previous version as a revision, stays Approved for the whole new
+version, needs every line priced, and approves new special pricing only for
+someone who can (by saving). The job order then follows
+(`syncJobOrderWithQuotation`): lines, discount, total, customer and car;
+parts whose qty or item changed or that were removed go back to stock and
+are taken again; the booking value follows. Every change, stock move and
+cancel is written to `jobOrderEvents` and shown as the job order's
+**History**. Browser-checked on QT-1008 / JO-1006: wiper added, then qty
+1 → 2, then cancelled, stock back to its batch.
+
 ## Known issue
 
 The booking drawer's timeline (`bookingTimeline`, `src/lib/bookings.ts`) shows

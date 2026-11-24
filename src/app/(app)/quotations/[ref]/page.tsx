@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { ModulePage } from "@/components/modules/module-page";
 import { QuoteEditor } from "@/components/quotations/quote-editor";
 import { getActiveBusiness } from "@/lib/dal/businesses";
+import { findJobOrder } from "@/lib/dal/job-orders";
 import { findPhotoView, findQuotation, listQuoteEvents, listRevisionSummaries } from "@/lib/dal/quotations";
 import { loadEditorData } from "../load-editor";
 
@@ -19,7 +20,10 @@ export default async function QuotationPage(props: PageProps<"/quotations/[ref]"
     listQuoteEvents(quoteRef),
   ]);
   if (!quotation) notFound();
-  const photo = quotation.photoRef ? await findPhotoView(quotation.photoRef) : null;
+  const [photo, job] = await Promise.all([
+    quotation.photoRef ? findPhotoView(quotation.photoRef) : Promise.resolve(null),
+    quotation.jobOrderRef ? findJobOrder(quotation.jobOrderRef) : Promise.resolve(null),
+  ]);
 
   return (
     <QuoteEditor
@@ -28,6 +32,7 @@ export default async function QuotationPage(props: PageProps<"/quotations/[ref]"
       photo={photo}
       revisions={revisions}
       events={events}
+      jobOrderCancelled={job?.status === "Cancelled"}
       {...data}
     />
   );

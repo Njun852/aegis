@@ -206,8 +206,8 @@ export function BookingDrawer({
     Cancelled: { label: "Reopen", icon: "refresh-cw", next: "Pending" as const },
   }[booking.status];
 
-  // Once a job order exists the work is moved on there; the booking follows.
-  // The button that would move the work hands over to the job order instead.
+  // Job orders are records with no progress of their own, so the booking
+  // moves itself; only cancelling it under a recorded job order is refused.
   const openJobs = activeJobs(jobs);
   const advanceRefusal = bookingMoveRefusal(advance.next, jobs);
   const cancelRefusal = bookingMoveRefusal("Cancelled", jobs);

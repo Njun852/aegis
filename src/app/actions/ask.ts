@@ -13,15 +13,14 @@ import { findCustomer, listCustomers } from "@/lib/dal/customers";
 import { findVehicleOption } from "@/lib/dal/fleet";
 import { readQuotationSettings } from "@/lib/dal/quotations";
 import { hasCapability, verifySession } from "@/lib/dal/session";
-import { addDays, emptyLine, manilaDateKey, manilaDateTimeInput } from "@/lib/quotations";
+import { addDays, emptyLine, manilaDateKey } from "@/lib/quotations";
 import { setBookingStatusAction } from "./bookings";
 import {
   approveSpecialPricingAction,
   convertToJobOrderAction,
   markQuotationGivenAction,
-  recordQuoteResponseAction,
   saveQuotationAction,
-  setJobOrderStatusAction,
+  cancelJobOrderAction,
 } from "./quotations";
 import type { BookingStatus, QuoteBillTo, QuoteLine } from "@/types";
 
@@ -116,23 +115,6 @@ async function run(proposal: AskProposal, ref: string, modules: string[]): Promi
       return result.ok ? { ok: true, message: `${ref} marked as given.`, href: `/quotations/${encodeURIComponent(ref)}` } : result;
     }
 
-    case "quote_answer": {
-      const outcome = proposal.params.outcome;
-      if (outcome !== "Approved" && outcome !== "Declined") return { ok: false, error: "Only a full approval or a decline can be recorded here." };
-      const result = await recordQuoteResponseAction(ref, {
-        outcome,
-        at: manilaDateTimeInput(new Date()),
-        customerName: proposal.params.customerName ?? "",
-        method: "In person",
-        note: "Recorded through Ask AEGIS.",
-        approvedLineIds: [],
-        approvedDiscountCents: 0,
-      });
-      return result.ok
-        ? { ok: true, message: `${ref} recorded as ${outcome.toLowerCase()}.`, href: `/quotations/${encodeURIComponent(ref)}` }
-        : result;
-    }
-
     case "approve_pricing": {
       const result = await approveSpecialPricingAction(ref, proposal.params.pricingKey ?? "");
       return result.ok ? { ok: true, message: `Pricing on ${ref} approved.`, href: `/quotations/${encodeURIComponent(ref)}` } : result;
@@ -150,10 +132,9 @@ async function run(proposal: AskProposal, ref: string, modules: string[]): Promi
     }
 
     case "job_status": {
-      const status = proposal.params.status ?? "";
-      const result = await setJobOrderStatusAction(ref, status);
+      const result = await cancelJobOrderAction(ref);
       return result.ok
-        ? { ok: true, message: `${ref} moved to ${status}.${result.bookingNote ? ` ${result.bookingNote}` : ""}`, href: `/quotations/jobs/${encodeURIComponent(ref)}` }
+        ? { ok: true, message: `${ref} cancelled.${result.stockNote ? ` ${result.stockNote}` : ""}`, href: `/quotations/jobs/${encodeURIComponent(ref)}` }
         : result;
     }
 

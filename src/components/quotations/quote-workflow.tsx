@@ -2,33 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import {
   approveSpecialPricingAction,
-  clearQuoteResponseAction,
   convertToJobOrderAction,
   markQuotationGivenAction,
-  recordQuoteResponseAction,
+  recordPaperJobOrderAction,
 } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button, Icon } from "@/components/ui";
-import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
+import { Field, Modal, Notice, SELECT } from "@/components/forms/form-kit";
 import { PreviewModal } from "./quote-actions";
-import {
-  QUOTE_HANDOVER_METHODS,
-  QUOTE_RESPONSE_METHODS,
-  amountInput,
-  discountFromPercent,
-  formatPercent,
-  formatPeso,
-  formatQuoteDay,
-  lineAmountCents,
-  manilaDateTimeInput,
-  parseAmount,
-  pricingCleared,
-  specialPricingKey,
-} from "@/lib/quotations";
-import type { Quotation, QuoteResponseMethod, QuoteResponseOutcome } from "@/types";
+import { QUOTE_HANDOVER_METHODS, formatPeso, formatQuoteDay, pricingCleared, specialPricingKey } from "@/lib/quotations";
+import type { Quotation } from "@/types";
 
 export interface QuoteFlowOptions {
   /** Null for a quotation not saved yet, which has no steps. */
@@ -66,18 +52,21 @@ export interface QuoteFlow {
 }
 
 /**
- * Draft, sent, answered, job order: where the quotation stands and the one
+ * Draft, sent, job order: where the quotation stands and the one
  * thing to do next. The strip at the top only shows where it stands; the
  * next step is the single button in the Totals panel (or Ctrl+Enter), so
  * there is one place to act. Each step is a person's action; nothing
  * moves on its own. The details of who did what are in History.
+ *
+ * There is no separate customer-answer step: making the job order from a
+ * quotation that was given is the approval, recorded on the server. Answers
+ * recorded on older quotations (partial approvals, declines) still show.
  */
 export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowOptions): QuoteFlow {
   const router = useRouter();
   const toast = useToast();
   /** The handover method the Mark as given dialog opens on, or null when it is closed. */
   const [giving, setGiving] = useState<string | null>(null);
-  const [answering, setAnswering] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -110,18 +99,25 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
       description: `${quotation.ref} can now be printed or sent.`,
     });
 
-  const clearAnswer = () => {
-    if (!window.confirm(`Undo the recorded answer on ${quotation.ref}? The history keeps a note.`)) return;
-    act(() => clearQuoteResponseAction(quotation.ref), { title: "Answer undone" });
-  };
+  const paper = quotation.paperJobOrder;
 
   const makeJobOrder = () => {
-    const amount = formatPeso(response?.approvedTotalCents ?? 0);
+    // An answer recorded on an older quotation keeps its amount; otherwise the
+    // whole quotation is approved by making the job order.
+    const amount = formatPeso(response?.approvedTotalCents ?? quotation.totals.totalCents);
     const booking =
       quotation.bookingRef && bookingsEnabled ? ` Booking ${quotation.bookingRef} takes ${amount} as its value.` : "";
-    if (!window.confirm(`Make a job order for ${amount}? ${quotation.ref} is then locked.${booking}`)) return;
+    const approves = paper
+      ? " It is the paper job order, so there is nothing to give or approve; parts linked to stock leave Inventory now."
+      : response
+        ? ""
+        : " This records the customer's approval of the whole quotation.";
+    const question = paper ? `Record the job order for ${amount}?` : `Make a job order for ${amount}?`;
+    if (!window.confirm(`${question}${approves} ${quotation.ref} is then locked.${booking}`)) return;
     startTransition(async () => {
-      const result = await convertToJobOrderAction(quotation.ref);
+      const result = paper
+        ? await recordPaperJobOrderAction(quotation.ref)
+        : await convertToJobOrderAction(quotation.ref);
       if (!result.ok) {
         toast({ tone: "error", title: "No job order made", description: result.error, key: "quote-flow" });
         return;
@@ -155,7 +151,36 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
     sendDetail = "Ready to print, email or give";
   }
 
-  const steps: FlowStep[] = [
+  const jobLink = quotation.jobOrderRef ? (
+    <Link href={`/quotations/jobs/${encodeURIComponent(quotation.jobOrderRef)}`} style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600 }}>
+      {quotation.jobOrderRef} →
+    </Link>
+  ) : null;
+
+  // A scanned paper job order: the work already exists, so it is checked and recorded, not given and approved.
+  const paperSteps: FlowStep[] = [
+    {
+      title: "Scanned",
+      state: "done",
+      detail: `${quotation.photoRef ?? "Paper job order"} · by ${quotation.preparedBy?.name ?? "—"}`,
+    },
+    {
+      title: "Job order",
+      state: quotation.jobOrderRef ? "done" : "current",
+      detail:
+        jobLink ??
+        (!cleared ? (
+          <span style={{ color: "var(--status-warning)" }}>Needs admin approval</span>
+        ) : unpriced > 0 ? (
+          <span style={{ color: "var(--status-warning)" }}>Price every line first</span>
+        ) : (
+          "Check the lines against the scan, then record it"
+        )),
+      note: approval ? `Pricing approved by ${approval.by.name}` : undefined,
+    },
+  ];
+
+  const steps: FlowStep[] = paper ? paperSteps : [
     {
       title: quotation.revision > 1 ? `Draft · rev ${quotation.revision}` : "Draft",
       state: "done",
@@ -168,39 +193,18 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
       note: approval ? `Pricing approved by ${approval.by.name}` : undefined,
     },
     {
-      title: response ? response.outcome : "Customer answer",
-      state: response ? (declined ? "stopped" : "done") : awaiting ? "current" : "todo",
-      detail: response ? (
-        <>
-          <span>
-            {response.outcome === "Declined" ? response.customerName : formatPeso(response.approvedTotalCents)} ·{" "}
-            {response.at}
-          </span>
-          {!quotation.jobOrderRef && (
-            <button type="button" onClick={clearAnswer} disabled={pending} style={LINK_BUTTON}>
-              Undo
-            </button>
-          )}
-        </>
-      ) : awaiting ? (
-        "Waiting for the customer"
-      ) : (
-        "After it is sent"
-      ),
-    },
-    {
       title: "Job order",
-      state: quotation.jobOrderRef ? "done" : approved ? "current" : declined ? "stopped" : "todo",
-      detail: quotation.jobOrderRef ? (
-        <Link href={`/quotations/jobs/${encodeURIComponent(quotation.jobOrderRef)}`} style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600 }}>
-          {quotation.jobOrderRef} →
-        </Link>
+      state: quotation.jobOrderRef ? "done" : approved || awaiting ? "current" : declined ? "stopped" : "todo",
+      detail: jobLink ? (
+        jobLink
       ) : approved ? (
-        "Ready to make"
+        "Approved, ready to make"
+      ) : awaiting ? (
+        "Make it once the customer agrees"
       ) : declined ? (
-        "Not needed"
+        "Declined, not needed"
       ) : (
-        "After approval"
+        "After it is given"
       ),
     },
   ];
@@ -212,10 +216,10 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
     next = { label: `Open ${jobRef}`, icon: "arrow-right", run: () => router.push(`/quotations/jobs/${encodeURIComponent(jobRef)}`) };
   } else if (declined) {
     next = null;
-  } else if (approved) {
+  } else if (approved || awaiting) {
     next = { label: "Make job order", icon: "wrench", run: makeJobOrder };
-  } else if (awaiting) {
-    next = { label: "Record answer", icon: "check", run: () => setAnswering(true) };
+  } else if (paper && cleared && unpriced === 0) {
+    next = { label: "Record job order", icon: "wrench", run: makeJobOrder };
   } else if (!cleared) {
     next = isAdmin
       ? { label: "Approve pricing", icon: "shield-check", run: approvePricing }
@@ -252,14 +256,13 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
         />
       )}
       {giving !== null && <GiveModal quotation={quotation} defaultMethod={giving} onClose={() => setGiving(null)} />}
-      {answering && <AnswerModal quotation={quotation} onClose={() => setAnswering(false)} />}
     </>
   );
 
   return {
     steps,
     next,
-    dialogOpen: previewing || giving !== null || answering,
+    dialogOpen: previewing || giving !== null,
     openPreview: () => setPreviewing(true),
     dialogs,
   };
@@ -301,15 +304,6 @@ export function QuoteProgress({ steps }: { steps: FlowStep[] }) {
   );
 }
 
-const LINK_BUTTON = {
-  border: "none",
-  background: "none",
-  padding: 0,
-  cursor: "pointer",
-  fontSize: "11.5px",
-  color: "var(--accent-primary)",
-  fontFamily: "var(--font-body)",
-} as const;
 
 function StepDot({ state, index }: { state: StepState; index: number }) {
   const colors: Record<StepState, { bg: string; fg: string; border: string }> = {
@@ -392,178 +386,3 @@ function GiveModal({ quotation, defaultMethod, onClose }: { quotation: Quotation
     </Modal>
   );
 }
-
-const OUTCOMES: { key: QuoteResponseOutcome; label: string }[] = [
-  { key: "Approved", label: "Approved all" },
-  { key: "Partially Approved", label: "Approved some" },
-  { key: "Declined", label: "Declined" },
-];
-
-function AnswerModal({ quotation, onClose }: { quotation: Quotation; onClose: () => void }) {
-  const router = useRouter();
-  const toast = useToast();
-  const priced = useMemo(() => quotation.lines.filter((line) => line.unitPriceCents !== null), [quotation.lines]);
-  const [outcome, setOutcome] = useState<QuoteResponseOutcome>("Approved");
-  const [at, setAt] = useState(() => manilaDateTimeInput(new Date()));
-  const [customerName, setCustomerName] = useState(quotation.billTo.name || quotation.billTo.company);
-  const [method, setMethod] = useState<QuoteResponseMethod>("In person");
-  const [note, setNote] = useState("");
-  const [ticked, setTicked] = useState<Set<string>>(() => new Set(priced.map((line) => line.id)));
-  const [discountText, setDiscountText] = useState(amountInput(quotation.discountCents || null));
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  const approvedIds = outcome === "Approved" ? priced.map((line) => line.id) : outcome === "Declined" ? [] : [...ticked];
-  const subtotal = priced
-    .filter((line) => approvedIds.includes(line.id))
-    .reduce((sum, line) => sum + lineAmountCents(line), 0);
-  const typedDiscount = parseAmount(discountText);
-  // A percentage discount applies to whatever part of the work is approved.
-  const percent = quotation.discountPercent;
-  const discount =
-    outcome === "Approved"
-      ? quotation.discountCents
-      : outcome === "Declined"
-        ? 0
-        : percent
-          ? Math.min(discountFromPercent(subtotal, percent), quotation.discountCents)
-          : typeof typedDiscount === "number"
-            ? typedDiscount
-            : 0;
-  const approvedTotal = Math.max(subtotal - discount, 0);
-
-  const submit = () => {
-    if (outcome === "Partially Approved" && !percent && typedDiscount === undefined) {
-      setError("The discount is not an amount.");
-      return;
-    }
-    setError(null);
-    startTransition(async () => {
-      const result = await recordQuoteResponseAction(quotation.ref, {
-        outcome,
-        at,
-        customerName,
-        method,
-        note,
-        approvedLineIds: approvedIds,
-        approvedDiscountCents: discount,
-      });
-      if (!result.ok) {
-        setError(result.error);
-        toast({ tone: "error", title: "Answer not recorded", description: result.error, key: "quote-flow" });
-        return;
-      }
-      toast({
-        tone: "success",
-        title: `${quotation.ref} ${outcome === "Declined" ? "declined" : outcome === "Approved" ? "approved" : "partly approved"}`,
-        description: outcome === "Declined" ? undefined : `${formatPeso(approvedTotal)} approved.`,
-        key: "quote-flow",
-      });
-      onClose();
-      router.refresh();
-    });
-  };
-
-  return (
-    <Modal
-      title="Customer's answer"
-      icon="check"
-      width={560}
-      onClose={pending ? () => undefined : onClose}
-      footer={
-        <>
-          <span style={{ marginRight: "auto", fontSize: "13px", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-            {outcome === "Declined" ? "" : formatPeso(approvedTotal)}
-          </span>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button icon="check" onClick={submit} disabled={pending}>
-            {pending ? "Saving…" : "Save answer"}
-          </Button>
-        </>
-      }
-    >
-      {quotation.status === "Expired" && (
-        <Notice tone="warning">Expired {formatQuoteDay(quotation.validUntil)}. Only record it if the prices still stand.</Notice>
-      )}
-      {error && <Notice tone="error">{error}</Notice>}
-
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Answer">
-        {OUTCOMES.map((option) => (
-          <Button
-            key={option.key}
-            size="sm"
-            type="button"
-            role="radio"
-            aria-checked={outcome === option.key}
-            variant={outcome === option.key ? "primary" : "outline"}
-            onClick={() => setOutcome(option.key)}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
-
-      {outcome === "Partially Approved" && (
-        <div className="flex flex-col gap-1.5">
-          {priced.map((line) => (
-            <label key={line.id} className="flex items-center gap-2" style={{ fontSize: "12.5px", cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={ticked.has(line.id)}
-                onChange={(event) =>
-                  setTicked((current) => {
-                    const next = new Set(current);
-                    if (event.target.checked) next.add(line.id);
-                    else next.delete(line.id);
-                    return next;
-                  })
-                }
-              />
-              <span style={{ flex: 1, minWidth: 0 }}>{line.description}</span>
-              <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
-                {formatPeso(lineAmountCents(line))}
-              </span>
-            </label>
-          ))}
-          {quotation.discountCents > 0 && percent && (
-            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-              Discount {formatPercent(percent)} of the approved work: {formatPeso(discount)}
-            </span>
-          )}
-          {quotation.discountCents > 0 && !percent && (
-            <Field label="Discount on this work">
-              <input
-                style={{ ...INPUT, textAlign: "right", maxWidth: 160 }}
-                inputMode="decimal"
-                value={discountText}
-                onChange={(event) => setDiscountText(event.target.value)}
-              />
-            </Field>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Who answered">
-          <input style={INPUT} maxLength={120} value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
-        </Field>
-        <Field label="How">
-          <select style={SELECT} value={method} onChange={(event) => setMethod(event.target.value as QuoteResponseMethod)}>
-            {QUOTE_RESPONSE_METHODS.map((entry) => (
-              <option key={entry}>{entry}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="When (Manila time)">
-          <input style={INPUT} type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} />
-        </Field>
-        <Field label="Note">
-          <input style={INPUT} maxLength={400} value={note} onChange={(event) => setNote(event.target.value)} />
-        </Field>
-      </div>
-    </Modal>
-  );
-}
-

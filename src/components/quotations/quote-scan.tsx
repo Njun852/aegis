@@ -30,9 +30,10 @@ async function prepare(file: File): Promise<string> {
 }
 
 /**
- * The box at the top of a new quotation: scan a written estimate, a supplier
- * receipt or the car, and AI drafts the quotation, with its lines priced from
- * the price list, and opens it beside the photo for checking.
+ * The box at the top of a new quotation: scan the shop's paper job order and
+ * AI fills in the quotation, with its lines priced from the price list and
+ * stock, and opens it beside the scan for checking. The job already exists on
+ * paper, so the next step is to record it as the job order, not to give it.
  */
 export function QuoteScanBox({ aiConfigured, dirty }: { aiConfigured: boolean; dirty: boolean }) {
   const router = useRouter();
@@ -71,10 +72,10 @@ export function QuoteScanBox({ aiConfigured, dirty }: { aiConfigured: boolean; d
 
   return (
     <ScanPanel
-      title="Fill in from a photo"
+      title="Scan a job order"
       hint={
         aiConfigured
-          ? `Photograph a written estimate, a supplier receipt or the car. AI fills in the quotation for you to check.${
+          ? `Photograph the paper job order. AI fills in the quotation beside the scan; check it and record the job order.${
               dirty ? " It starts a fresh draft, so what is typed here is not kept." : ""
             }`
           : "Reading photos needs AI, which is not switched on for this workspace."

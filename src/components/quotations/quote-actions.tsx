@@ -155,8 +155,7 @@ export interface QuoteActions {
 /**
  * What the quotation's buttons do, shared by the header and the Totals
  * panel. The main button is always the next thing to do and changes in
- * place: Save, then Approve pricing, Preview & give, Record answer, Make job
- * order. After saving, the next stage is under the same cursor. Ctrl+S saves
+ * place: Save, then Approve pricing, Preview & give, Make job order. After saving, the next stage is under the same cursor. Ctrl+S saves
  * and Ctrl+Enter takes the next step from anywhere on the page.
  */
 export function useQuoteActions({

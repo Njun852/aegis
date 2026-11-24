@@ -424,6 +424,11 @@ export function descriptionKey(description: string): string {
     .trim();
 }
 
+/** The price list's key for a line: its section and normalised wording, as the list stores it. */
+export function priceItemKey(section: string, description: string): string {
+  return `${section}:${descriptionKey(description)}`;
+}
+
 const STOP_WORDS = new Set(["and", "the", "of", "for", "with", "a", "an", "to"]);
 
 function words(key: string): Set<string> {

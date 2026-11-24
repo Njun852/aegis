@@ -29,6 +29,7 @@ import { Field, INPUT, Notice, Panel, SELECT } from "@/components/forms/form-kit
 import { LinkedNote, MatchList, matchKeys, type MatchOption } from "@/components/forms/match-list";
 import { QuoteLines, type EditorLine } from "./quote-lines";
 import { QuoteScanBox } from "./quote-scan";
+import { ScanBeside, SideBySideToggle, useSideBySide } from "./scan-beside";
 import { QuoteLockedActions, QuoteTotalsAction, useQuoteActions } from "./quote-actions";
 import { QuoteHistory } from "./quote-history";
 import { QuoteProgress, useQuoteFlow } from "./quote-workflow";
@@ -89,6 +90,8 @@ export interface QuoteEditorProps {
   revisions: QuotationRevisionSummary[];
   /** The change log, newest first. */
   events: QuoteEvent[];
+  /** Its job order was cancelled, which leaves the quotation fixed. */
+  jobOrderCancelled?: boolean;
 }
 
 interface Draft {
@@ -222,6 +225,7 @@ export function QuoteEditor({
   isAdmin,
   revisions,
   events,
+  jobOrderCancelled = false,
 }: QuoteEditorProps) {
   const router = useRouter();
   const toast = useToast();
@@ -229,12 +233,17 @@ export function QuoteEditor({
   // A quotation started from a booking has unsaved details from the first moment.
   const [dirty, setDirty] = useState(Boolean(!quotation && defaults.prefill));
   const [error, setError] = useState<string | null>(null);
+  const [sideBySide, setSideBySide] = useSideBySide();
+  /** The scan sits beside the whole form; otherwise it is the small panel above the totals. */
+  const beside = Boolean(photo) && sideBySide;
   const [saving, startSaving] = useTransition();
   const [deleting, startDeleting] = useTransition();
   // Unsaved edits are saved by the main button before any step, which works on the stored copy.
   const flow = useQuoteFlow({ quotation, isAdmin, bookingsEnabled });
   /** Once a job order is made from it, the quotation is the record of what was agreed. */
-  const locked = Boolean(quotation?.jobOrderRef);
+  // A recorded job order follows its quotation, so the quotation stays editable;
+  // only a cancelled job order leaves it fixed as it was.
+  const locked = Boolean(quotation?.jobOrderRef) && jobOrderCancelled;
   const storedStatus: StoredQuoteStatus | null = quotation
     ? quotation.status === "Expired"
       ? "Sent"
@@ -493,13 +502,15 @@ export function QuoteEditor({
         setDirty(false);
         toast({
           tone: "success",
-          title: result.revised
+          title: quotation?.jobOrderRef && result.revised
+            ? `${result.ref} saved; ${quotation.jobOrderRef} updated`
+            : result.revised
             ? `${result.ref} revision ${result.revision} started`
             : quotation
               ? `${result.ref} saved`
               : `${result.ref} created`,
           description: [
-            result.revised ? `Revision ${result.revision - 1} stays on file as it was given to the customer.` : "",
+            quotation?.jobOrderRef ? (result.jobNote ?? "") : result.revised ? `Revision ${result.revision - 1} stays on file as it was given to the customer.` : "",
             totals.unpricedCount
               ? `${totals.unpricedCount} ${totals.unpricedCount === 1 ? "line still needs" : "lines still need"} a price.`
               : `Total ${formatPeso(totals.totalCents)}.`,
@@ -585,7 +596,12 @@ export function QuoteEditor({
             {quotation.revision > 1 ? ` · rev ${quotation.revision}` : ""}
           </Badge>
         )}
-        {quotation?.source === "photo" && <Badge tone="accent" icon="image">From photo</Badge>}
+        {quotation?.paperJobOrder ? (
+          <Badge tone="accent" icon="image">Scanned job order</Badge>
+        ) : (
+          quotation?.source === "photo" && <Badge tone="accent" icon="image">From photo</Badge>
+        )}
+        {photo && <SideBySideToggle on={sideBySide} onChange={setSideBySide} />}
         {dirty && <span style={{ fontSize: "12px", color: "var(--status-warning)" }}>Unsaved changes</span>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {deletable && (
@@ -606,22 +622,29 @@ export function QuoteEditor({
       )}
 
       {locked && quotation && (
-        <Notice tone="info">Locked: this is what the customer approved for {quotation.jobOrderRef}.</Notice>
+        <Notice tone="info">{quotation.jobOrderRef} was cancelled, so this quotation stays as it was. Start a new one for new work.</Notice>
       )}
-      {!locked && quotation && storedStatus && hasLeftShop(storedStatus) && dirty && (
+      {!locked && quotation?.jobOrderRef && (
+        <Notice tone="info">
+          Recorded as job order {quotation.jobOrderRef}. Saving a change here updates {quotation.jobOrderRef} (lines, total and stock)
+          and adds it to its history.
+        </Notice>
+      )}
+      {!locked && quotation && !quotation.jobOrderRef && storedStatus && hasLeftShop(storedStatus) && dirty && (
         <Notice tone="warning">
           Saving starts revision {quotation.revision + 1}. Revision {quotation.revision} stays on file as it was sent.
         </Notice>
       )}
       {error && <Notice tone="error">{error}</Notice>}
 
+      <ScanBeside photoRef={photo?.ref ?? null} note={photo?.note} on={sideBySide}>
       <fieldset
         disabled={locked}
         style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
-        className="grid gap-3.5 min-[1440px]:grid-cols-[minmax(0,1fr)_300px]"
+        className={beside ? "grid gap-3.5" : "grid gap-3.5 min-[1440px]:grid-cols-[minmax(0,1fr)_300px]"}
       >
         <div className="flex min-w-0 flex-col gap-3.5">
-          <div className="grid gap-3.5 wide:grid-cols-2">
+          <div className={beside ? "grid gap-3.5 min-[1800px]:grid-cols-2" : "grid gap-3.5 wide:grid-cols-2"}>
             <Panel title="Bill to" icon="user">
               <div className="relative">
                 <div className="grid grid-cols-2 gap-3">
@@ -926,8 +949,8 @@ export function QuoteEditor({
         </div>
 
         <div className="flex min-w-0 flex-col gap-3.5">
-          {photo && (
-            <Panel title="From a photo" icon="image">
+          {photo && !beside && (
+            <Panel title={quotation?.paperJobOrder ? "Scanned job order" : "From a photo"} icon="image">
               <a href={`/api/quotations/photos/${encodeURIComponent(photo.ref)}`} target="_blank" rel="noreferrer">
                 {/* Served by the app with the session; next/image would only re-encode it. */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1065,6 +1088,7 @@ export function QuoteEditor({
           </Panel>
         </div>
       </fieldset>
+      </ScanBeside>
 
       {quotation && <QuoteHistory quotation={quotation} revisions={revisions} events={events} />}
 

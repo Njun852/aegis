@@ -8,18 +8,31 @@ import { QUOTE_STATUSES, filterQuotations, formatPeso, manilaDateKey, quoteStatu
 import { ColumnLabel } from "@/components/forms/form-kit";
 import { JobOrdersPanel } from "./job-orders-panel";
 import { PriceListPanel } from "./price-list-panel";
+import { ScansPanel } from "./scans-panel";
 import { QuoteSettingsModal } from "./settings-modal";
-import type { JobOrderSummary, QuotationSettings, QuotationSummary, QuotePriceItem, QuoteStatusFilter } from "@/types";
+import type {
+  JobOrderSummary,
+  PriceItemUse,
+  QuotationSettings,
+  QuotationSummary,
+  QuotePriceItem,
+  QuoteStatusFilter,
+  ScanRecord,
+} from "@/types";
 
 const GRID =
   "grid gap-3 items-center grid-cols-[92px_minmax(150px,1.3fr)_110px_20px] wide:grid-cols-[92px_minmax(170px,1.4fr)_minmax(0,1fr)_110px_130px_130px_22px]";
 
-export type QuotationsTab = "quotations" | "jobs" | "prices";
+export type QuotationsTab = "quotations" | "jobs" | "scans" | "prices";
 
 export interface QuotationsWorkspaceProps {
   quotations: QuotationSummary[];
   jobOrders: JobOrderSummary[];
   priceItems: QuotePriceItem[];
+  /** The scan history; loaded only for the Scans tab. */
+  scans: ScanRecord[];
+  /** Where each price list line was used, by `priceItemKey`; loaded only for the Price list tab. */
+  priceUses: Record<string, PriceItemUse[]>;
   settings: QuotationSettings;
   tab: QuotationsTab;
   businessName: string;
@@ -29,6 +42,8 @@ export function QuotationsWorkspace({
   quotations,
   jobOrders,
   priceItems,
+  scans,
+  priceUses,
   settings,
   tab,
   businessName,
@@ -38,6 +53,7 @@ export function QuotationsWorkspace({
   const [status, setStatus] = useState<QuoteStatusFilter>("All");
   // Kept apart from the quotation search, so switching tabs does not carry a filter across.
   const [jobSearch, setJobSearch] = useState("");
+  const [scanSearch, setScanSearch] = useState("");
   const [editingSettings, setEditingSettings] = useState(false);
 
   const visible = useMemo(() => filterQuotations(quotations, { status, search }), [quotations, status, search]);
@@ -55,7 +71,7 @@ export function QuotationsWorkspace({
       fg: "var(--status-warning)",
     },
     {
-      label: "Awaiting answer",
+      label: "Awaiting customer",
       value: String(quotations.filter((quote) => quote.status === "Sent").length),
       icon: "send",
       bg: "var(--status-positive-soft)",
@@ -98,6 +114,14 @@ export function QuotationsWorkspace({
             )}
             {tab === "jobs" && (
               <SearchInput placeholder="Search job no, customer, plate..." value={jobSearch} onChange={setJobSearch} width={240} />
+            )}
+            {tab === "scans" && (
+              <SearchInput placeholder="Search scan, customer, plate..." value={scanSearch} onChange={setScanSearch} width={240} />
+            )}
+            {(tab === "jobs" || tab === "scans") && (
+              <Button variant="secondary" icon="image" onClick={() => router.push("/quotations/new")}>
+                Scan job order
+              </Button>
             )}
             <Button variant="secondary" icon="settings" onClick={() => setEditingSettings(true)}>
               Settings
@@ -163,6 +187,7 @@ export function QuotationsWorkspace({
             [
               { id: "quotations", label: "Quotations", icon: "file-text" },
               { id: "jobs", label: `Job orders · ${jobOrders.length}`, icon: "wrench" },
+              { id: "scans", label: "Scans", icon: "image" },
               { id: "prices", label: "Price list", icon: "layers" },
             ] as const
           ).map((item) => {
@@ -198,9 +223,11 @@ export function QuotationsWorkspace({
         </div>
 
         {tab === "prices" ? (
-          <PriceListPanel items={priceItems} markupPercent={settings.markupPercent} />
+          <PriceListPanel items={priceItems} uses={priceUses} markupPercent={settings.markupPercent} />
         ) : tab === "jobs" ? (
           <JobOrdersPanel jobOrders={jobOrders} search={jobSearch} />
+        ) : tab === "scans" ? (
+          <ScansPanel scans={scans} search={scanSearch} />
         ) : (
           <section
             style={{

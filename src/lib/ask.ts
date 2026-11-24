@@ -45,7 +45,6 @@ export const ASK_ACTION_KINDS = [
   "booking_status",
   "draft_quotation",
   "quote_mark_given",
-  "quote_answer",
   "approve_pricing",
   "make_job_order",
   "job_status",
@@ -243,7 +242,7 @@ export function suggestedQuestions(modules: string[]): string[] {
   const has = (key: string) => modules.includes(key);
   return [
     has("bookings") ? "What bookings do we have this week?" : "",
-    has("quotes") ? "Which quotations are waiting for an answer?" : "",
+    has("quotes") ? "Which quotations are waiting on the customer?" : "",
     "How much revenue did we make this month?",
     has("inventory") ? "What stock is running low?" : "",
     has("bookings") ? "What is our cost per booking from ads?" : "",

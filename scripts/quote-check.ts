@@ -25,12 +25,11 @@ import { MongoClient } from "mongodb";
 import { QUOTATION_INDEXES } from "@/lib/data/quotations";
 import {
   bookingMoveRefusal,
-  bookingStatusFromJobs,
   jobOrderCosting,
-  jobStartRefusal,
+  jobOrderLabel,
   linesToTake,
   stockStateOf,
-  syncedBookingStatus,
+  usedForLabel,
 } from "@/lib/job-orders";
 import { applyCostSources, checkLineCost, findCostSource, markupOf } from "@/lib/quote-costing";
 import { draftLinesFromRead, parseQuotePhotoRead } from "@/lib/quote-photo";
@@ -177,36 +176,17 @@ assert.equal(parseManilaDateTime("yesterday"), null);
 
 console.log("✓ margin %, special pricing keys and approval, validity and Expired, partial approval, Manila times");
 
-// ---- Bookings and job orders: one job, tracked once ------------------------------
+// ---- Bookings and job orders --------------------------------------------------------
 
-assert.equal(bookingStatusFromJobs([]), null, "no job order: the booking keeps its own status");
-assert.equal(bookingStatusFromJobs(["Open"]), null, "work not started: still the appointment's status");
-assert.equal(bookingStatusFromJobs(["In progress"]), "In progress");
-assert.equal(bookingStatusFromJobs(["Completed"]), "Completed");
-assert.equal(bookingStatusFromJobs(["Completed", "Open"]), "In progress", "two jobs, one done: still in progress");
-assert.equal(bookingStatusFromJobs(["Completed", "Cancelled"]), "Completed", "a cancelled job does not hold the booking open");
-
-assert.equal(syncedBookingStatus("Confirmed", ["In progress"]), "In progress", "starting the job starts the booking");
-assert.equal(syncedBookingStatus("In progress", ["Completed"]), "Completed", "completing it completes the booking");
-assert.equal(syncedBookingStatus("Completed", ["In progress"]), "In progress", "reopening the job reopens the booking");
-assert.equal(syncedBookingStatus("In progress", ["Cancelled"]), "Confirmed", "a cancelled job leaves the appointment standing");
-assert.equal(syncedBookingStatus("In progress", ["Open"]), "Confirmed", "back to open: back to confirmed");
-assert.equal(syncedBookingStatus("Confirmed", ["Open"]), null, "nothing to change");
-assert.equal(syncedBookingStatus("Cancelled", ["In progress"]), null, "a cancelled booking is never moved");
-
-const openJob = [{ ref: "JO-1001", status: "Open" as const }];
-const startedJob = [{ ref: "JO-1001", status: "In progress" as const }];
-assert.equal(bookingMoveRefusal("Confirmed", openJob), null, "confirming the appointment stays with the booking");
-assert.ok(bookingMoveRefusal("In progress", openJob)?.includes("JO-1001"), "starting work is done on the job order");
-assert.ok(bookingMoveRefusal("Completed", startedJob), "and so is completing it");
-assert.ok(bookingMoveRefusal("Cancelled", openJob), "a booking with open work cannot be cancelled");
-assert.ok(bookingMoveRefusal("Pending", startedJob), "nor unconfirmed once work has started");
+const recordedJob = [{ ref: "JO-1001", status: "Open" as const }];
+assert.equal(bookingMoveRefusal("In progress", recordedJob), null, "a booking starts and completes itself; job orders have no progress");
+assert.equal(bookingMoveRefusal("Completed", recordedJob), null);
+assert.ok(bookingMoveRefusal("Cancelled", recordedJob)?.includes("JO-1001"), "a booking with a recorded job order cannot be cancelled");
 assert.equal(bookingMoveRefusal("Cancelled", [{ ref: "JO-1001", status: "Cancelled" }]), null, "a cancelled job order lets it go");
-assert.ok(jobStartRefusal("In progress", { ref: "BK-1", status: "Pending" }), "work cannot start on an unconfirmed booking");
-assert.equal(jobStartRefusal("In progress", { ref: "BK-1", status: "Confirmed" }), null);
-assert.equal(jobStartRefusal("In progress", null), null, "a job order with no booking starts freely");
+assert.equal(jobOrderLabel("In progress"), "Recorded", "older statuses read as recorded");
+assert.equal(jobOrderLabel("Cancelled"), "Cancelled");
 
-console.log("✓ bookings follow their job orders; the booking side hands work over and cannot cancel open work");
+console.log("✓ job orders are records: bookings move themselves, and only cancelling one under a recorded job order is refused");
 
 // ---- Job orders: stock out and actual cost -----------------------------------------
 
@@ -266,7 +246,14 @@ const waitingCosting = jobOrderCosting([jobLine({})], 10_000);
 assert.equal(waitingCosting.actual.costCents, waitingCosting.quoted.costCents, "nothing taken: actual is the quoted cost");
 assert.equal(waitingCosting.actual.marginCents, 90_000 - 60_000 - 10_000, "the discount comes off both");
 
-console.log("✓ job orders take linked parts from stock in whole units; actual cost from the batches, quoted where none taken");
+assert.equal(
+  usedForLabel({ billTo: { name: " Juan Cruz ", company: "" }, vehicle: { plate: "ABC 123" } }),
+  "Juan Cruz · ABC 123",
+  "a part names the customer and the car it went to",
+);
+assert.equal(usedForLabel({ billTo: { name: "", company: "LGU Davao" }, vehicle: { plate: "" } }), "LGU Davao", "the company when there is no person, no dangling dot");
+
+console.log("✓ job orders take linked parts from stock in whole units; actual cost from the batches, quoted where none taken; parts name who they were used for");
 
 const priceList: QuotePriceItem[] = [
   { section: "labor", description: "Turbo cleaning", unit: "", unitPriceCents: 350_000, costCents: null, useCount: 3, lastUsedDay: "" },

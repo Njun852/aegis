@@ -334,11 +334,11 @@ export function periodBounds(period: InventoryPeriod, today: Date) {
   return { from, to };
 }
 
-export function movesInPeriod(
-  moves: StockMove[],
+export function movesInPeriod<T extends Pick<StockMove, "occurredAt">>(
+  moves: T[],
   period: InventoryPeriod,
   today: Date,
-) {
+): T[] {
   const { from, to } = periodBounds(period, today);
   return moves.filter((move) => {
     const at = new Date(move.occurredAt);

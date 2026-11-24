@@ -5,7 +5,9 @@ export type QuoteSection = "parts" | "labor";
 
 /**
  * What is stored. A quotation is a Draft until it is emailed or handed over,
- * then Sent until a person records the customer's answer.
+ * then Sent until the job order is made, which records it as Approved.
+ * Partially Approved and Declined come only from answers recorded before
+ * that step was removed (20 Nov 2026).
  */
 export type StoredQuoteStatus = "Draft" | "Sent" | "Approved" | "Partially Approved" | "Declined";
 
@@ -113,7 +115,14 @@ export interface QuotePricingApproval {
 export type QuoteResponseOutcome = "Approved" | "Partially Approved" | "Declined";
 
 /** How the answer reached the shop. The list is `QUOTE_RESPONSE_METHODS` in `src/lib/quotations.ts`. */
-export type QuoteResponseMethod = "In person" | "Signed copy" | "Phone call" | "Email" | "Messenger or text";
+export type QuoteResponseMethod =
+  | "In person"
+  | "Signed copy"
+  | "Phone call"
+  | "Email"
+  | "Messenger or text"
+  /** Recorded by making the job order, now that the answer is not a step of its own. */
+  | "Job order made";
 
 /** The customer's answer, as a person recorded it. */
 export interface QuoteResponse {
@@ -168,6 +177,12 @@ export interface Quotation {
   source: QuoteSource;
   /** The photo a draft was read from. */
   photoRef: string | null;
+  /**
+   * Read from a scan of the shop's paper job order: the work already exists,
+   * so the quotation is recorded straight as a job order, with no give or
+   * approval step.
+   */
+  paperJobOrder: boolean;
   totals: QuoteTotals;
   /** "Sep 14 · 16:40", when it was last emailed or handed over. */
   sent: string | null;
@@ -206,6 +221,8 @@ export interface QuotationDocument {
   source: QuoteSource;
   /** The photo a draft was read from. */
   photoRef?: string;
+  /** Read from a scan of the paper job order. Absent on everything before 20 Nov 2026. */
+  paperJobOrder?: boolean;
   sentAt?: Date;
   sentTo?: string;
   /** The user id that created it. */
@@ -320,6 +337,28 @@ export interface QuotePriceItem {
   useCount: number;
   /** "Sep 14, 2026" */
   lastUsedDay: string;
+}
+
+/**
+ * One job a price list line was used on: who, which car, how many, what it
+ * sold for and what it cost. Keyed on the price list by section and wording.
+ */
+export interface PriceItemUse {
+  jobOrderRef: string;
+  /** "Nov 20 · 19:47", when the job order was made. */
+  when: string;
+  /** ISO 8601. */
+  at: string;
+  customer: string;
+  plate: string;
+  makeModel: string;
+  qty: number;
+  unit: string;
+  /** What the line sold for: qty × unit price. */
+  amountCents: number;
+  /** What it cost: the stock it took when taken, otherwise the quoted cost. Null when neither is known. */
+  costCents: number | null;
+  costSource: "stock" | "quoted" | null;
 }
 
 export interface QuotePriceItemDocument {
@@ -451,6 +490,27 @@ export interface QuotePhotoDocument {
   createdAt: Date;
 }
 
+/**
+ * One scanned document and everything that followed from it: who scanned it
+ * and when, what the AI read, the quotation it filled in, the job order it
+ * became, and that quotation's own history.
+ */
+export interface ScanRecord {
+  ref: string;
+  /** "Nov 20 · 19:26" */
+  when: string;
+  /** ISO 8601. */
+  at: string;
+  by: string;
+  /** What the AI read it as; null when the read failed. */
+  readAs: string | null;
+  note: string;
+  quotation: { ref: string; status: QuoteStatus; totalCents: number; customer: string; plate: string } | null;
+  jobOrder: { ref: string; status: JobOrderStatus } | null;
+  /** The quotation's history, oldest first. */
+  events: QuoteEvent[];
+}
+
 /** The photo a draft came from, as the editor shows it beside the lines. */
 export interface QuotePhotoView {
   ref: string;
@@ -536,6 +596,54 @@ export interface JobOrderLine {
   stockClaimAt?: Date | null;
 }
 
+/** What a line in a job order's history is about. */
+export type JobOrderEventKind = "created" | "quotation-changed" | "stock" | "cancelled";
+
+/** A job order's history, append-only. */
+export interface JobOrderEventDocument {
+  businessId: string;
+  jobOrderRef: string;
+  kind: JobOrderEventKind;
+  detail: string;
+  by: QuoteActor;
+  at: Date;
+}
+
+export interface JobOrderEvent {
+  kind: JobOrderEventKind;
+  detail: string;
+  by: string;
+  /** "Nov 20 · 19:47" */
+  at: string;
+}
+
+/**
+ * One taking of stock for a job: which part, how many, what it cost, and the
+ * customer and car it was used for. Read from the job order lines, so it is
+ * right for job orders made before movements named the customer.
+ */
+export interface JobPartUse {
+  moveRef: string;
+  sku: string;
+  /** As worded on the job order. */
+  description: string;
+  quantity: number;
+  unit: string;
+  /** For the whole quantity, from the batches drawn. */
+  costCents: number;
+  /** ISO 8601, when it was taken. */
+  occurredAt: string;
+  /** "Nov 18 · 18:47" */
+  when: string;
+  jobOrderRef: string;
+  jobStatus: JobOrderStatus;
+  customer: string;
+  plate: string;
+  makeModel: string;
+  /** Put back in stock when the job order was cancelled. */
+  returned: boolean;
+}
+
 /** Where a job order line stands with Inventory, for the screen. */
 export type JobLineStockState =
   /** Labor, or a part not linked to an Inventory item. */
@@ -581,6 +689,8 @@ export interface JobOrderDocument {
   approvedByCustomer: string;
   /** Reserved for invoicing; nothing writes it yet. */
   invoiceRef: string | null;
+  /** The scan of the paper job order (or other photo) the quotation was read from. Absent before 20 Nov 2026. */
+  photoRef?: string | null;
   createdBy: QuoteActor;
   createdAt: Date;
   updatedAt: Date;
@@ -618,6 +728,8 @@ export interface JobOrder {
   stockLines: number;
   /** Linked parts not taken from stock yet. */
   waitingLines: number;
+  /** The scan or photo the work was read from, for viewing beside the job. */
+  photoRef: string | null;
   createdBy: string;
   /** "Oct 15 · 09:12" */
   created: string;
