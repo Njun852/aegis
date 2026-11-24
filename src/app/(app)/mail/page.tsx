@@ -14,12 +14,13 @@ export const metadata: Metadata = {
     "AI prioritization, summaries and suggested replies over the company inbox.",
 };
 
-export default async function MailPage() {
+export default async function MailPage(props: { searchParams: Promise<{ message?: string | string[] }> }) {
   const business = await getActiveBusiness();
   if (!business) redirect("/login");
   if (!isModuleEnabled(business, "mail")) return <ModulePage moduleKey="mail" />;
 
   const messages = await listMessages();
+  const requested = (await props.searchParams).message;
 
   // Whether the install has a key at all, so Compose can offer to draft. Triage
   // runs in the automatic sync, never from rendering this page.
@@ -28,6 +29,7 @@ export default async function MailPage() {
       messages={messages}
       aiEnabled={isAiConfigured()}
       mailbox={await mailboxAddress()}
+      initialMessageId={typeof requested === "string" ? requested : null}
     />
   );
 }

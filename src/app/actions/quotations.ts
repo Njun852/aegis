@@ -35,6 +35,8 @@ import {
   listPriceItems,
   markQuotationSent,
   noteOnQuotation,
+  clearQuoteResponse,
+  recordQuoteResponse,
   readQuotationSettings,
   savePhoto,
   removeQuoteSigner,
@@ -58,12 +60,15 @@ import {
   MAX_SIGNATURE_CHARS,
   MAX_VALID_DAYS,
   QUOTE_HANDOVER_METHODS,
+  QUOTE_RESPONSE_METHODS,
   addDays,
   discountFromPercent,
   formatPeso,
   isBlankLine,
   isDateKey,
+  isHexColor,
   manilaDateKey,
+  parseManilaDateTime,
   pricingCleared,
   quoteTotals,
   specialPricingKey,
@@ -75,6 +80,7 @@ import type {
   QuoteBillTo,
   QuoteLine,
   QuoteLineOrigin,
+  QuotePdfColors,
   QuoteSection,
   QuoteVehicle,
 } from "@/types";
@@ -473,6 +479,61 @@ export async function approveSpecialPricingAction(ref: string, key: string): Pro
   });
 }
 
+// ---- The customer's approval -------------------------------------------------------
+
+/**
+ * Records that the customer approved the whole quotation, usually by sending
+ * a purchase order. The job order is not made here: staff make it when they
+ * decide to, from the Approved quotation.
+ */
+export async function recordQuoteApprovalAction(
+  ref: string,
+  input: { poNumber: string; customerName: string; method: string; at: string; note: string },
+): Promise<Result> {
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    const method = QUOTE_RESPONSE_METHODS.find((entry) => entry === input?.method);
+    if (!method) throw new InputError("Say how the customer approved it.");
+    const poNumber = text(input.poNumber, 40);
+    if (method === "Purchase order" && !poNumber) throw new InputError("Enter the purchase order number.");
+    const customerName = text(input.customerName, 120);
+    if (!customerName) throw new InputError("Who approved it for the customer?");
+    const at = parseManilaDateTime(text(input.at, 20));
+    if (!at) throw new InputError("Enter when the customer approved it.");
+
+    await recordQuoteResponse(ref, {
+      outcome: "Approved",
+      at,
+      customerName,
+      method,
+      note: text(input.note, 300),
+      approvedLineIds: [],
+      approvedDiscountCents: 0,
+      poNumber: poNumber || undefined,
+    });
+    const quote = await findQuotation(ref);
+    if (quote?.response) {
+      await notifyOwner(
+        "quotes",
+        `quote-answer:${ref}:${quote.revision}:Approved`,
+        quoteAnsweredText(business.name, ref, "Approved", quote.response.customerName, quote.response.approvedTotalCents),
+      );
+    }
+    refresh(ref);
+    return { ok: true };
+  });
+}
+
+/** Takes back an approval recorded by mistake, by a person or by the AI reading email. */
+export async function clearQuoteApprovalAction(ref: string, reason: string): Promise<Result> {
+  await requireModule("quotes");
+  return guard(async () => {
+    await clearQuoteResponse(ref, text(reason, 200));
+    refresh(ref);
+    return { ok: true };
+  });
+}
+
 // ---- Job orders -------------------------------------------------------------------
 
 /**
@@ -862,12 +923,29 @@ export async function saveQuotationSettingsAction(
           headTechnician: text(raw.signOff?.headTechnician, 80),
           manager: text(raw.signOff?.manager, 80),
         },
+        pdfColors: readPdfColors(raw.pdfColors),
       },
       logo,
     );
     refresh();
     return { ok: true };
   });
+}
+
+/** The PDF colours as sent, each checked; anything not a "#RRGGBB" colour is refused. */
+function readPdfColors(raw: unknown): QuotePdfColors | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const entry = raw as Record<string, unknown>;
+  const colors = { frame: entry.frame, heading: entry.heading, shade: entry.shade, highlight: entry.highlight };
+  for (const [key, value] of Object.entries(colors)) {
+    if (!isHexColor(value)) throw new InputError(`The ${key} colour is not a valid colour.`);
+  }
+  return {
+    frame: (colors.frame as string).toUpperCase(),
+    heading: (colors.heading as string).toUpperCase(),
+    shade: (colors.shade as string).toUpperCase(),
+    highlight: (colors.highlight as string).toUpperCase(),
+  };
 }
 
 // ---- Signatures -------------------------------------------------------------------

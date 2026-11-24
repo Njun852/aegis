@@ -27,10 +27,14 @@ const mono = Share_Tech_Mono({ subsets: ["latin"], weight: "400", variable: "--b
  * meaning typed out beside its letter. The bar and the status are live on
  * top, placed where the picture has them.
  *
- * It is decoration, so it must never stand between someone and the form: it
- * plays once per browser session, lasts about six seconds, any click or key
- * skips it, and with reduced motion it shows the finished frame briefly and
- * fades without animating.
+ * It is decoration, so it must never stand between someone and the form: on
+ * the sign-in page it plays once per browser session, lasts about six
+ * seconds, any click or key skips it, and with reduced motion it shows the
+ * finished frame briefly and fades without animating.
+ *
+ * Inside the app (`trigger="return"`) it plays again each time the person
+ * comes back to the AEGIS tab after being away for a moment, by the same
+ * rules: a click or key skips it.
  */
 
 const SEEN_KEY = "aegis.boot.seen";
@@ -38,6 +42,11 @@ const DURATION_MS = 6000;
 const REDUCED_MS = 900;
 /** The plate is waited for this long at most before the sequence starts anyway. */
 const LOAD_WAIT_MS = 800;
+/**
+ * Away from the tab at least this long before coming back replays it, so a
+ * glance at another tab or a quick Alt+Tab does not cost six seconds.
+ */
+const RETURN_AFTER_MS = 3000;
 
 const ASSET = "/brand";
 
@@ -99,14 +108,17 @@ function markSeen() {
   }
 }
 
-export function BootScreen() {
-  preload(`${ASSET}/boot-plate.jpg`, { as: "image", fetchPriority: "high" });
-  preload(`${ASSET}/boot-logo.png`, { as: "image", fetchPriority: "high" });
+export function BootScreen({ trigger = "load" }: { trigger?: "load" | "return" } = {}) {
+  const onReturn = trigger === "return";
+  preload(`${ASSET}/boot-plate.jpg`, { as: "image", fetchPriority: onReturn ? "low" : "high" });
+  preload(`${ASSET}/boot-logo.png`, { as: "image", fetchPriority: onReturn ? "low" : "high" });
 
   // Shown on the server render so the form never flashes before it; hidden on
-  // the first client pass when this session has already seen it.
-  const alreadySeen = useSyncExternalStore(noSubscription, () => seenOnLoad, () => false);
-  const [phase, setPhase] = useState<"waiting" | "playing" | "leaving" | "done">("waiting");
+  // the first client pass when this session has already seen it. The return
+  // screen starts hidden and waits for the tab to be left and come back to.
+  const seen = useSyncExternalStore(noSubscription, () => seenOnLoad, () => false);
+  const alreadySeen = !onReturn && seen;
+  const [phase, setPhase] = useState<"waiting" | "playing" | "leaving" | "done">(onReturn ? "done" : "waiting");
   const [progress, setProgress] = useState(0);
   const started = useRef(0);
 
@@ -118,16 +130,40 @@ export function BootScreen() {
   /** The plate has loaded, or waiting for it has gone on long enough. */
   const begin = useCallback(() => setPhase((current) => (current === "waiting" ? "playing" : current)), []);
 
+  // Coming back to the tab after being away: play it from the start.
   useEffect(() => {
-    if (alreadySeen) return;
+    if (!onReturn) return;
+    let hiddenAt: number | null = document.visibilityState === "hidden" ? performance.now() : null;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = performance.now();
+        return;
+      }
+      const away = hiddenAt === null ? 0 : performance.now() - hiddenAt;
+      hiddenAt = null;
+      if (away < RETURN_AFTER_MS) return;
+      setProgress(0);
+      setPhase("waiting");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [onReturn]);
+
+  const showing = !alreadySeen && phase !== "done";
+  const waiting = !alreadySeen && phase === "waiting";
+
+  useEffect(() => {
+    if (!waiting) return;
     const fallback = setTimeout(begin, LOAD_WAIT_MS);
+    return () => clearTimeout(fallback);
+  }, [waiting, begin]);
+
+  useEffect(() => {
+    if (!showing) return;
     const skip = () => finish();
     window.addEventListener("keydown", skip);
-    return () => {
-      clearTimeout(fallback);
-      window.removeEventListener("keydown", skip);
-    };
-  }, [alreadySeen, begin, finish]);
+    return () => window.removeEventListener("keydown", skip);
+  }, [showing, finish]);
 
   useEffect(() => {
     if (alreadySeen || phase !== "playing") return;

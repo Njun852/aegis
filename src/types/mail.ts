@@ -82,6 +82,8 @@ export interface MailMessage {
   links: MailLink[] | null;
   /** Whether the mail server can still be asked for this message (it has a UID). */
   canReadFromMailbox: boolean;
+  /** A purchase order read from it, when it was one. Null otherwise. */
+  poScan: MailPoScan | null;
 }
 
 /**
@@ -257,9 +259,33 @@ export interface MailMessageDocument {
   /** Recorded when the email is read in; absent on mail stored before 13 Nov 2026 until it is opened. */
   attachments?: MailAttachmentInfo[];
   links?: MailLink[];
+  /** What the purchase-order reader made of it. Absent until it has looked (or on mail it skips). */
+  poScan?: MailPoScanDocument;
   receivedAt: Date;
   createdAt: Date;
 }
+
+/**
+ * The purchase-order reader's verdict on one email: was it a customer
+ * approving a quotation, and which quotations it recorded as Approved.
+ *
+ * - `none`: not an approval (or not worth asking the AI about).
+ * - `applied`: recorded on every quotation in `quotationRefs`.
+ * - `review`: looks like an approval, but the AI could not tie it to an open
+ *   quotation with enough certainty, so a person records it.
+ */
+export type MailPoScanOutcome = "none" | "applied" | "review";
+
+export interface MailPoScan {
+  outcome: MailPoScanOutcome;
+  poNumber: string;
+  company: string;
+  quotationRefs: string[];
+  /** One line on what was read, for the mail screen. */
+  note: string;
+}
+
+export type MailPoScanDocument = MailPoScan & { version: number; at: Date };
 
 /**
  * An attachment's bytes, kept after the first time it is fetched from Gmail so

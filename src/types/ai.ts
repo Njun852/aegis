@@ -17,7 +17,9 @@ export type AiKind =
   | "ask-plan"
   | "ask-answer"
   | "finance-summary"
-  | "finance-intake";
+  | "finance-intake"
+  | "po-approval"
+  | "po-attachment";
 
 /**
  * Why a generation did not produce text. Every one of these is a normal

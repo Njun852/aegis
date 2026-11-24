@@ -85,6 +85,7 @@ function toJobOrder(doc: JobOrderDocument): JobOrder {
     approvedTotalCents: doc.approvedTotalCents,
     approvedAt: formatManilaStamp(doc.approvedAt),
     approvedByCustomer: doc.approvedByCustomer,
+    poNumber: doc.poNumber ?? null,
     quotedCostCents: costing.quoted.costCents,
     quotedMarginCents: costing.quoted.marginCents,
     quotedMarginPercent: costing.quoted.marginPercent,

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Badge, Button, Icon, SearchInput } from "@/components/ui";
 import { activateOnKey } from "@/lib/interaction";
-import { QUOTE_STATUSES, filterQuotations, formatPeso, manilaDateKey, quoteStatusTone } from "@/lib/quotations";
+import { QUOTE_STATUSES, filterQuotations, formatPeso, manilaDateKey, needsJobOrder, quoteStatusTone } from "@/lib/quotations";
 import { ColumnLabel } from "@/components/forms/form-kit";
 import { JobOrdersPanel } from "./job-orders-panel";
 import { PriceListPanel } from "./price-list-panel";
@@ -61,7 +61,7 @@ export function QuotationsWorkspace({
   // Counted in the shop's timezone, like the date on the form.
   const month = manilaDateKey(new Date()).slice(0, 7);
   const thisMonth = quotations.filter((quote) => quote.quoteDate.startsWith(month));
-  const stats = [
+  const stats: { label: string; value: string; icon: string; bg: string; fg: string; filter?: QuoteStatusFilter }[] = [
     { label: "Quotations", value: String(quotations.length), icon: "file-text", bg: "var(--accent-soft)", fg: "var(--accent-primary)" },
     {
       label: "Drafts",
@@ -76,6 +76,16 @@ export function QuotationsWorkspace({
       icon: "send",
       bg: "var(--status-positive-soft)",
       fg: "var(--status-positive)",
+    },
+    {
+      // Approved by the customer (often a PO the AI read from email), with the
+      // job order still for staff to decide on.
+      label: "Approved, no job order",
+      value: String(quotations.filter(needsJobOrder).length),
+      icon: "check",
+      bg: "var(--accent-soft)",
+      fg: "var(--accent-primary)",
+      filter: "Needs job order",
     },
     {
       // Quoted, not earned: a quotation is an offer until the work is done.
@@ -132,11 +142,22 @@ export function QuotationsWorkspace({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 wide:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 wide:grid-cols-5">
           {stats.map((stat) => (
             <div
               key={stat.label}
+              role={stat.filter ? "button" : undefined}
+              tabIndex={stat.filter ? 0 : undefined}
+              onClick={
+                stat.filter
+                  ? () => {
+                      setStatus(stat.filter ?? "All");
+                      if (tab !== "quotations") switchTab("quotations");
+                    }
+                  : undefined
+              }
               style={{
+                cursor: stat.filter ? "pointer" : undefined,
                 background: "var(--surface-card)",
                 border: "1px solid var(--border-default)",
                 borderRadius: "var(--radius-md)",
@@ -243,10 +264,14 @@ export function QuotationsWorkspace({
             }}
           >
             <div className="flex flex-wrap items-center gap-2">
-              {(["All", ...QUOTE_STATUSES] as QuoteStatusFilter[]).map((filter) => {
+              {(["All", ...QUOTE_STATUSES, "Needs job order"] as QuoteStatusFilter[]).map((filter) => {
                 const active = status === filter;
                 const count =
-                  filter === "All" ? quotations.length : quotations.filter((quote) => quote.status === filter).length;
+                  filter === "All"
+                    ? quotations.length
+                    : filter === "Needs job order"
+                      ? quotations.filter(needsJobOrder).length
+                      : quotations.filter((quote) => quote.status === filter).length;
                 // Six statuses is a lot of chips; only the ones with something in them are offered.
                 if (filter !== "All" && count === 0 && !active) return null;
                 return (
@@ -330,7 +355,15 @@ export function QuotationsWorkspace({
                     </span>
                     <span className="hidden flex-col items-start gap-0.5 wide:flex">
                       <Badge tone={quoteStatusTone(quote.status)}>{quote.status}</Badge>
-                      {(quote.jobOrderRef || quote.bookingRef) && <Muted>{quote.jobOrderRef ?? quote.bookingRef}</Muted>}
+                      {needsJobOrder(quote) ? (
+                        <span style={{ fontSize: "11px", color: "var(--accent-primary)", fontWeight: 600 }}>
+                          {[quote.poNumber ? `PO ${quote.poNumber}` : "", quote.approvedByAi ? "via email (AI)" : "", "no job order yet"]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      ) : (
+                        (quote.jobOrderRef || quote.bookingRef) && <Muted>{quote.jobOrderRef ?? quote.bookingRef}</Muted>
+                      )}
                     </span>
                     <span className="flex flex-col items-end leading-tight">
                       <Strong>{formatPeso(quote.totalCents)}</Strong>

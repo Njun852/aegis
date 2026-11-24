@@ -44,14 +44,20 @@ export async function isIntakeReadCached(sha256: string, businessName: string): 
   return (await readCachedOutput(KIND, keyFor(sha256, businessName), INTAKE_PROMPT_VERSION)) !== null;
 }
 
-/** The first pages of a PDF as a new PDF, or null when it cannot be opened (damaged or encrypted). */
-export async function firstPages(dataUrl: string): Promise<{ dataUrl: string; pages: number } | null> {
+/**
+ * The first pages of a PDF as a new PDF, or null when it cannot be opened
+ * (damaged or encrypted). Also used for purchase orders attached to email.
+ */
+export async function firstPages(
+  dataUrl: string,
+  maxPages: number = MAX_INTAKE_PDF_PAGES,
+): Promise<{ dataUrl: string; pages: number } | null> {
   try {
     const source = await PDFDocument.load(Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64"));
     const pages = source.getPageCount();
-    if (pages <= MAX_INTAKE_PDF_PAGES) return { dataUrl, pages };
+    if (pages <= maxPages) return { dataUrl, pages };
     const trimmed = await PDFDocument.create();
-    const copied = await trimmed.copyPages(source, Array.from({ length: MAX_INTAKE_PDF_PAGES }, (_, index) => index));
+    const copied = await trimmed.copyPages(source, Array.from({ length: maxPages }, (_, index) => index));
     for (const page of copied) trimmed.addPage(page);
     const bytes = await trimmed.save();
     return { dataUrl: `data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}`, pages };

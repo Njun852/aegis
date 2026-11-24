@@ -50,6 +50,7 @@ import type {
   QuotePhotoView,
   QuotePriceItemDocument,
   QuoteResponseDocument,
+  QuoteResponseSource,
   QuoteSection,
   QuoteSource,
   ScanRecord,
@@ -153,6 +154,8 @@ function toSummary(doc: QuotationDocument): QuotationSummary {
     sent: doc.sentAt ? formatStamp(doc.sentAt) : null,
     bookingRef: doc.bookingRef ?? null,
     jobOrderRef: doc.jobOrderRef ?? null,
+    poNumber: doc.response?.poNumber || null,
+    approvedByAi: Boolean(doc.response?.source?.readByAi && !doc.jobOrderRef),
     updatedAt: doc.updatedAt.toISOString(),
   };
 }
@@ -624,15 +627,25 @@ export interface ResponseInput {
   note: string;
   approvedLineIds: string[];
   approvedDiscountCents: number;
+  /** The customer's purchase order number, if they sent one. */
+  poNumber?: string;
+  /** The email it came in. */
+  source?: QuoteResponseSource | null;
 }
+
+/** How the log names the AI when it records an approval it read from email. */
+export const AI_QUOTE_ACTOR: QuoteActor = { userId: "aegis-ai", name: "AEGIS AI (from email)" };
 
 /**
  * Records what the customer said to the version they were given. The
  * approved amount is worked out here from the stored lines, not taken from
- * the browser.
+ * the browser. `actor` is given only by the email reader, which records as
+ * the AI rather than as whoever's session ran the sync.
+ *
+ * Approving never makes the job order: staff do that when they decide to.
  */
-export async function recordQuoteResponse(ref: string, input: ResponseInput): Promise<void> {
-  const actor = await currentQuoteActor();
+export async function recordQuoteResponse(ref: string, input: ResponseInput, actor?: QuoteActor): Promise<void> {
+  actor ??= await currentQuoteActor();
   const doc = await requireDocument(ref);
   if (doc.jobOrderRef) throw new InputError(`${ref} is already job order ${doc.jobOrderRef}.`);
   if (doc.status === "Draft") {
@@ -691,12 +704,14 @@ export async function recordQuoteResponse(ref: string, input: ResponseInput): Pr
     approvedLineIds: approvedIds,
     approvedDiscountCents: discount,
     approvedTotalCents: approvedTotal,
+    ...(input.poNumber ? { poNumber: input.poNumber } : {}),
+    ...(input.source ? { source: input.source } : {}),
     recordedBy: actorOf(actor),
     recordedAt: now,
   };
   const collection = await quotations();
   const result = await collection.updateOne(
-    { ...atRevision(doc), status: "Sent" },
+    { ...atRevision(doc), status: "Sent", jobOrderRef: null },
     { $set: { status: input.outcome, response, updatedAt: now } },
   );
   if (result.matchedCount === 0) throw new InputError(RACE);
@@ -710,15 +725,90 @@ export async function recordQuoteResponse(ref: string, input: ResponseInput): Pr
       : `Approved ${formatPeso(approvedTotal)} of ${formatPeso(full)} (${approvedIds.length} of ${priced.length} lines${
           discount ? `, ${formatPeso(discount)} discount` : ""
         }).`;
+  const po = input.poNumber ? ` PO ${input.poNumber}.` : "";
+  const from = input.source
+    ? ` Read from the email “${input.source.subject || "(no subject)"}” from ${input.source.from}${
+        input.source.readByAi ? "; check it before making the job order" : ""
+      }.`
+    : "";
   await logEvent(
     ref,
     doc.revision ?? 1,
     "response",
-    `${input.customerName} ${verb} on ${formatManilaStamp(input.at)}, ${input.method.toLowerCase()}. ${amount}${
+    `${input.customerName} ${verb} on ${formatManilaStamp(input.at)}, ${input.method.toLowerCase()}. ${amount}${po}${from}${
       input.note ? ` Note: ${input.note}` : ""
     }`,
     actor,
   );
+}
+
+/**
+ * Takes back a recorded answer, for one recorded by mistake (a person's slip,
+ * or an email the AI misread). The quotation is Sent again; History keeps
+ * what was recorded and who took it back. Not once the job order is made.
+ */
+export async function clearQuoteResponse(ref: string, reason: string): Promise<void> {
+  const actor = await currentQuoteActor();
+  const doc = await requireDocument(ref);
+  if (doc.jobOrderRef) {
+    throw new InputError(`${ref} is already job order ${doc.jobOrderRef}. Cancel the job order instead.`);
+  }
+  if (!doc.response || doc.status === "Draft" || doc.status === "Sent") {
+    throw new InputError(`${ref} has no customer answer to take back.`);
+  }
+  const previous = doc.response;
+  const collection = await quotations();
+  const result = await collection.updateOne(
+    { ...atRevision(doc), status: doc.status, jobOrderRef: null },
+    { $set: { status: "Sent", updatedAt: new Date() }, $unset: { response: "" } },
+  );
+  if (result.matchedCount === 0) throw new InputError(RACE);
+  await logEvent(
+    ref,
+    doc.revision ?? 1,
+    "response-cleared",
+    `${doc.status} by ${previous.customerName}${previous.poNumber ? ` (PO ${previous.poNumber})` : ""}, recorded by ${
+      previous.recordedBy.name
+    }, was taken back; the quotation is waiting for the customer again.${reason ? ` Reason: ${reason}` : ""}`,
+    actor,
+  );
+}
+
+/** A quotation the email reader can match a purchase order to. */
+export interface OpenQuoteForPo {
+  ref: string;
+  customer: string;
+  company: string;
+  email: string;
+  plate: string;
+  makeModel: string;
+  totalCents: number;
+  /** "2026-11-20" */
+  quoteDate: string;
+  createdAt: Date;
+}
+
+/**
+ * Quotations given to a customer and not yet answered (Expired included: a
+ * purchase order a few days late still counts), newest first.
+ */
+export async function listQuotationsAwaitingAnswer(limit = 60): Promise<OpenQuoteForPo[]> {
+  const docs = await (await quotations())
+    .find({ status: "Sent", jobOrderRef: null, paperJobOrder: { $ne: true } })
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .toArray();
+  return docs.map((doc) => ({
+    ref: doc.ref,
+    customer: doc.billTo.name,
+    company: doc.billTo.company,
+    email: doc.billTo.email,
+    plate: doc.vehicle.plate,
+    makeModel: doc.vehicle.makeModel,
+    totalCents: quoteTotals(doc.lines, doc.discountCents).totalCents,
+    quoteDate: doc.quoteDate,
+    createdAt: doc.createdAt,
+  }));
 }
 
 // ---- Revisions -------------------------------------------------------------------
@@ -791,11 +881,12 @@ export async function listQuotationsByBooking(): Promise<Record<string, BookingQ
  * to repeat: the unique index allows one job order per quotation, and a
  * second request gets the first one back.
  *
- * The shop does not record the customer's answer as a separate step (owner's
- * choice, 20 Nov 2026): making the job order from a quotation that was given
- * is the approval. It is recorded first, as a full approval by the Bill To
- * name at that moment, so the job order, the booking value and History read
- * as before. Answers recorded on older quotations still count as they were.
+ * Since 24 Nov 2026 the customer's approval is a step of its own (usually
+ * their purchase order, often read from email by the AI), and the job order
+ * is made only when staff choose to, from an Approved quotation. A scanned
+ * paper job order is the exception: the work already exists, so its approval
+ * is recorded here, as a full approval by the Bill To name. Answers recorded
+ * on older quotations still count as they were.
  */
 export async function convertToJobOrder(ref: string): Promise<{ jobOrderRef: string; created: boolean; doc: QuotationDocument }> {
   const actor = await currentQuoteActor();
@@ -810,6 +901,9 @@ export async function convertToJobOrder(ref: string): Promise<{ jobOrderRef: str
 
   if (doc.status === "Draft") {
     throw new InputError("Email the quotation or mark it as given to the customer before making the job order.");
+  }
+  if (doc.status === "Sent" && !doc.paperJobOrder) {
+    throw new InputError("Record the customer's approval (their purchase order) before making the job order.");
   }
   if (doc.status === "Sent" && !doc.response) {
     await recordQuoteResponse(ref, {
@@ -861,6 +955,7 @@ export async function convertToJobOrder(ref: string): Promise<{ jobOrderRef: str
         approvedTotalCents: response.approvedTotalCents,
         approvedAt: response.at,
         approvedByCustomer: response.customerName,
+        poNumber: response.poNumber ?? null,
         invoiceRef: null,
         photoRef: doc.photoRef ?? null,
         createdBy: actorOf(actor),
@@ -1126,6 +1221,7 @@ export async function saveQuotationSettings(
     "quotation.validDays": input.validDays ?? DEFAULT_VALID_DAYS,
   };
   if (input.signOff) set["quotation.signOff"] = input.signOff;
+  if (input.pdfColors) set["quotation.pdfColors"] = input.pdfColors;
   if (typeof logo === "string") set["quotation.logo"] = logo;
   await businesses.updateOne(
     { businessId: activeBusinessId },

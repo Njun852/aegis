@@ -11,6 +11,7 @@ import {
 } from "@/lib/ai/reply";
 import { generateInsight } from "@/lib/ai/insight";
 import { triageInbox } from "@/lib/ai/mail-triage";
+import { scanPurchaseOrders } from "@/lib/ai/po-approval";
 import { runAutoReplies } from "@/lib/mail/auto-reply-run";
 import { syncMailbox } from "@/lib/mail/ingest";
 import { explainMailFailure } from "@/lib/mail/failures";
@@ -97,6 +98,10 @@ export interface SyncInboxState {
   /** Automatic replies that went out on this run, and ones the mailbox refused. */
   autoReplied: number;
   autoReplyFailed: number;
+  /** Quotations the AI recorded as Approved from a customer's purchase order on this run. */
+  poApproved: { ref: string; poNumber: string; customer: string }[];
+  /** Emails that look like a purchase order but could not be matched to one quotation. */
+  poReview: number;
   note: string | null;
   /** A mailbox failure, worded for a person. Null when there is nothing wrong. */
   mailNote: string | null;
@@ -110,6 +115,8 @@ const QUIET: SyncInboxState = {
   draftsPending: 0,
   autoReplied: 0,
   autoReplyFailed: 0,
+  poApproved: [],
+  poReview: 0,
   note: null,
   mailNote: null,
 };
@@ -140,14 +147,14 @@ export async function syncInboxAction(): Promise<SyncInboxState> {
   if (last?.running) return last.running;
   if (last && Date.now() - last.finishedAt < INBOX_MIN_GAP_MS) return QUIET;
 
-  const running = syncInbox().finally(() =>
+  const running = syncInbox(business).finally(() =>
     syncs.set(business.id, { running: null, finishedAt: Date.now() }),
   );
   syncs.set(business.id, { running, finishedAt: last?.finishedAt ?? 0 });
   return running;
 }
 
-async function syncInbox(): Promise<SyncInboxState> {
+async function syncInbox(business: { name: string; modules: string[] }): Promise<SyncInboxState> {
   /**
    * Retrieve first, then analyse what arrived. The order matters: triage is a
    * set difference over what is stored, so anything pulled in on this run is
@@ -172,6 +179,8 @@ async function syncInbox(): Promise<SyncInboxState> {
       draftsPending: 0,
       autoReplied: 0,
       autoReplyFailed: 0,
+      poApproved: [],
+      poReview: 0,
       note: null,
       mailNote,
     };
@@ -192,17 +201,31 @@ async function syncInbox(): Promise<SyncInboxState> {
   // it on for this business.
   const auto = await runAutoReplies();
 
+  // Customers approving a quotation by email, usually with a purchase order.
+  // Only records the quotation as Approved; the job order is for staff to make.
+  // Needs triage done (it skips spam and newsletters by category) and the
+  // business to keep its quotations in AEGIS.
+  const po =
+    !report.stoppedBecause && business.modules.includes("quotes")
+      ? await scanPurchaseOrders(business.name)
+      : { approved: [], review: 0, stoppedBecause: null };
+  if (po.approved.length > 0) {
+    revalidatePath("/quotations");
+    for (const entry of po.approved) revalidatePath(`/quotations/${entry.ref}`);
+  }
+
   if (
     retrieval.added > 0 ||
     report.analysed > 0 ||
     replies.drafted > 0 ||
-    auto.sent + auto.failed + auto.held > 0
+    auto.sent + auto.failed + auto.held > 0 ||
+    po.approved.length + po.review > 0
   ) {
     revalidatePath("/mail");
     revalidatePath("/dashboard");
   }
 
-  const stopped = report.stoppedBecause ?? replies.stoppedBecause;
+  const stopped = report.stoppedBecause ?? replies.stoppedBecause ?? po.stoppedBecause;
 
   return {
     retrieved: retrieval.added,
@@ -212,6 +235,8 @@ async function syncInbox(): Promise<SyncInboxState> {
     draftsPending: Math.max(0, replies.pending - replies.drafted),
     autoReplied: auto.sent,
     autoReplyFailed: auto.failed,
+    poApproved: po.approved,
+    poReview: po.review,
     note: stopped ? explainFailure(stopped) : null,
     mailNote,
   };

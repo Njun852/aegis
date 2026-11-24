@@ -29,6 +29,7 @@
     "fleet:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/fleet-check.ts",
     "supplier:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/supplier-check.ts",
     "inventory:sample": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/inventory-sample.ts",
+    "po:check": "node --experimental-strip-types --import ./scripts/register-alias.mjs scripts/po-check.ts",
     "quote:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/quote-check.ts",
     "finance:check": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/finance-check.ts",
     "finance:close": "node --env-file=.env.local --conditions=react-server --experimental-strip-types --import ./scripts/register-alias.mjs scripts/finance-close.ts",

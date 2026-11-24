@@ -5,9 +5,11 @@ export type QuoteSection = "parts" | "labor";
 
 /**
  * What is stored. A quotation is a Draft until it is emailed or handed over,
- * then Sent until the job order is made, which records it as Approved.
- * Partially Approved and Declined come only from answers recorded before
- * that step was removed (20 Nov 2026).
+ * then Sent until the customer approves it, usually with a purchase order.
+ * Approved is recorded by a person, or read from the customer's email by the
+ * AI (24 Nov 2026); making the job order is a separate step staff take when
+ * they choose. Partially Approved and Declined come only from answers
+ * recorded on older quotations.
  */
 export type StoredQuoteStatus = "Draft" | "Sent" | "Approved" | "Partially Approved" | "Declined";
 
@@ -17,7 +19,8 @@ export type StoredQuoteStatus = "Draft" | "Sent" | "Approved" | "Partially Appro
  */
 export type QuoteStatus = StoredQuoteStatus | "Expired";
 
-export type QuoteStatusFilter = "All" | QuoteStatus;
+/** "Needs job order" is Approved with no job order made yet: work staff still have to decide on. */
+export type QuoteStatusFilter = "All" | QuoteStatus | "Needs job order";
 
 /**
  * Where a line's figures came from, shown beside it so staff know what to
@@ -121,7 +124,9 @@ export type QuoteResponseMethod =
   | "Phone call"
   | "Email"
   | "Messenger or text"
-  /** Recorded by making the job order, now that the answer is not a step of its own. */
+  /** A purchase order from the customer, typed in by a person or read from their email by the AI. */
+  | "Purchase order"
+  /** Recorded by making the job order straight from a Sent quotation (quotations before 24 Nov 2026). */
   | "Job order made";
 
 /** The customer's answer, as a person recorded it. */
@@ -139,9 +144,22 @@ export interface QuoteResponse {
   approvedDiscountCents: number;
   /** Worked out on the server from the approved lines when it was recorded. */
   approvedTotalCents: number;
+  /** The customer's purchase order number, when they sent one. Absent on answers before 24 Nov 2026. */
+  poNumber?: string;
+  /** The email the approval came in, when it came by email. */
+  source?: QuoteResponseSource | null;
   recordedBy: QuoteActor;
   /** "Oct 15 · 09:14" */
   recordedAt: string;
+}
+
+/** The email an approval came in, so staff can open it and check what the AI read. */
+export interface QuoteResponseSource {
+  messageId: string;
+  from: string;
+  subject: string;
+  /** True when the AI recorded the approval on its own rather than a person. */
+  readByAi: boolean;
 }
 
 /** Stored form of the two records above: dates as dates. */
@@ -395,6 +413,20 @@ export interface QuotationConfig {
   signers?: QuoteSigner[];
   /** Who signs the boxes no quotation names. Matched to `signers` by name. */
   signOff?: Partial<QuoteSignOff>;
+  /** The PDF's colours. Absent reads as the classic blue the form was drawn in. */
+  pdfColors?: QuotePdfColors;
+}
+
+/** The colours the quotation PDF is printed in, as "#RRGGBB". */
+export interface QuotePdfColors {
+  /** The outer frame, and the box behind the business name when there is no logo. Dark. */
+  frame: string;
+  /** "QUOTATION", the TOTAL label and the footer. */
+  heading: string;
+  /** Behind the Bill To bar, the column headings and the notes title. Light, since black text sits on it. */
+  shade: string;
+  /** The total amount and the notes. */
+  highlight: string;
 }
 
 /** One person who signs quotations, with their signature as an image. */
@@ -438,6 +470,10 @@ export interface QuotationSummary {
   sent: string | null;
   bookingRef: string | null;
   jobOrderRef: string | null;
+  /** The customer's purchase order number, once approved with one. */
+  poNumber: string | null;
+  /** Approved by the AI from an email; a person has not looked at it yet by making the job order. */
+  approvedByAi: boolean;
   updatedAt: string;
 }
 
@@ -687,6 +723,8 @@ export interface JobOrderDocument {
   approvedTotalCents: number;
   approvedAt: Date;
   approvedByCustomer: string;
+  /** The customer's purchase order number. Absent before 24 Nov 2026, or when there was none. */
+  poNumber?: string | null;
   /** Reserved for invoicing; nothing writes it yet. */
   invoiceRef: string | null;
   /** The scan of the paper job order (or other photo) the quotation was read from. Absent before 20 Nov 2026. */
@@ -712,6 +750,7 @@ export interface JobOrder {
   /** "Oct 15, 2026 · 09:12" */
   approvedAt: string;
   approvedByCustomer: string;
+  poNumber: string | null;
   /** Quoted cost of the lines that carry one. Internal. */
   quotedCostCents: number;
   quotedMarginCents: number;

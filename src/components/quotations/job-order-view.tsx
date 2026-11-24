@@ -177,7 +177,7 @@ export function JobOrderView({
       >
         <Fact label="Customer" value={jobOrder.billTo.name || jobOrder.billTo.company || "—"} sub={jobOrder.billTo.phone} />
         <Fact label="Vehicle" value={vehicle || "—"} />
-        <Fact label="Approved" value={formatPeso(jobOrder.approvedTotalCents)} sub={`${jobOrder.approvedByCustomer} · ${jobOrder.approvedAt}`} />
+        <Fact label="Approved" value={formatPeso(jobOrder.approvedTotalCents)} sub={`${jobOrder.poNumber ? `PO ${jobOrder.poNumber} · ` : ""}${jobOrder.approvedByCustomer} · ${jobOrder.approvedAt}`} />
         <Fact
           label="From"
           value={

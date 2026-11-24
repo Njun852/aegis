@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { AskAegis, type AskAegisProps } from "@/components/ask/ask-aegis";
+import { BootScreen } from "@/components/auth/boot-screen";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { AutoSync } from "./auto-sync";
 import { Sidebar } from "./sidebar";
@@ -44,6 +45,8 @@ export function AppShell({
     <SyncProvider key={mailFreshness.businessId} initial={mailFreshness}>
       <ToastProvider>
         <AutoSync />
+        {/* The start-up screen again, each time the person comes back to this tab. */}
+        <BootScreen trigger="return" />
         <ShellFrame unreadCount={unreadCount} mailFreshness={mailFreshness}>
           {children}
         </ShellFrame>

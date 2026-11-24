@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState, useTransition } from "react";
 import { useTypewriter } from "@/hooks/use-typewriter";
 import { draftReplyAction } from "@/app/actions/ai";
@@ -441,6 +442,40 @@ export function MessageDetail({
                 </b>{" "}
                 — {message.approvalReason}. No suggested reply will accept on
                 the company&rsquo;s behalf.
+              </span>
+            </div>
+          )}
+
+          {/* A customer's purchase order, as the AI read it: which quotation it
+              recorded as Approved, or that a person needs to record it. */}
+          {message.poScan && (
+            <div
+              className="flex items-start gap-2"
+              style={{ fontSize: "12px", lineHeight: "17px", color: "var(--text-secondary)", overflowWrap: "anywhere" }}
+            >
+              <span
+                style={{
+                  color: message.poScan.outcome === "applied" ? "var(--status-positive)" : "var(--status-warning)",
+                  flex: "0 0 auto",
+                  marginTop: 1,
+                }}
+              >
+                <Icon name={message.poScan.outcome === "applied" ? "check" : "file-text"} size={14} />
+              </span>
+              <span>
+                <b style={{ color: "var(--text-primary)" }}>
+                  {message.poScan.outcome === "applied" ? "Quotation approved" : "Purchase order to record"}
+                </b>{" "}
+                — {message.poScan.note}{" "}
+                {message.poScan.quotationRefs.map((ref) => (
+                  <Link
+                    key={ref}
+                    href={`/quotations/${encodeURIComponent(ref)}`}
+                    style={{ color: "var(--accent-primary)", fontWeight: 600, textDecoration: "none", marginRight: 6 }}
+                  >
+                    Open {ref} →
+                  </Link>
+                ))}
               </span>
             </div>
           )}

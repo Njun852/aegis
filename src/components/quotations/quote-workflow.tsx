@@ -5,15 +5,25 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
 import {
   approveSpecialPricingAction,
+  clearQuoteApprovalAction,
   convertToJobOrderAction,
+  recordQuoteApprovalAction,
   markQuotationGivenAction,
   recordPaperJobOrderAction,
 } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button, Icon } from "@/components/ui";
-import { Field, Modal, Notice, SELECT } from "@/components/forms/form-kit";
+import { Field, INPUT, Modal, Notice, SELECT } from "@/components/forms/form-kit";
 import { PreviewModal } from "./quote-actions";
-import { QUOTE_HANDOVER_METHODS, formatPeso, formatQuoteDay, pricingCleared, specialPricingKey } from "@/lib/quotations";
+import {
+  QUOTE_HANDOVER_METHODS,
+  QUOTE_RESPONSE_METHODS,
+  formatPeso,
+  formatQuoteDay,
+  manilaDateTimeInput,
+  pricingCleared,
+  specialPricingKey,
+} from "@/lib/quotations";
 import type { Quotation } from "@/types";
 
 export interface QuoteFlowOptions {
@@ -52,15 +62,17 @@ export interface QuoteFlow {
 }
 
 /**
- * Draft, sent, job order: where the quotation stands and the one
+ * Draft, sent, approved, job order: where the quotation stands and the one
  * thing to do next. The strip at the top only shows where it stands; the
  * next step is the single button in the Totals panel (or Ctrl+Enter), so
- * there is one place to act. Each step is a person's action; nothing
- * moves on its own. The details of who did what are in History.
+ * there is one place to act. The details of who did what are in History.
  *
- * There is no separate customer-answer step: making the job order from a
- * quotation that was given is the approval, recorded on the server. Answers
- * recorded on older quotations (partial approvals, declines) still show.
+ * Approved is the customer's answer, usually a purchase order. A person
+ * records it, or the AI records it on its own from the customer's email;
+ * either can be undone until the job order is made. The job order is never
+ * made on its own: staff make it from the Approved quotation when they
+ * decide to. Answers recorded on older quotations (partial approvals,
+ * declines) still show.
  */
 export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowOptions): QuoteFlow {
   const router = useRouter();
@@ -68,6 +80,9 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
   /** The handover method the Mark as given dialog opens on, or null when it is closed. */
   const [giving, setGiving] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  /** The Record approval dialog, and the Undo approval one. */
+  const [recording, setRecording] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const [pending, startTransition] = useTransition();
 
   if (!quotation) return { steps: [], next: null, dialogOpen: false, openPreview: () => undefined, dialogs: null };
@@ -102,16 +117,14 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
   const paper = quotation.paperJobOrder;
 
   const makeJobOrder = () => {
-    // An answer recorded on an older quotation keeps its amount; otherwise the
-    // whole quotation is approved by making the job order.
     const amount = formatPeso(response?.approvedTotalCents ?? quotation.totals.totalCents);
     const booking =
       quotation.bookingRef && bookingsEnabled ? ` Booking ${quotation.bookingRef} takes ${amount} as its value.` : "";
     const approves = paper
       ? " It is the paper job order, so there is nothing to give or approve; parts linked to stock leave Inventory now."
-      : response
-        ? ""
-        : " This records the customer's approval of the whole quotation.";
+      : response?.poNumber
+        ? ` Approved with PO ${response.poNumber}.`
+        : "";
     const question = paper ? `Record the job order for ${amount}?` : `Make a job order for ${amount}?`;
     if (!window.confirm(`${question}${approves} ${quotation.ref} is then locked.${booking}`)) return;
     startTransition(async () => {
@@ -180,6 +193,57 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
     },
   ];
 
+  // Step 3: the customer's approval, usually their purchase order. The AI may
+  // have read it from their email; either way the job order waits for staff.
+  const readByAi = response?.source?.readByAi === true;
+  const canUndo = approved && !quotation.jobOrderRef && response !== null && response.method !== "Job order made";
+  let approvalDetail: ReactNode;
+  if (approved && response) {
+    approvalDetail = (
+      <>
+        <span>
+          {response.poNumber ? <b style={{ color: "var(--text-primary)" }}>PO {response.poNumber}</b> : response.method}
+          {" · "}
+          {response.customerName}
+        </span>
+        {response.source && (
+          <Link
+            href={`/mail?message=${encodeURIComponent(response.source.messageId)}`}
+            title={`“${response.source.subject}” from ${response.source.from}`}
+            style={{ color: "var(--accent-primary)", textDecoration: "none", fontWeight: 600 }}
+          >
+            View email
+          </Link>
+        )}
+        {canUndo && (
+          <button
+            type="button"
+            onClick={() => setUndoing(true)}
+            disabled={pending}
+            style={{
+              border: "none",
+              background: "none",
+              padding: 0,
+              font: "inherit",
+              fontSize: "11.5px",
+              color: "var(--text-muted)",
+              textDecoration: "underline",
+              cursor: "pointer",
+            }}
+          >
+            Undo
+          </button>
+        )}
+      </>
+    );
+  } else if (declined) {
+    approvalDetail = <span style={{ color: "var(--status-negative)" }}>Declined</span>;
+  } else if (awaiting) {
+    approvalDetail = "Waiting for the customer's PO";
+  } else {
+    approvalDetail = "After it is given";
+  }
+
   const steps: FlowStep[] = paper ? paperSteps : [
     {
       title: quotation.revision > 1 ? `Draft · rev ${quotation.revision}` : "Draft",
@@ -193,18 +257,27 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
       note: approval ? `Pricing approved by ${approval.by.name}` : undefined,
     },
     {
+      title: "Approved",
+      state: approved ? "done" : awaiting ? "current" : declined ? "stopped" : "todo",
+      detail: approvalDetail,
+      note:
+        approved && response
+          ? readByAi
+            ? `Read from email by AI · ${response.at}`
+            : `${response.method} · ${response.at}`
+          : undefined,
+    },
+    {
       title: "Job order",
-      state: quotation.jobOrderRef ? "done" : approved || awaiting ? "current" : declined ? "stopped" : "todo",
+      state: quotation.jobOrderRef ? "done" : approved ? "current" : declined ? "stopped" : "todo",
       detail: jobLink ? (
         jobLink
       ) : approved ? (
-        "Approved, ready to make"
-      ) : awaiting ? (
-        "Make it once the customer agrees"
+        "Approved — make it when ready"
       ) : declined ? (
         "Declined, not needed"
       ) : (
-        "After it is given"
+        "After the customer approves"
       ),
     },
   ];
@@ -216,8 +289,10 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
     next = { label: `Open ${jobRef}`, icon: "arrow-right", run: () => router.push(`/quotations/jobs/${encodeURIComponent(jobRef)}`) };
   } else if (declined) {
     next = null;
-  } else if (approved || awaiting) {
+  } else if (approved) {
     next = { label: "Make job order", icon: "wrench", run: makeJobOrder };
+  } else if (awaiting) {
+    next = { label: "Record approval / PO", icon: "check", run: () => setRecording(true) };
   } else if (paper && cleared && unpriced === 0) {
     next = { label: "Record job order", icon: "wrench", run: makeJobOrder };
   } else if (!cleared) {
@@ -256,13 +331,15 @@ export function useQuoteFlow({ quotation, isAdmin, bookingsEnabled }: QuoteFlowO
         />
       )}
       {giving !== null && <GiveModal quotation={quotation} defaultMethod={giving} onClose={() => setGiving(null)} />}
+      {recording && <ApproveModal quotation={quotation} onClose={() => setRecording(false)} />}
+      {undoing && <UndoApprovalModal quotation={quotation} onClose={() => setUndoing(false)} />}
     </>
   );
 
   return {
     steps,
     next,
-    dialogOpen: previewing || giving !== null,
+    dialogOpen: previewing || giving !== null || recording || undoing,
     openPreview: () => setPreviewing(true),
     dialogs,
   };
@@ -382,6 +459,155 @@ function GiveModal({ quotation, defaultMethod, onClose }: { quotation: Quotation
             <option key={method}>{method}</option>
           ))}
         </select>
+      </Field>
+    </Modal>
+  );
+}
+
+/**
+ * Records that the customer approved the whole quotation, usually with their
+ * purchase order. It does not make the job order; that stays a separate
+ * button for staff to press when they decide to.
+ */
+function ApproveModal({ quotation, onClose }: { quotation: Quotation; onClose: () => void }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [method, setMethod] = useState<string>(QUOTE_RESPONSE_METHODS[0]);
+  const [poNumber, setPoNumber] = useState("");
+  const [customerName, setCustomerName] = useState(quotation.billTo.company || quotation.billTo.name);
+  const [at, setAt] = useState(() => manilaDateTimeInput(new Date()));
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const needsPo = method === "Purchase order";
+
+  const submit = () => {
+    setError(null);
+    startTransition(async () => {
+      const result = await recordQuoteApprovalAction(quotation.ref, { poNumber, customerName, method, at, note });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      toast({
+        tone: "success",
+        title: `${quotation.ref} approved`,
+        description: `${poNumber ? `PO ${poNumber}. ` : ""}Make the job order when you are ready.`,
+        key: "quote-flow",
+      });
+      onClose();
+      router.refresh();
+    });
+  };
+
+  return (
+    <Modal
+      title={`Record approval · ${quotation.ref}`}
+      icon="check"
+      onClose={pending ? () => undefined : onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button icon="check" onClick={submit} disabled={pending}>
+            {pending ? "Saving…" : "Mark as approved"}
+          </Button>
+        </>
+      }
+    >
+      {error && <Notice tone="error">{error}</Notice>}
+      <Field label="How did the customer approve it?">
+        <select style={SELECT} value={method} onChange={(event) => setMethod(event.target.value)}>
+          {QUOTE_RESPONSE_METHODS.map((entry) => (
+            <option key={entry}>{entry}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="PO number" required={needsPo} optional={!needsPo}>
+        <input
+          style={INPUT}
+          value={poNumber}
+          maxLength={40}
+          autoFocus
+          placeholder="e.g. PO-2026-0145"
+          onChange={(event) => setPoNumber(event.target.value)}
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Approved by" required>
+          <input style={INPUT} value={customerName} maxLength={120} onChange={(event) => setCustomerName(event.target.value)} />
+        </Field>
+        <Field label="When" required>
+          <input style={INPUT} type="datetime-local" value={at} onChange={(event) => setAt(event.target.value)} />
+        </Field>
+      </div>
+      <Field label="Note" optional>
+        <input style={INPUT} value={note} maxLength={300} onChange={(event) => setNote(event.target.value)} />
+      </Field>
+      <span style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+        Approves the whole quotation, {formatPeso(quotation.totals.totalCents)}. No job order is made yet.
+      </span>
+    </Modal>
+  );
+}
+
+/** Takes back an approval recorded by mistake, by a person or by the AI reading an email. */
+function UndoApprovalModal({ quotation, onClose }: { quotation: Quotation; onClose: () => void }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const response = quotation.response;
+
+  const submit = () => {
+    setError(null);
+    startTransition(async () => {
+      const result = await clearQuoteApprovalAction(quotation.ref, reason);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      toast({ tone: "success", title: `${quotation.ref} is waiting for the customer again`, key: "quote-flow" });
+      onClose();
+      router.refresh();
+    });
+  };
+
+  return (
+    <Modal
+      title={`Undo approval · ${quotation.ref}`}
+      icon="x"
+      onClose={pending ? () => undefined : onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Keep it
+          </Button>
+          <Button variant="secondary" icon="x" onClick={submit} disabled={pending}>
+            {pending ? "Saving…" : "Undo approval"}
+          </Button>
+        </>
+      }
+    >
+      {error && <Notice tone="error">{error}</Notice>}
+      {response && (
+        <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
+          Recorded as approved by {response.customerName}
+          {response.poNumber ? ` with PO ${response.poNumber}` : ""}, {response.at}, by {response.recordedBy.name}. The
+          quotation goes back to waiting for the customer; History keeps both.
+        </span>
+      )}
+      <Field label="Why?" optional>
+        <input
+          style={INPUT}
+          value={reason}
+          maxLength={200}
+          autoFocus
+          placeholder="e.g. The email was for another quotation"
+          onChange={(event) => setReason(event.target.value)}
+        />
       </Field>
     </Modal>
   );

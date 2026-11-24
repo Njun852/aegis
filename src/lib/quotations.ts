@@ -7,12 +7,14 @@ import type {
   QuoteResponseMethod,
   QuoteSection,
   QuoteStatus,
+  QuoteStatusFilter,
   QuoteSigner,
   QuoteTotals,
   Quotation,
   QuotationConfig,
   QuotationSettings,
   QuotationSummary,
+  QuotePdfColors,
   StoredQuoteStatus,
 } from "@/types";
 
@@ -35,6 +37,7 @@ export const QUOTE_STATUSES: QuoteStatus[] = [
 export const JOB_ORDER_STATUSES: JobOrderStatus[] = ["Open", "In progress", "Completed", "Cancelled"];
 
 export const QUOTE_RESPONSE_METHODS: QuoteResponseMethod[] = [
+  "Purchase order",
   "In person",
   "Signed copy",
   "Phone call",
@@ -101,6 +104,36 @@ export const MAX_QTY = 9999;
 /** One peso short of ten million: far above any job, low enough to catch a slipped key. */
 export const MAX_AMOUNT_CENTS = 999_999_900;
 
+/** The colours the shop's paper form was drawn in. */
+export const DEFAULT_PDF_COLORS: QuotePdfColors = {
+  frame: "#1F3864",
+  heading: "#2E75B6",
+  shade: "#D9E1F2",
+  highlight: "#E00000",
+};
+
+/** Ready-made colour schemes for the PDF; any colour can also be picked by hand. */
+export const PDF_COLOR_PRESETS: { name: string; colors: QuotePdfColors }[] = [
+  { name: "Classic blue", colors: DEFAULT_PDF_COLORS },
+  { name: "Forest green", colors: { frame: "#1E4D2B", heading: "#2E7D32", shade: "#DCEDC8", highlight: "#C62828" } },
+  { name: "Crimson", colors: { frame: "#6B1111", heading: "#B71C1C", shade: "#F8DEDE", highlight: "#B71C1C" } },
+  { name: "Teal", colors: { frame: "#0B4F5C", heading: "#138D90", shade: "#D4F0F0", highlight: "#D32F2F" } },
+  { name: "Orange", colors: { frame: "#7A3E00", heading: "#E67E22", shade: "#FDEBD0", highlight: "#C0392B" } },
+  { name: "Purple", colors: { frame: "#3E1F5C", heading: "#7B3FA0", shade: "#E8DAF2", highlight: "#C2185B" } },
+  { name: "Charcoal", colors: { frame: "#222222", heading: "#444444", shade: "#E6E6E6", highlight: "#000000" } },
+];
+
+export const PDF_COLOR_FIELDS: { key: keyof QuotePdfColors; label: string; hint: string }[] = [
+  { key: "frame", label: "Frame", hint: "Border, and the name box when there is no logo" },
+  { key: "heading", label: "Headings", hint: "QUOTATION, TOTAL and the footer" },
+  { key: "shade", label: "Shading", hint: "Behind headings; keep it light" },
+  { key: "highlight", label: "Highlight", hint: "The total amount and the notes" },
+];
+
+export function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 export const DEFAULT_QUOTATION_SETTINGS: QuotationSettings = {
   address: "",
   contact: "",
@@ -111,6 +144,7 @@ export const DEFAULT_QUOTATION_SETTINGS: QuotationSettings = {
   logo: null,
   signers: [],
   signOff: { accounting: "", headTechnician: "", manager: "" },
+  pdfColors: DEFAULT_PDF_COLORS,
 };
 
 /** The stored config with every gap filled, so screens never branch on absence. */
@@ -125,6 +159,12 @@ export function quoteSettingsOf(config: QuotationConfig | undefined): QuotationS
     logo: config?.logo ?? null,
     signers: config?.signers ?? [],
     signOff: { ...DEFAULT_QUOTATION_SETTINGS.signOff, ...config?.signOff },
+    pdfColors: {
+      frame: isHexColor(config?.pdfColors?.frame) ? config.pdfColors.frame : DEFAULT_PDF_COLORS.frame,
+      heading: isHexColor(config?.pdfColors?.heading) ? config.pdfColors.heading : DEFAULT_PDF_COLORS.heading,
+      shade: isHexColor(config?.pdfColors?.shade) ? config.pdfColors.shade : DEFAULT_PDF_COLORS.shade,
+      highlight: isHexColor(config?.pdfColors?.highlight) ? config.pdfColors.highlight : DEFAULT_PDF_COLORS.highlight,
+    },
   };
 }
 
@@ -533,17 +573,27 @@ export function isDateKey(value: string): boolean {
   return date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
+/** Approved by the customer, with the job order still for staff to decide on. */
+export function needsJobOrder(quote: Pick<QuotationSummary, "status" | "jobOrderRef">): boolean {
+  return (quote.status === "Approved" || quote.status === "Partially Approved") && !quote.jobOrderRef;
+}
+
 export function filterQuotations(
   quotes: QuotationSummary[],
-  options: { status: QuoteStatus | "All"; search: string },
+  options: { status: QuoteStatusFilter; search: string },
 ): QuotationSummary[] {
   const term = options.search.trim().toLowerCase();
   const plateTerm = term.replace(/[^a-z0-9]/g, "");
   return quotes.filter((quote) => {
-    if (options.status !== "All" && quote.status !== options.status) return false;
+    if (options.status === "Needs job order") {
+      if (!needsJobOrder(quote)) return false;
+    } else if (options.status !== "All" && quote.status !== options.status) {
+      return false;
+    }
     if (!term) return true;
     return (
       quote.ref.toLowerCase().includes(term) ||
+      (quote.poNumber ?? "").toLowerCase().includes(term) ||
       quote.customer.toLowerCase().includes(term) ||
       quote.company.toLowerCase().includes(term) ||
       quote.makeModel.toLowerCase().includes(term) ||

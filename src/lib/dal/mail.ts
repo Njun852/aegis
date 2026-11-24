@@ -16,6 +16,7 @@ import type {
   MailLink,
   MailMessage,
   MailMessageDocument,
+  MailPoScanDocument,
   MailTriageResult,
 } from "@/types";
 
@@ -66,6 +67,16 @@ function toMessage(doc: MailMessageDocument): MailMessage {
     attachments: doc.attachments ?? null,
     links: doc.links ?? null,
     canReadFromMailbox: Boolean(doc.uid && doc.uidValidity),
+    poScan:
+      doc.poScan && doc.poScan.outcome !== "none"
+        ? {
+            outcome: doc.poScan.outcome,
+            poNumber: doc.poScan.poNumber,
+            company: doc.poScan.company,
+            quotationRefs: doc.poScan.quotationRefs,
+            note: doc.poScan.note,
+          }
+        : null,
   };
 }
 
@@ -504,6 +515,38 @@ export async function applyTriage(
   }
 
   return applied;
+}
+
+// ---- Purchase orders ---------------------------------------------------------------
+
+/**
+ * Triaged mail the purchase-order reader has not looked at at this version,
+ * newest first. Only mail received in the last `days` days: an approval older
+ * than that is not news, and reading the backlog on first switch-on would
+ * spend the budget on nothing.
+ */
+export async function listPoScanCandidates(
+  version: number,
+  limit: number,
+  days: number,
+): Promise<MailMessageDocument[]> {
+  const collection = await messages();
+  return collection
+    .find({
+      aiPromptVersion: { $ne: null },
+      category: { $nin: ["Spam", "Marketing"] },
+      "poScan.version": { $ne: version },
+      receivedAt: { $gte: new Date(Date.now() - days * 86_400_000) },
+    })
+    .sort({ receivedAt: -1 })
+    .limit(limit)
+    .toArray();
+}
+
+/** Records the reader's verdict, which is also what stops it reading the message again. */
+export async function savePoScan(messageId: string, scan: MailPoScanDocument): Promise<void> {
+  const collection = await messages();
+  await collection.updateOne({ messageId }, { $set: { poScan: scan } });
 }
 
 /**

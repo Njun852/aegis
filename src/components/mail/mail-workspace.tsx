@@ -30,19 +30,24 @@ export interface MailWorkspaceProps {
   aiEnabled: boolean;
   /** The connected mailbox address, or null when none is connected. */
   mailbox: string | null;
+  /** A message to open on arrival, from a link such as a quotation's approval email. */
+  initialMessageId?: string | null;
 }
 
 export function MailWorkspace({
   messages,
   aiEnabled,
   mailbox,
+  initialMessageId = null,
 }: MailWorkspaceProps) {
   const router = useRouter();
   const toast = useToast();
   const [folder, setFolder] = useState<MailFolderName>("Inbox");
   const [priority, setPriority] = useState<MailPriorityFilter>("All");
   const [flag, setFlag] = useState<MailFlagFilter>("All");
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(
+    initialMessageId && messages.some((message) => message.id === initialMessageId) ? initialMessageId : null,
+  );
   const [query, setQuery] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
 

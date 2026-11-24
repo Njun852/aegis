@@ -72,12 +72,39 @@ export function AutoSync() {
       });
     }
 
+    // A quotation approved without anyone pressing a button is always
+    // announced, so staff know there is a job order to decide on.
+    const approved = result.poApproved ?? [];
+    if (approved.length > 0) {
+      const first = approved[0];
+      toast({
+        tone: "success",
+        title:
+          approved.length === 1
+            ? `${first.ref} approved${first.poNumber ? ` · PO ${first.poNumber}` : ""}`
+            : `${approved.length} quotations approved by email`,
+        description: `${
+          approved.length === 1 ? `Read from ${first.customer}'s email.` : approved.map((entry) => entry.ref).join(", ") + "."
+        } No job order was made: open the quotation to check it and make the job order when ready.`,
+        key: "quote-po",
+      });
+    } else if ((result.poReview ?? 0) > 0) {
+      toast({
+        tone: "info",
+        title: "Purchase order needs a look",
+        description: "An email looks like a customer approval but could not be matched to one quotation. Open Mail to see it.",
+        key: "quote-po",
+      });
+    }
+
     if (
       result.retrieved > 0 ||
       result.analysed > 0 ||
       result.drafted > 0 ||
       result.autoReplied > 0 ||
-      result.autoReplyFailed > 0
+      result.autoReplyFailed > 0 ||
+      approved.length > 0 ||
+      (result.poReview ?? 0) > 0
     ) {
       router.refresh();
     }

@@ -3,16 +3,17 @@
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { sendQuotationAction } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
-import { Button } from "@/components/ui";
+import { Button, Icon } from "@/components/ui";
 import { Field, INPUT, Modal, Notice } from "@/components/forms/form-kit";
 import { pricingCleared } from "@/lib/quotations";
 import type { Quotation } from "@/types";
 import type { QuoteFlow } from "./quote-workflow";
 
-function pdfUrl(ref: string, version: string, download = false) {
+function pdfUrl(ref: string, version: string, download = false, internal = false) {
   // The version keeps the browser from showing a PDF cached before the last save.
   const params = new URLSearchParams({ v: version });
   if (download) params.set("download", "1");
+  if (internal) params.set("internal", "1");
   return `/api/quotations/${encodeURIComponent(ref)}/pdf?${params}`;
 }
 
@@ -22,6 +23,9 @@ const NOT_APPROVED = "An administrator must approve the discount or below-cost p
  * The PDF as the customer would get it, with Print and Download beside it,
  * so it is always seen before it leaves the shop. Printing needs no email.
  * Once printed, Mark as given records the handover in the same place.
+ *
+ * "Internal copy" switches to the staff PDF with each line's cost and the
+ * profit. It can be printed and downloaded, but never marked as given.
  */
 export function PreviewModal({
   quotation,
@@ -37,10 +41,13 @@ export function PreviewModal({
   const frame = useRef<HTMLIFrameElement>(null);
   const giveButton = useRef<HTMLButtonElement>(null);
   const [printed, setPrinted] = useState(false);
+  const [internal, setInternal] = useState(false);
   const unpriced = quotation.totals.unpricedCount;
-  // Special pricing waits for an administrator before any copy leaves the shop.
-  const blocked = pricingCleared(quotation) ? null : NOT_APPROVED;
-  const url = pdfUrl(quotation.ref, quotation.updatedAt);
+  // Special pricing waits for an administrator before any copy leaves the
+  // shop. The internal copy never leaves it, so it is never blocked.
+  const blocked = internal || pricingCleared(quotation) ? null : NOT_APPROVED;
+  const url = pdfUrl(quotation.ref, quotation.updatedAt, false, internal);
+  const copyName = internal ? `${quotation.ref} internal copy` : quotation.ref;
 
   const print = () => {
     const view = frame.current?.contentWindow;
@@ -51,20 +58,26 @@ export function PreviewModal({
       // A browser that cannot print a framed PDF opens it in a tab to print from there.
       window.open(url, "_blank", "noopener");
     }
-    setPrinted(true);
-    toast({ tone: "info", title: `Printing ${quotation.ref}`, description: "Choose the printer in the print window.", key: "quote-pdf" });
-    window.setTimeout(() => giveButton.current?.focus(), 0);
+    // Printing the internal copy is not a handover.
+    if (!internal) setPrinted(true);
+    toast({ tone: "info", title: `Printing ${copyName}`, description: "Choose the printer in the print window.", key: "quote-pdf" });
+    if (!internal) window.setTimeout(() => giveButton.current?.focus(), 0);
   };
 
   const download = () => {
     // The response is an attachment, so the page stays where it is.
-    window.location.href = pdfUrl(quotation.ref, `${Date.now()}`, true);
-    toast({ tone: "info", title: "Downloading PDF", description: `${quotation.ref}.pdf`, key: "quote-pdf" });
+    window.location.href = pdfUrl(quotation.ref, `${Date.now()}`, true, internal);
+    toast({
+      tone: "info",
+      title: internal ? "Downloading internal PDF" : "Downloading PDF",
+      description: internal ? `${quotation.ref}-INTERNAL.pdf · includes costs` : `${quotation.ref}.pdf`,
+      key: "quote-pdf",
+    });
   };
 
   return (
     <Modal
-      title={`${quotation.ref} preview`}
+      title={internal ? `${quotation.ref} internal copy` : `${quotation.ref} preview`}
       icon="file-text"
       width={880}
       onClose={onClose}
@@ -87,7 +100,7 @@ export function PreviewModal({
           >
             Print
           </Button>
-          {onGive && (
+          {onGive && !internal && (
             <Button ref={giveButton} variant={printed ? "primary" : "secondary"} icon="check" onClick={() => onGive(printed)}>
               Mark as given
             </Button>
@@ -95,6 +108,46 @@ export function PreviewModal({
         </>
       }
     >
+      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Which copy">
+        {(
+          [
+            { id: false, label: "Customer copy", icon: "file-text" },
+            { id: true, label: "Internal copy (with costs)", icon: "lock" },
+          ] as const
+        ).map((tab) => {
+          const active = internal === tab.id;
+          return (
+            <button
+              key={tab.label}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setInternal(tab.id)}
+              className="inline-flex items-center gap-1.5"
+              style={{
+                height: 30,
+                padding: "0 12px",
+                borderRadius: "var(--radius-pill)",
+                border: `1px solid ${active ? "var(--blue-200)" : "var(--border-default)"}`,
+                background: active ? "var(--accent-soft)" : "var(--surface-card)",
+                color: active ? "var(--blue-600)" : "var(--text-primary)",
+                fontFamily: "var(--font-body)",
+                fontSize: "12px",
+                fontWeight: active ? 700 : 500,
+                cursor: "pointer",
+              }}
+            >
+              <Icon name={tab.icon} size={13} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+      {internal && (
+        <Notice tone="warning">
+          For staff only: adds each line&apos;s cost, the total cost and the profit. Emailing always sends the customer copy.
+        </Notice>
+      )}
       {unpriced > 0 && (
         <Notice tone="warning">
           {unpriced} {unpriced === 1 ? "line has" : "lines have"} no price yet. {unpriced === 1 ? "Its" : "Their"} price and amount

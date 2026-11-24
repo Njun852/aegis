@@ -11,6 +11,10 @@ import { pricingCleared } from "@/lib/quotations";
  * `?rev=2` prints an earlier revision exactly as it was kept, so the version
  * a customer was given can be shown again after the quotation changed.
  *
+ * `?internal=1` is the staff copy: the same form with each line's cost and
+ * the profit, marked as not for the customer. Anyone who can open the
+ * quotation can open it, since the editor already shows them those costs.
+ *
  * A quotation with special pricing nobody approved can be previewed while
  * it is being drafted, but not downloaded, since a download is usually on its
  * way to a customer. Unpriced lines print blank, so a draft can be printed
@@ -33,13 +37,16 @@ export async function GET(request: Request, ctx: RouteContext<"/api/quotations/[
   if (!quotation) return new Response("That quotation is not on file.", { status: 404 });
 
   const download = params.get("download") === "1";
-  if (download && !pricingCleared(quotation)) {
+  // The staff copy with costs. It never goes to the customer, so unapproved
+  // pricing does not stop it: checking a price against its cost is what it is for.
+  const internal = params.get("internal") === "1";
+  if (download && !internal && !pricingCleared(quotation)) {
     return new Response("An administrator must approve the discount or below-cost pricing first.", { status: 409 });
   }
 
   const settings = await readQuotationSettings();
-  const pdf = await renderQuotePdf({ quotation, settings, businessName: business.name });
-  const filename = quotePdfFilename(business.name, quotation.ref, quotation.revision);
+  const pdf = await renderQuotePdf({ quotation, settings, businessName: business.name, internal });
+  const filename = quotePdfFilename(business.name, quotation.ref, quotation.revision, internal);
 
   return new Response(new Uint8Array(pdf), {
     headers: {

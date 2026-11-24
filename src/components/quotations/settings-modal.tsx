@@ -6,9 +6,9 @@ import { saveQuotationSettingsAction } from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Button } from "@/components/ui";
 import { shrinkImage } from "@/lib/image-resize";
-import { priceFromCost, formatAmount, signerFor } from "@/lib/quotations";
+import { PDF_COLOR_FIELDS, PDF_COLOR_PRESETS, priceFromCost, formatAmount, signerFor } from "@/lib/quotations";
 import { Field, INPUT, Modal, Notice } from "@/components/forms/form-kit";
-import type { QuotationSettings } from "@/types";
+import type { QuotationSettings, QuotePdfColors } from "@/types";
 import { SignaturesPanel } from "./signatures-panel";
 
 /** Roughly 300 KB once encoded, the most the server accepts. */
@@ -33,6 +33,7 @@ export function QuoteSettingsModal({
   const [markup, setMarkup] = useState(String(settings.markupPercent));
   const [validDays, setValidDays] = useState(String(settings.validDays));
   const [signOff, setSignOff] = useState(settings.signOff);
+  const [pdfColors, setPdfColors] = useState<QuotePdfColors>(settings.pdfColors);
   // undefined: unchanged; null: removed; string: a new image.
   const [logo, setLogo] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export function QuoteSettingsModal({
     setError(null);
     startTransition(async () => {
       const result = await saveQuotationSettingsAction(
-        { address, contact, notes, footer, markupPercent: markupValue, validDays: days, signOff },
+        { address, contact, notes, footer, markupPercent: markupValue, validDays: days, signOff, pdfColors },
         logo,
       );
       if (!result.ok) {
@@ -148,6 +149,8 @@ export function QuoteSettingsModal({
           )}
         </div>
       </Field>
+
+      <PdfColorsField colors={pdfColors} businessName={businessName} onChange={setPdfColors} />
 
       <Field label="Address" hint="Printed in bold beside the quote number.">
         <input
@@ -251,5 +254,138 @@ export function QuoteSettingsModal({
         </div>
       </Field>
     </Modal>
+  );
+}
+
+function sameColors(a: QuotePdfColors, b: QuotePdfColors): boolean {
+  return (Object.keys(a) as (keyof QuotePdfColors)[]).every((key) => a[key].toLowerCase() === b[key].toLowerCase());
+}
+
+/**
+ * The PDF's colour scheme: a ready-made one in a click, or each colour picked
+ * by hand, with a small drawing of the form that follows the choice.
+ */
+function PdfColorsField({
+  colors,
+  businessName,
+  onChange,
+}: {
+  colors: QuotePdfColors;
+  businessName: string;
+  onChange: (next: QuotePdfColors) => void;
+}) {
+  const preset = PDF_COLOR_PRESETS.find((entry) => sameColors(entry.colors, colors));
+  return (
+    <Field label="PDF colours" hint={`${preset ? preset.name : "Custom"}. Used on every quotation PDF, printed or emailed.`}>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-2">
+          {PDF_COLOR_PRESETS.map((entry) => {
+            const active = preset?.name === entry.name;
+            return (
+              <button
+                key={entry.name}
+                type="button"
+                title={entry.name}
+                aria-pressed={active}
+                onClick={() => onChange(entry.colors)}
+                className="flex items-center gap-1.5"
+                style={{
+                  height: 30,
+                  padding: "0 10px 0 6px",
+                  borderRadius: "var(--radius-pill)",
+                  border: `1px solid ${active ? "var(--accent-primary)" : "var(--border-default)"}`,
+                  background: active ? "var(--accent-soft)" : "var(--surface-card)",
+                  cursor: "pointer",
+                  font: "inherit",
+                  fontSize: "11.5px",
+                  fontWeight: active ? 700 : 500,
+                  color: "var(--text-primary)",
+                }}
+              >
+                <span style={{ display: "inline-flex", borderRadius: 999, overflow: "hidden", border: "1px solid rgba(0,0,0,.1)" }}>
+                  {[entry.colors.frame, entry.colors.heading, entry.colors.shade, entry.colors.highlight].map((color, index) => (
+                    <span key={index} style={{ width: 8, height: 16, background: color }} />
+                  ))}
+                </span>
+                {entry.name}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2" style={{ flex: "1 1 260px" }}>
+            {PDF_COLOR_FIELDS.map((field) => (
+              <label key={field.key} className="flex min-w-0 items-center gap-2" title={field.hint}>
+                <input
+                  type="color"
+                  aria-label={`${field.label} colour`}
+                  value={colors[field.key]}
+                  onChange={(event) => onChange({ ...colors, [field.key]: event.target.value.toUpperCase() })}
+                  style={{
+                    width: 34,
+                    height: 28,
+                    padding: 0,
+                    border: "1px solid var(--border-default)",
+                    borderRadius: 6,
+                    background: "none",
+                    cursor: "pointer",
+                  }}
+                />
+                <span className="flex min-w-0 flex-col leading-tight">
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{field.label}</span>
+                  <span style={{ fontSize: "10.5px", color: "var(--text-muted)" }}>{field.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {/* A thumbnail of the form in these colours. */}
+          <div
+            aria-hidden
+            style={{
+              width: 150,
+              flex: "0 0 auto",
+              border: `2px solid ${colors.frame}`,
+              background: "#fff",
+              fontFamily: "Helvetica, Arial, sans-serif",
+              color: "#111",
+              fontSize: 6,
+            }}
+          >
+            <div className="flex" style={{ borderBottom: "1px solid #ccc" }}>
+              <span style={{ flex: 1, padding: "5px 4px", fontWeight: 700, fontSize: 10, color: colors.heading }}>QUOTATION</span>
+              <span
+                style={{
+                  flex: 1,
+                  background: colors.frame,
+                  color: "#fff",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {businessName.toUpperCase().slice(0, 12)}
+              </span>
+            </div>
+            <div style={{ background: colors.shade, textAlign: "center", padding: 2 }}>Bill To</div>
+            <div style={{ height: 22, borderBottom: "1px solid #ddd" }} />
+            <div style={{ background: colors.shade, padding: 2 }}>DESCRIPTION · QTY · AMOUNT</div>
+            <div style={{ height: 18, borderBottom: "1px solid #ddd" }} />
+            <div className="flex" style={{ padding: 3 }}>
+              <span style={{ flex: 1, color: colors.highlight, fontWeight: 700 }}>NOTE</span>
+              <span style={{ color: colors.heading, fontWeight: 700, marginRight: 4 }}>TOTAL</span>
+              <span style={{ color: colors.highlight, fontWeight: 700 }}>12,500.00</span>
+            </div>
+            <div style={{ background: colors.shade, textAlign: "center", padding: 2, color: colors.heading, fontWeight: 700 }}>
+              Thank you!
+            </div>
+          </div>
+        </div>
+      </div>
+    </Field>
   );
 }
