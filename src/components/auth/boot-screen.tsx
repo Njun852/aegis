@@ -33,13 +33,22 @@ const mono = Share_Tech_Mono({ subsets: ["latin"], weight: "400", variable: "--b
  * finished frame briefly and fades without animating.
  *
  * Inside the app (`trigger="return"`) it plays again each time the person
- * comes back to the AEGIS tab after being away for a moment, by the same
- * rules: a click or key skips it.
+ * comes back to the AEGIS tab after being away for a moment, as a quick
+ * replay of under two seconds; a click or key skips it.
  */
 
 const SEEN_KEY = "aegis.boot.seen";
 const DURATION_MS = 6000;
+/**
+ * Coming back to the tab plays a quick replay (25 Nov 2026): the full six
+ * seconds is for sign-in and sign-out only, and was too long to sit through
+ * each time someone switched back to AEGIS.
+ */
+const RETURN_DURATION_MS = 1800;
 const REDUCED_MS = 900;
+/** The fade at the end; shorter on the quick replay. */
+const LEAVE_MS = 700;
+const RETURN_LEAVE_MS = 350;
 /** The plate is waited for this long at most before the sequence starts anyway. */
 const LOAD_WAIT_MS = 800;
 /**
@@ -168,7 +177,7 @@ export function BootScreen({ trigger = "load" }: { trigger?: "load" | "return" }
   useEffect(() => {
     if (alreadySeen || phase !== "playing") return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const total = reduced ? REDUCED_MS : DURATION_MS;
+    const total = reduced ? REDUCED_MS : onReturn ? RETURN_DURATION_MS : DURATION_MS;
     started.current = performance.now();
 
     // An interval rather than animation frames: browsers stop frames in a
@@ -182,13 +191,13 @@ export function BootScreen({ trigger = "load" }: { trigger?: "load" | "return" }
       }
     }, 40);
     return () => clearInterval(timer);
-  }, [alreadySeen, phase, finish]);
+  }, [alreadySeen, phase, finish, onReturn]);
 
   useEffect(() => {
     if (phase !== "leaving") return;
-    const timer = setTimeout(() => setPhase("done"), 700);
+    const timer = setTimeout(() => setPhase("done"), onReturn ? RETURN_LEAVE_MS : LEAVE_MS);
     return () => clearTimeout(timer);
-  }, [phase]);
+  }, [phase, onReturn]);
 
   if (alreadySeen || phase === "done") return null;
 
@@ -204,7 +213,7 @@ export function BootScreen({ trigger = "load" }: { trigger?: "load" | "return" }
 
   return (
     <div
-      className={`${styles.screen} ${slab.variable} ${squared.variable} ${mono.variable} ${phase === "leaving" ? styles.leaving : ""}`}
+      className={`${styles.screen} ${onReturn ? styles.quick : ""} ${slab.variable} ${squared.variable} ${mono.variable} ${phase === "leaving" ? styles.leaving : ""}`}
       role="status"
       aria-label="AEGIS is starting. Press any key or click to skip."
       onClick={finish}

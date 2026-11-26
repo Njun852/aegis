@@ -733,6 +733,20 @@
 
 /* ---- Motion -------------------------------------------------------------------------- */
 
+/* The quick replay on coming back to the tab: every part settles in well
+   under the replay's length, and the screen fades out fast. The looping
+   ambient animations (stars, city lights) are left as they are. */
+.quick {
+  transition-duration: 350ms;
+}
+.quick .stage,
+.quick .stage *,
+.quick .stage *::after,
+.quick .hud *,
+.quick .hud *::after {
+  transition-duration: 450ms !important;
+}
+
 /* The finished frame, briefly, with nothing moving. */
 @media (prefers-reduced-motion: reduce) {
   .stage *,

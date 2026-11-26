@@ -368,15 +368,23 @@ export interface PriceItemUse {
   /** ISO 8601. */
   at: string;
   customer: string;
+  /** The customer's company, phone and email as on the job order, and their CRM record when linked. */
+  company: string;
+  phone: string;
+  email: string;
+  customerRef: string | null;
   plate: string;
   makeModel: string;
+  /** Who the part was bought from, as written on the job order's checklist. Empty when not written. */
+  boughtFrom: string;
+  boughtFromRef: string | null;
   qty: number;
   unit: string;
   /** What the line sold for: qty × unit price. */
   amountCents: number;
   /** What it cost: the stock it took when taken, otherwise the quoted cost. Null when neither is known. */
   costCents: number | null;
-  costSource: "stock" | "quoted" | null;
+  costSource: "stock" | "bought" | "quoted" | null;
 }
 
 export interface QuotePriceItemDocument {
@@ -630,6 +638,13 @@ export interface JobOrderLine {
   stock?: JobLineStock | null;
   /** Set while a request is taking this line's stock, so two cannot take it twice. */
   stockClaimAt?: Date | null;
+  /** Ticked on the job order's checklist: the part is in hand. Parts only. Absent before 25 Nov 2026. */
+  checked?: boolean;
+  /** Who the part was bought from, as typed; matched to a supplier when the name is one. */
+  supplierName?: string;
+  supplierRef?: string | null;
+  /** What the part was bought for, for the whole line. Null until someone writes it. */
+  boughtCostCents?: number | null;
 }
 
 /** What a line in a job order's history is about. */
@@ -704,6 +719,11 @@ export interface JobOrderLineView {
   actualCostCents: number | null;
   /** "MV-1042 · Oct 15 · 09:12" */
   stockNote: string | null;
+  checked: boolean;
+  supplierName: string;
+  supplierRef: string | null;
+  /** What the part was bought for, for the whole line. */
+  boughtCostCents: number | null;
 }
 
 export interface JobOrderDocument {
@@ -786,5 +806,7 @@ export interface JobOrderSummary {
   makeModel: string;
   approvedTotalCents: number;
   created: string;
+  /** ISO 8601, when the job order was made: what the period filter reads. */
+  createdAt: string;
   updatedAt: string;
 }

@@ -2,11 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTransition, type ReactNode } from "react";
-import { cancelJobOrderAction, returnJobStockAction, takeJobStockAction } from "@/app/actions/quotations";
+import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
+import {
+  cancelJobOrderAction,
+  returnJobStockAction,
+  saveJobLineChecklistAction,
+  takeJobStockAction,
+} from "@/app/actions/quotations";
 import { useToast } from "@/components/layout/toast-provider";
 import { Badge, Button, Icon } from "@/components/ui";
-import { Notice } from "@/components/forms/form-kit";
+import { CELL, NUMBER_CELL, Notice } from "@/components/forms/form-kit";
+import { MatchList, matchKeys, type MatchOption } from "@/components/forms/match-list";
 import { jobOrderLabel } from "@/lib/job-orders";
 import { formatPeso } from "@/lib/quotations";
 import { jobStatusTone } from "./job-orders-panel";
@@ -26,6 +32,7 @@ export function JobOrderView({
   inventoryEnabled,
   photo,
   events,
+  suppliers,
 }: {
   jobOrder: JobOrder;
   /** The linked booking and its status. Null with no booking or with Bookings off. */
@@ -36,6 +43,8 @@ export function JobOrderView({
   photo: QuotePhotoView | null;
   /** The job order's history, newest first. */
   events: JobOrderEvent[];
+  /** Active suppliers from Suppliers, suggested where each part was bought. Empty with Suppliers off. */
+  suppliers: SupplierOption[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -103,6 +112,7 @@ export function JobOrderView({
     });
   };
 
+  const hasActual = jobOrder.stockLines > 0 || jobOrder.costedLines > 0 || jobOrder.lines.some((line) => line.boughtCostCents !== null);
   const subtotal = jobOrder.lines.reduce((sum, line) => sum + Math.round(line.qty * line.unitPriceCents), 0);
   const vehicle = [jobOrder.vehicle.plate, jobOrder.vehicle.makeModel].filter(Boolean).join(" · ");
 
@@ -198,34 +208,54 @@ export function JobOrderView({
       </section>
 
       <section style={{ ...CARD, padding: "6px 16px 14px" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px", fontVariantNumeric: "tabular-nums" }}>
-          <thead>
-            <tr style={{ color: "var(--text-muted)", fontSize: "11px", textAlign: "left" }}>
-              <th style={{ padding: "8px 0", fontWeight: 600 }}>Work</th>
-              <th style={{ padding: "8px 0", fontWeight: 600, textAlign: "right", width: 48 }}>Qty</th>
-              <th style={{ padding: "8px 0 8px 8px", fontWeight: 600, textAlign: "right", width: 104 }} title="Internal, never printed">
-                Cost
-              </th>
-              <th style={{ padding: "8px 0 8px 8px", fontWeight: 600, textAlign: "right", width: 104 }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobOrder.lines.map((line) => (
-              <tr key={line.id} style={{ borderTop: "1px solid var(--border-subtle)", verticalAlign: "top" }}>
-                <td style={{ padding: "8px 0" }}>
-                  {line.description}
-                  {line.section === "labor" && <span style={{ color: "var(--text-muted)" }}> · labor</span>}
-                  <StockLine line={line} />
-                </td>
-                <td style={{ padding: "8px 0", textAlign: "right" }}>{line.qty}</td>
-                <td style={{ padding: "8px 0 8px 8px", textAlign: "right" }}>
-                  <LineCost line={line} />
-                </td>
-                <td style={{ padding: "8px 0 8px 8px", textAlign: "right" }}>{formatPeso(Math.round(line.qty * line.unitPriceCents))}</td>
+        <div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px", fontVariantNumeric: "tabular-nums" }}>
+            <thead>
+              <tr style={{ color: "var(--text-muted)", fontSize: "11px", textAlign: "left" }}>
+                <th style={{ padding: "8px 0", fontWeight: 600 }}>Work</th>
+                <th style={{ padding: "8px 0", fontWeight: 600, textAlign: "right", width: 36 }}>Qty</th>
+                <th style={{ padding: "8px 0 8px 8px", fontWeight: 600, textAlign: "right", width: 96 }} title="Internal, never printed">
+                  Cost
+                </th>
+                <th style={{ padding: "8px 14px 8px 8px", fontWeight: 600, textAlign: "right", width: 106 }}>Amount</th>
+                <th
+                  style={{ padding: "8px 0", fontWeight: 600, textAlign: "center", width: 60, borderLeft: "1px solid var(--border-default)" }}
+                  title="Tick a part once it is in hand"
+                >
+                  Check
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            {SECTIONS.map(({ key, label }) => {
+              const lines = jobOrder.lines.filter((line) => line.section === key);
+              if (lines.length === 0) return null;
+              // Only parts are ticked off; labor carries no checkbox.
+              const checkable = key === "parts";
+              const done = lines.filter((line) => line.checked).length;
+              return (
+                <tbody key={key}>
+                  <tr style={{ borderTop: "1px solid var(--border-default)" }}>
+                    <td colSpan={4} style={{ padding: "10px 0 4px", fontSize: "11.5px", fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--text-secondary)" }}>
+                      {label}
+                    </td>
+                    <td style={{ padding: "10px 0 4px", textAlign: "center", fontSize: "11px", color: done === lines.length ? "var(--status-positive)" : "var(--text-muted)", fontWeight: 600, borderLeft: "1px solid var(--border-default)" }}>
+                      {checkable ? `${done}/${lines.length}` : null}
+                    </td>
+                  </tr>
+                  {lines.map((line) => (
+                    <ChecklistRow
+                      key={line.id}
+                      jobRef={jobOrder.ref}
+                      line={line}
+                      locked={cancelled}
+                      suppliers={suppliers}
+                    />
+                  ))}
+                </tbody>
+              );
+            })}
+          </table>
+        </div>
 
         <div className="ml-auto flex flex-col gap-1" style={{ maxWidth: 320, paddingTop: 10, borderTop: "1px solid var(--border-default)" }}>
           {jobOrder.discountCents > 0 && (
@@ -256,8 +286,8 @@ export function JobOrderView({
           />
           <CostRow
             label="Actual"
-            cost={jobOrder.stockLines || jobOrder.costedLines ? jobOrder.actualCostCents : null}
-            profit={jobOrder.stockLines || jobOrder.costedLines ? jobOrder.actualMarginCents : null}
+            cost={hasActual ? jobOrder.actualCostCents : null}
+            profit={hasActual ? jobOrder.actualMarginCents : null}
             percent={jobOrder.actualMarginPercent}
             strong
           />
@@ -274,6 +304,197 @@ export function JobOrderView({
 
       {photo && !sideBySide && <ScanPane photoRef={photo.ref} note={photo.note} />}
     </div>
+  );
+}
+
+/** A supplier on file, as the job order's supplier box suggests it. */
+export interface SupplierOption {
+  ref: string;
+  name: string;
+  /** "Ana Reyes · 0917 555 0101 · 30 days" */
+  detail: string;
+}
+
+/** The most suppliers the box lists at once, as the quotation's customer box does. */
+const MAX_SUPPLIER_MATCHES = 6;
+
+const SECTIONS = [
+  { key: "parts", label: "Parts" },
+  { key: "labor", label: "Labor" },
+] as const;
+
+/** Cents as typed into the cost box: "1250.00", no peso sign or commas. */
+function costText(cents: number | null): string {
+  return cents === null ? "" : (cents / 100).toFixed(2);
+}
+
+/**
+ * One line of the job order. A part is a checklist item: tick it when it is
+ * in hand, and write who it was bought from (with Suppliers suggested) and
+ * what it cost. Labor is listed only. Saves on tick and when a box is left.
+ */
+function ChecklistRow({
+  jobRef,
+  line,
+  locked,
+  suppliers,
+}: {
+  jobRef: string;
+  line: JobOrderLineView;
+  locked: boolean;
+  suppliers: SupplierOption[];
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [saving, startTransition] = useTransition();
+  const [checked, setChecked] = useState(line.checked);
+  const [supplier, setSupplier] = useState(line.supplierName);
+  const [cost, setCost] = useState(costText(line.boughtCostCents));
+  const part = line.section === "parts";
+  // A part taken from Inventory has its cost from the batches it drew.
+  const costFromStock = line.stockState === "taken";
+
+  const save = (next: { checked: boolean; supplierName: string; cost: string }) => {
+    const unchanged =
+      next.checked === line.checked &&
+      next.supplierName.trim() === line.supplierName &&
+      next.cost.trim() === costText(line.boughtCostCents);
+    if (unchanged) return;
+    startTransition(async () => {
+      const result = await saveJobLineChecklistAction(jobRef, line.id, next);
+      if (!result.ok) {
+        toast({ tone: "error", title: "Not saved", description: result.error, key: `job-line-${line.id}` });
+        setChecked(line.checked);
+        setSupplier(line.supplierName);
+        setCost(costText(line.boughtCostCents));
+        return;
+      }
+      router.refresh();
+    });
+  };
+
+  const quoted = line.quotedCostCents === null ? null : Math.round(line.qty * line.quotedCostCents);
+
+  // Suppliers on file matching what is typed, hung under the box as on the
+  // quotation's customer and plate boxes. All of them show on an empty box.
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const matches = useMemo(() => {
+    if (!open) return [];
+    const typed = supplier.trim().toLowerCase();
+    const found = typed ? suppliers.filter((entry) => entry.name.toLowerCase().includes(typed)) : suppliers;
+    // Nothing to offer once the box already holds exactly that supplier.
+    if (found.length === 1 && found[0].name.toLowerCase() === typed) return [];
+    return found.slice(0, MAX_SUPPLIER_MATCHES);
+  }, [open, supplier, suppliers]);
+  const options: MatchOption[] = matches.map((entry) => ({
+    key: entry.ref,
+    icon: "truck",
+    title: entry.name,
+    detail: entry.detail || undefined,
+    tag: entry.ref,
+  }));
+  const close = () => {
+    setOpen(false);
+    setActive(-1);
+  };
+  const pickSupplier = (index: number) => {
+    const name = matches[index].name;
+    setSupplier(name);
+    close();
+    save({ checked, supplierName: name, cost });
+  };
+  const supplierKeys = matchKeys({ count: options.length, active, setActive, onPick: pickSupplier, onClose: close });
+
+  return (
+    <tr style={{ borderTop: "1px solid var(--border-subtle)", verticalAlign: "top", opacity: saving ? 0.7 : 1 }}>
+      <td style={{ padding: part ? "10px 16px 10px 0" : "8px 16px 8px 0" }}>
+        <span style={{ textDecoration: part && checked ? "line-through" : undefined, color: part && checked ? "var(--text-secondary)" : undefined }}>
+          {line.description}
+        </span>
+        <StockLine line={line} />
+        {part && (
+          <span className="flex flex-wrap items-center" style={{ gap: 6, marginTop: 6 }}>
+            <span className="relative" style={{ flex: "1 1 150px", minWidth: 0 }}>
+              <input
+                style={CELL}
+                value={supplier}
+                maxLength={120}
+                autoComplete="off"
+                disabled={locked}
+                placeholder="Supplier"
+                aria-label={`Supplier for ${line.description}`}
+                role="combobox"
+                aria-expanded={options.length > 0}
+                aria-controls={listId}
+                onChange={(event) => {
+                  setSupplier(event.target.value);
+                  setOpen(true);
+                  setActive(-1);
+                }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => {
+                  close();
+                  save({ checked, supplierName: supplier, cost });
+                }}
+                onKeyDown={(event) => {
+                  supplierKeys(event);
+                  if (event.key === "Enter" && !event.defaultPrevented) event.currentTarget.blur();
+                }}
+              />
+              <MatchList
+                id={listId}
+                label="Suppliers on file"
+                options={options}
+                active={active}
+                onHover={setActive}
+                onPick={pickSupplier}
+              />
+            </span>
+            {/* A part taken from Inventory has its cost from the batches it drew. */}
+            {!costFromStock && (
+              <input
+                style={{ ...NUMBER_CELL, flex: "0 1 110px", width: "auto" }}
+                value={cost}
+                inputMode="decimal"
+                disabled={locked}
+                placeholder={quoted === null ? "Cost" : `Cost ${costText(quoted)}`}
+                title="What the part was bought for, for the whole line"
+                aria-label={`Cost of ${line.description}`}
+                onChange={(event) => setCost(event.target.value)}
+                onBlur={() => save({ checked, supplierName: supplier, cost })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+            )}
+          </span>
+        )}
+      </td>
+      <td style={{ padding: part ? "10px 0" : "8px 0", textAlign: "right" }}>{line.qty}</td>
+      <td style={{ padding: part ? "10px 0 10px 8px" : "8px 0 8px 8px", textAlign: "right" }}>
+        <LineCost line={line} />
+      </td>
+      <td style={{ padding: part ? "10px 14px 10px 8px" : "8px 14px 8px 8px", textAlign: "right" }}>
+        {formatPeso(Math.round(line.qty * line.unitPriceCents))}
+      </td>
+      <td style={{ padding: part ? "10px 0" : "8px 0", textAlign: "center", borderLeft: "1px solid var(--border-default)" }}>
+        {part && (
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={locked || saving}
+            aria-label={`Part in hand: ${line.description}`}
+            style={{ display: "block", margin: "1px auto 0", width: 16, height: 16, cursor: locked ? "default" : "pointer", accentColor: "var(--accent-primary)" }}
+            onChange={(event) => {
+              setChecked(event.target.checked);
+              save({ checked: event.target.checked, supplierName: supplier, cost });
+            }}
+          />
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -301,16 +522,18 @@ function StockLine({ line }: { line: JobOrderLineView }) {
 }
 
 /**
- * The line's cost: what its stock cost when taken, otherwise the quoted cost,
- * labelled so the two are never mistaken for each other.
+ * The line's cost: what its stock cost when taken, or what it was bought for
+ * as written on the checklist, otherwise the quoted cost, labelled so the
+ * two are never mistaken for each other.
  */
 function LineCost({ line }: { line: JobOrderLineView }) {
   const quoted = line.quotedCostCents === null ? null : Math.round(line.qty * line.quotedCostCents);
-  if (line.actualCostCents !== null) {
-    const diff = quoted === null ? 0 : line.actualCostCents - quoted;
+  const actual = line.actualCostCents ?? line.boughtCostCents;
+  if (actual !== null) {
+    const diff = quoted === null ? 0 : actual - quoted;
     return (
       <span className="flex flex-col items-end" style={{ gap: 1 }}>
-        <span style={{ fontWeight: 600 }}>{formatPeso(line.actualCostCents)}</span>
+        <span style={{ fontWeight: 600 }}>{formatPeso(actual)}</span>
         {quoted !== null && diff !== 0 && (
           <span style={{ fontSize: "11px", color: diff > 0 ? "var(--status-negative-ink)" : "var(--text-muted)" }}>
             {diff > 0 ? "+" : "−"}

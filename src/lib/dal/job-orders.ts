@@ -64,6 +64,11 @@ function lineView(line: JobOrderLine): JobOrderLineView {
     stockState,
     actualCostCents: stock && stockState === "taken" ? stock.costCents : null,
     stockNote,
+    // Only parts are ticked off (25 Nov 2026); a labor tick saved before then is not shown.
+    checked: line.section === "parts" && (line.checked ?? false),
+    supplierName: line.supplierName ?? "",
+    supplierRef: line.supplierRef ?? null,
+    boughtCostCents: line.boughtCostCents ?? null,
   };
 }
 
@@ -116,6 +121,7 @@ export async function listJobOrderSummaries(): Promise<JobOrderSummary[]> {
     makeModel: doc.vehicle.makeModel,
     approvedTotalCents: doc.approvedTotalCents,
     created: formatStamp(doc.createdAt),
+    createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   }));
 }
@@ -391,6 +397,59 @@ export async function cancelJobOrder(ref: string): Promise<{ stockNote: string |
   return { stockNote };
 }
 
+// ---- Checklist ----------------------------------------------------------------------
+
+export interface JobLineChecklistInput {
+  checked: boolean;
+  /** For parts only; ignored on labor. */
+  supplierName: string;
+  supplierRef: string | null;
+  boughtCostCents: number | null;
+}
+
+/**
+ * Ticks a line on the job order's checklist, and for a part records who it
+ * was bought from and for what. The cost becomes the line's actual cost
+ * unless the part was taken from Inventory. A change of supplier or cost goes
+ * into the history; ticking alone does not, so the history stays readable.
+ */
+export async function saveJobLineChecklist(ref: string, lineId: string, input: JobLineChecklistInput): Promise<void> {
+  const collection = await jobOrders();
+  const doc = await collection.findOne({ ref });
+  if (!doc) throw new InputError(`${ref} is no longer on file.`);
+  if (doc.status === "Cancelled") throw new InputError(`${ref} was cancelled, so its checklist is closed.`);
+  const line = doc.lines.find((entry) => entry.id === lineId);
+  if (!line) throw new InputError("That line is no longer on the job order. Reload the page.");
+
+  const part = line.section === "parts";
+  const supplierName = part ? input.supplierName.trim().slice(0, 120) : "";
+  const supplierRef = part && supplierName ? input.supplierRef : null;
+  const boughtCostCents = part ? input.boughtCostCents : null;
+  if (boughtCostCents !== null && (!Number.isInteger(boughtCostCents) || boughtCostCents < 0)) {
+    throw new InputError("Write the cost as an amount in pesos, like 1,250.00.");
+  }
+
+  await collection.updateOne(
+    { ref, "lines.id": lineId },
+    {
+      $set: {
+        "lines.$.checked": part && input.checked,
+        "lines.$.supplierName": supplierName,
+        "lines.$.supplierRef": supplierRef,
+        "lines.$.boughtCostCents": boughtCostCents,
+        updatedAt: new Date(),
+      },
+    },
+  );
+
+  const before = { name: line.supplierName ?? "", cost: line.boughtCostCents ?? null };
+  if (before.name !== supplierName || before.cost !== boughtCostCents) {
+    const from = supplierName ? `from ${supplierName}` : "supplier not given";
+    const cost = boughtCostCents === null ? "cost not given" : `for ${formatPeso(boughtCostCents)}`;
+    await logJobEvent(ref, "stock", `${line.description}: bought ${from}, ${cost}.`);
+  }
+}
+
 // ---- Following the quotation ----------------------------------------------------------
 
 /** The quotation as it stands after a save, for its job order to follow. */
@@ -458,6 +517,11 @@ export async function syncJobOrderWithQuotation(
     } else {
       const changed = lineChanges(old, built);
       if (changed) changes.push(changed);
+      // The checklist stays with the line: ticked, and where the part was bought and for what.
+      built.checked = old.checked ?? false;
+      built.supplierName = old.supplierName ?? "";
+      built.supplierRef = old.supplierRef ?? null;
+      built.boughtCostCents = old.boughtCostCents ?? null;
       const holding = old.stock && !old.stock.returnMoveRef;
       // The stock stays with the line while it still names the same units.
       if (holding && old.sku === built.sku && old.qty === built.qty) built.stock = old.stock;
@@ -538,23 +602,32 @@ export async function listPriceItemUses(): Promise<Record<string, PriceItemUse[]
   for (const doc of docs) {
     for (const line of doc.lines) {
       const stock = line.stock && !line.stock.returnMoveRef ? line.stock : null;
+      const bought = line.boughtCostCents ?? null;
       const costCents = stock
         ? stock.costCents
-        : line.quotedCostCents !== null
-          ? Math.round(line.qty * line.quotedCostCents)
-          : null;
+        : bought !== null
+          ? bought
+          : line.quotedCostCents !== null
+            ? Math.round(line.qty * line.quotedCostCents)
+            : null;
       (uses[priceItemKey(line.section, line.description)] ??= []).push({
         jobOrderRef: doc.ref,
         when: formatStamp(doc.createdAt),
         at: doc.createdAt.toISOString(),
         customer: doc.billTo.name || doc.billTo.company,
+        company: doc.billTo.name ? doc.billTo.company : "",
+        phone: doc.billTo.phone,
+        email: doc.billTo.email,
+        customerRef: doc.billTo.customerRef ?? null,
         plate: doc.vehicle.plate,
         makeModel: doc.vehicle.makeModel,
+        boughtFrom: line.supplierName ?? "",
+        boughtFromRef: line.supplierRef ?? null,
         qty: line.qty,
         unit: line.unit,
         amountCents: Math.round(line.qty * line.unitPriceCents),
         costCents,
-        costSource: stock ? "stock" : costCents !== null ? "quoted" : null,
+        costSource: stock ? "stock" : bought !== null ? "bought" : costCents !== null ? "quoted" : null,
       });
     }
   }

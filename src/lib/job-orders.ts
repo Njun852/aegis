@@ -56,12 +56,13 @@ function marginOf(costCents: number, salesCents: number, costedLines: number, di
 
 /**
  * Quoted cost and margin over the lines that carry a cost, and the same with
- * each part taken from stock at what its batches actually cost. A line with
- * no stock taken keeps its quoted cost in the actual figure, so the two can
- * be compared line for line. Internal; never printed.
+ * each part taken from stock at what its batches actually cost, or bought at
+ * the cost written on the checklist. A line with neither keeps its quoted
+ * cost in the actual figure, so the two can be compared line for line.
+ * Internal; never printed.
  */
 export function jobOrderCosting(
-  lines: Pick<JobOrderLine, "qty" | "unitPriceCents" | "quotedCostCents" | "stock">[],
+  lines: Pick<JobOrderLine, "qty" | "unitPriceCents" | "quotedCostCents" | "stock" | "boughtCostCents">[],
   discountCents: number,
 ) {
   let quotedCost = 0;
@@ -84,6 +85,11 @@ export function jobOrderCosting(
       actualSales += sales;
       actualLines += 1;
       stockLines += 1;
+    } else if (line.boughtCostCents != null) {
+      // What the part was bought for, written on the job order's checklist.
+      actualCost += line.boughtCostCents;
+      actualSales += sales;
+      actualLines += 1;
     } else if (line.quotedCostCents !== null) {
       actualCost += Math.round(line.qty * line.quotedCostCents);
       actualSales += sales;
@@ -130,6 +136,41 @@ export function bookingMoveRefusal(next: BookingStatus, jobs: BookingJob[]): str
   const active = activeJobs(jobs);
   if (active.length === 0 || next !== "Cancelled") return null;
   return `This booking has job order ${names(active)} recorded. Cancel the job order first.`;
+}
+
+// ---- Period filter ------------------------------------------------------------------
+
+export type JobPeriod = "all" | "today" | "week" | "30d";
+
+export const JOB_PERIODS: { key: JobPeriod; label: string }[] = [
+  { key: "all", label: "All time" },
+  { key: "today", label: "Today" },
+  { key: "week", label: "This week" },
+  { key: "30d", label: "Last 30 days" },
+];
+
+/** Manila is UTC+8 all year: the Philippines keeps no daylight saving. */
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * When a period starts, in Manila time: today from midnight, this week from
+ * Monday midnight, the last 30 days from midnight 29 days ago (today and the
+ * 29 before it). Null for all time.
+ */
+export function jobPeriodStart(period: JobPeriod, now: Date): Date | null {
+  if (period === "all") return null;
+  const local = now.getTime() + MANILA_OFFSET_MS;
+  const midnight = local - (((local % DAY_MS) + DAY_MS) % DAY_MS);
+  const daysBack =
+    period === "today" ? 0 : period === "week" ? (new Date(midnight).getUTCDay() + 6) % 7 : 29;
+  return new Date(midnight - daysBack * DAY_MS - MANILA_OFFSET_MS);
+}
+
+/** Whether a job order made at `createdAt` (ISO) falls in the period. */
+export function inJobPeriod(createdAt: string, period: JobPeriod, now: Date): boolean {
+  const start = jobPeriodStart(period, now);
+  return start === null || Date.parse(createdAt) >= start.getTime();
 }
 
 /** What a job order shows: it is recorded, or it was cancelled. Older ones stored Open, In progress or Completed. */

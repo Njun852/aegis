@@ -5,6 +5,7 @@ import { getBooking } from "@/lib/dal/bookings";
 import { getActiveBusiness } from "@/lib/dal/businesses";
 import { findJobOrder, listJobOrderEvents } from "@/lib/dal/job-orders";
 import { findPhotoView, findQuotation } from "@/lib/dal/quotations";
+import { listSupplierSummaries } from "@/lib/dal/suppliers";
 
 export default async function JobOrderPage(props: PageProps<"/quotations/jobs/[ref]">) {
   const business = await getActiveBusiness();
@@ -21,9 +22,11 @@ export default async function JobOrderPage(props: PageProps<"/quotations/jobs/[r
 
   // The scan it was read from; job orders made before they kept it find it on their quotation.
   const photoRef = jobOrder.photoRef ?? (await findQuotation(jobOrder.quotationRef))?.photoRef ?? null;
-  const [photo, events] = await Promise.all([
+  // Suppliers to suggest where each part was bought, when the business keeps them.
+  const [photo, events, suppliers] = await Promise.all([
     photoRef ? findPhotoView(photoRef) : Promise.resolve(null),
     listJobOrderEvents(jobOrder.ref),
+    business.modules.includes("suppliers") ? listSupplierSummaries() : Promise.resolve([]),
   ]);
 
   return (
@@ -33,6 +36,13 @@ export default async function JobOrderPage(props: PageProps<"/quotations/jobs/[r
       inventoryEnabled={business.modules.includes("inventory")}
       photo={photo}
       events={events}
+      suppliers={suppliers
+        .filter((supplier) => supplier.active)
+        .map((supplier) => ({
+          ref: supplier.ref,
+          name: supplier.name,
+          detail: [supplier.contactPerson, supplier.phone, supplier.terms].filter(Boolean).join(" · "),
+        }))}
     />
   );
 }

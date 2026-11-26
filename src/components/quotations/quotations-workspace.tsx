@@ -36,6 +36,8 @@ export interface QuotationsWorkspaceProps {
   settings: QuotationSettings;
   tab: QuotationsTab;
   businessName: string;
+  /** The Price list tab; off where it lives on the Suppliers screen. */
+  showPriceList: boolean;
 }
 
 export function QuotationsWorkspace({
@@ -47,6 +49,7 @@ export function QuotationsWorkspace({
   settings,
   tab,
   businessName,
+  showPriceList,
 }: QuotationsWorkspaceProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -209,7 +212,7 @@ export function QuotationsWorkspace({
               { id: "quotations", label: "Quotations", icon: "file-text" },
               { id: "jobs", label: `Job orders · ${jobOrders.length}`, icon: "wrench" },
               { id: "scans", label: "Scans", icon: "image" },
-              { id: "prices", label: "Price list", icon: "layers" },
+              ...(showPriceList ? [{ id: "prices", label: "Price list", icon: "layers" } as const] : []),
             ] as const
           ).map((item) => {
             const active = tab === item.id;

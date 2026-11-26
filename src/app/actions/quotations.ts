@@ -16,6 +16,7 @@ import {
   findJobOrder,
   logJobEvent,
   returnJobOrderStock,
+  saveJobLineChecklist,
   stockTakeSummary,
   syncJobOrderWithQuotation,
   takeJobStock,
@@ -46,6 +47,8 @@ import {
   updateQuotation,
 } from "@/lib/dal/quotations";
 import { InputError } from "@/lib/dal/refs";
+import { findSupplierByName } from "@/lib/dal/suppliers";
+import { parseCents } from "@/lib/format";
 import { hasCapability } from "@/lib/dal/session";
 import { explainSendFailure } from "@/lib/mail/failures";
 import { sendMail } from "@/lib/mail/ingest";
@@ -665,6 +668,35 @@ export async function returnJobStockAction(ref: string): Promise<Result<{ return
     revalidatePath(`/quotations/jobs/${ref}`);
     revalidatePath("/inventory");
     return { ok: true, ...result };
+  });
+}
+
+/**
+ * Saves one line of the job order's checklist: ticked or not, and for a part
+ * who it was bought from and for what. A supplier name that matches one in
+ * Suppliers is linked to it; any other name is kept as typed.
+ */
+export async function saveJobLineChecklistAction(
+  ref: string,
+  lineId: string,
+  input: { checked: boolean; supplierName: string; cost: string },
+): Promise<Result> {
+  const business = await requireModule("quotes");
+  return guard(async () => {
+    const cost = String(input.cost ?? "").trim();
+    const boughtCostCents = cost ? parseCents(cost) : null;
+    if (cost && boughtCostCents === null) throw new InputError("Write the cost as an amount in pesos, like 1,250.00.");
+    const supplierName = String(input.supplierName ?? "").trim();
+    const supplier =
+      supplierName && business.modules.includes("suppliers") ? await findSupplierByName(supplierName) : null;
+    await saveJobLineChecklist(ref, lineId, {
+      checked: Boolean(input.checked),
+      supplierName: supplier?.name ?? supplierName,
+      supplierRef: supplier?.ref ?? null,
+      boughtCostCents,
+    });
+    revalidatePath(`/quotations/jobs/${ref}`);
+    return { ok: true };
   });
 }
 

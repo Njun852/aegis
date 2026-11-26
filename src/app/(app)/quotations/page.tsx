@@ -18,6 +18,10 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
   }
 
   const requested = (await props.searchParams).tab;
+  // The price list lives on the Suppliers screen beside the supplier costs
+  // (25 Nov 2026); Quotations keeps it only for a business without Suppliers.
+  const priceListOnSuppliers = business.modules.includes("suppliers");
+  if (requested === "prices" && priceListOnSuppliers) redirect("/suppliers?tab=prices");
   const tab = TABS.find((entry) => entry === requested) ?? "quotations";
   const [quotations, jobOrders, priceItems, settings, scans, priceUses] = await Promise.all([
     listQuotationSummaries(),
@@ -40,6 +44,7 @@ export default async function QuotationsPage(props: PageProps<"/quotations">) {
       settings={settings}
       tab={tab}
       businessName={business.name}
+      showPriceList={!priceListOnSuppliers}
     />
   );
 }

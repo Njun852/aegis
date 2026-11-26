@@ -13,7 +13,9 @@ import { PriceComparison } from "./price-comparison";
 import { SupplierDrawer } from "./supplier-drawer";
 import { SupplierModal } from "./supplier-modal";
 import type {
+  PriceItemUse,
   PurchaseOrder,
+  QuotePriceItem,
   Receipt,
   RestockSuggestion,
   InventoryOption,
@@ -38,6 +40,13 @@ export interface SuppliersWorkspaceProps {
   receipts: Receipt[];
   restock: RestockSuggestion[];
   inventoryEnabled: boolean;
+  /** The quotation price list and where each line was used, for the Price list tab. Empty unless it is open. */
+  priceItems: QuotePriceItem[];
+  priceUses: Record<string, PriceItemUse[]>;
+  markupPercent: number;
+  /** The business keeps Quotations, so the price list has selling prices and jobs. */
+  quotesEnabled: boolean;
+  crmEnabled: boolean;
   tab: SuppliersTab;
   openRef: string | null;
   /** "Now" as the server saw it, so the 30-day window agrees on both sides. */
@@ -54,6 +63,11 @@ export function SuppliersWorkspace({
   receipts,
   restock,
   inventoryEnabled,
+  priceItems,
+  priceUses,
+  markupPercent,
+  quotesEnabled,
+  crmEnabled,
   tab,
   openRef,
   nowIso,
@@ -92,7 +106,7 @@ export function SuppliersWorkspace({
 
   const tabs: { id: SuppliersTab; label: string; icon: string }[] = [
     { id: "suppliers", label: "Suppliers", icon: "truck" },
-    { id: "prices", label: "Compare costs", icon: "layers" },
+    { id: "prices", label: "Price list", icon: "layers" },
     { id: "changes", label: "Cost changes", icon: "trending-up" },
     { id: "orders", label: "Purchase orders", icon: "file-text" },
     { id: "receipts", label: "Receipts", icon: "arrow-down" },
@@ -186,7 +200,17 @@ export function SuppliersWorkspace({
           })}
         </div>
 
-        {tab === "prices" && <PriceComparison groups={groups} onOpenSupplier={(ref) => go({ supplier: ref })} />}
+        {tab === "prices" && (
+          <PriceComparison
+            groups={groups}
+            priceItems={priceItems}
+            uses={priceUses}
+            markupPercent={markupPercent}
+            quotesEnabled={quotesEnabled}
+            crmEnabled={crmEnabled}
+            onOpenSupplier={(ref) => go({ supplier: ref })}
+          />
+        )}
         {tab === "changes" && <CostChangesPanel changes={changes} onOpenSupplier={(ref) => go({ supplier: ref })} />}
         {tab === "orders" && <OrdersPanel orders={orders} restock={restock} inventoryEnabled={inventoryEnabled} />}
         {tab === "receipts" && <ReceiptsPanel receipts={receipts} />}

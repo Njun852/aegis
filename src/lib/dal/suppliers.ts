@@ -77,6 +77,15 @@ export async function findSupplier(ref: string): Promise<Supplier | null> {
   return doc ? toSupplier(doc) : null;
 }
 
+/** The supplier a typed name is, matched the way names are kept unique, or null. */
+export async function findSupplierByName(name: string): Promise<Supplier | null> {
+  const nameKey = supplierNameKey(name);
+  if (!nameKey) return null;
+  const collection = await suppliers();
+  const doc = await collection.findOne({ nameKey });
+  return doc ? toSupplier(doc) : null;
+}
+
 export async function createSupplier(input: SupplierInput): Promise<string> {
   const collection = await suppliers();
   const nameKey = supplierNameKey(input.name);
